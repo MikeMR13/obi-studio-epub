@@ -177,6 +177,24 @@ export interface Seccion {
   paginaFija?: boolean;
   /** Comentarios de revisión de esta sección. */
   comentarios?: Comentario[];
+  /** Cambios propuestos (control de cambios) pendientes de aceptar o rechazar. */
+  cambios?: CambioPropuesto[];
+}
+
+/**
+ * Cambio propuesto: sustituye los bloques `antes` (que empiezan en `posicion`) por `despues`.
+ * Un cambio solo de título lleva `titulo` y listas vacías.
+ */
+export interface CambioPropuesto {
+  id: string;
+  autor: string;
+  fecha: string;
+  posicion: number;
+  antes: Bloque[];
+  despues: Bloque[];
+  /** Notas a las que llaman los bloques de `despues`. */
+  notas?: Nota[];
+  titulo?: { antes: string; despues: string };
 }
 
 export interface Recurso {

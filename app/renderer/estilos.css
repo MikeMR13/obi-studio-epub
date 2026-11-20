@@ -381,3 +381,21 @@ p.error { font-weight: 600; }
 .tabla-comparacion tr.cambiada td:nth-child(2) { color: var(--obi-oscuro); font-weight: 600; }
 .tabla-comparacion tr.nueva td:nth-child(2) { color: var(--ok); }
 .tabla-comparacion tr.borrada td:nth-child(2) { color: var(--error); }
+.opciones-dialogo { border: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 6px; }
+.opciones-dialogo legend { font-size: 13px; color: var(--tinta-suave); margin-bottom: 4px; }
+.opcion-dialogo { display: flex; gap: 8px; align-items: flex-start; padding: 8px 10px; border: 1px solid var(--linea); border-radius: var(--radio); cursor: pointer; }
+.opcion-dialogo:has(input:checked) { border-color: var(--obi); background: var(--obi-claro); }
+.opcion-dialogo span { display: flex; flex-direction: column; gap: 2px; font-size: 13.5px; }
+.opcion-dialogo small { color: var(--tenue); font-size: 12px; }
+
+/* ---------- Control de cambios ---------- */
+.panel-cambios { display: flex; flex-direction: column; gap: 8px; margin-bottom: 18px; padding-bottom: 14px; border-bottom: 1px solid var(--linea); }
+.panel-cambios h3, .panel-comentarios h3 { margin: 0; font-size: 14px; }
+.lista-comentarios > li.cambio { border-left-color: #3b6fb6; }
+.diferencia { margin: 0; font-size: 13.5px; line-height: 1.55; white-space: pre-wrap; }
+.diferencia del { background: #fbe0dc; color: #8a1f12; text-decoration: line-through; }
+.diferencia ins { background: #dcefdc; color: #1f5a2b; text-decoration: none; }
+.acciones-comentario .enlace, .panel-cambios .enlace { border: none; background: none; color: var(--obi); text-decoration: underline; cursor: pointer; padding: 0 4px; font-size: 12px; }
+.opciones-dialogo .opcion-dialogo input { width: auto; flex: none; margin: 3px 0 0; }
+.opciones-dialogo .opcion-dialogo span { flex: 1; }
+.diferencia del { margin-right: 2px; }

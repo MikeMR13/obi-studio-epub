@@ -8,6 +8,7 @@ import {
 } from 'docx';
 import JSZip from 'jszip';
 import type { Bloque, Inline, Libro, Nota, Recurso, Seccion } from '../model.js';
+import { proponerCambios } from '../cambios.js';
 import { anclarComentario, fundirComentarios, leerComentariosWord, textosComentados } from '../comentarios.js';
 import { TIPOS_SECCION, normalizarInlines, nuevoId } from '../model.js';
 import { importarDocx } from './docx.js';
@@ -190,6 +191,7 @@ export async function exportarWord(libro: Libro): Promise<Uint8Array> {
   });
   const doc = new Document({
     creator: libro.metadatos.creditos.find((c) => c.rol === 'aut')?.nombre ?? 'Obi Studio',
+    lastModifiedBy: 'Obi Studio',
     title: libro.metadatos.titulo,
     description: 'Exportado desde Obi Studio para corrección. Vuelve a importarlo con «Importar correcciones de Word».',
     styles: {
@@ -217,6 +219,8 @@ export interface ResumenCorrecciones {
   sinCambios: number;
   /** Comentarios y respuestas nuevos del corrector. */
   comentarios: number;
+  /** Cambios propuestos (al importar para revisar). */
+  cambios: number;
   avisos: string[];
 }
 
@@ -235,9 +239,15 @@ function textoDe(b: Bloque): string {
 }
 
 /** Funde en el libro las correcciones hechas en un Word exportado con exportarWord. Modifica `libro`. */
-export async function importarCorrecciones(libro: Libro, datos: Uint8Array): Promise<ResumenCorrecciones> {
+export async function importarCorrecciones(libro: Libro, datos: Uint8Array, opciones: { revisar?: boolean } = {}): Promise<ResumenCorrecciones> {
   const { libro: corregido } = await importarDocx(datos);
-  const resumen: ResumenCorrecciones = { actualizadas: [], nuevas: [], sinCambios: 0, comentarios: 0, avisos: [] };
+  const resumen: ResumenCorrecciones = { actualizadas: [], nuevas: [], sinCambios: 0, comentarios: 0, cambios: 0, avisos: [] };
+  const zipWord = await JSZip.loadAsync(datos);
+  const core = (await zipWord.file('docProps/core.xml')?.async('string')) ?? '';
+  // Si nadie guardó el Word después de exportarlo, no hay nombre de corrector.
+  const quien = core.match(/<cp:lastModifiedBy>([^<]+)</)?.[1]?.trim();
+  const autor = quien && quien !== 'Un-named' && quien !== 'Obi Studio' ? quien : 'Corrección';
+  const fecha = new Date().toISOString();
   const deWord = await leerComentariosWord(datos);
   const comentariosDe = (k: number) => {
     const raices = deWord.filter((c) => c.seccion === k && !c.padre);
@@ -250,7 +260,7 @@ export async function importarCorrecciones(libro: Libro, datos: Uint8Array): Pro
     if (r.comentarios.length) s.comentarios = r.comentarios;
     else delete s.comentarios;
   };
-  const xml = (await JSZip.loadAsync(datos)).file('word/document.xml');
+  const xml = zipWord.file('word/document.xml');
   const documento = xml ? await xml.async('string') : '';
   const marcas = (documento.match(/<w:(ins|del) /g) ?? []).length;
   if (marcas) resumen.avisos.push(`El Word tenía ${marcas} cambio${marcas === 1 ? '' : 's'} con control de cambios sin aceptar; se tomaron como aceptados.`);
@@ -316,6 +326,21 @@ export async function importarCorrecciones(libro: Libro, datos: Uint8Array): Pro
     if (antes === despues && tituloNuevo === s.titulo) {
       resumen.sinCambios++;
       fundir(s, k);
+      return;
+    }
+    if (opciones.revisar) {
+      // Control de cambios: el texto no cambia; se proponen los cambios para aceptarlos o rechazarlos.
+      fundir(s, k);
+      if (s.cambios?.length) resumen.avisos.push(`«${encabezadoSeccion(s)}»: se sustituyeron ${s.cambios.length} cambios que seguían pendientes.`);
+      const propuestos = proponerCambios(s, bloques, notas, autor, fecha, tituloNuevo);
+      if (propuestos.length) {
+        s.cambios = propuestos;
+        resumen.cambios += propuestos.length;
+        resumen.actualizadas.push(s.titulo || TIPOS_SECCION.find((t) => t.id === s!.tipo)?.nombre || 'Sección');
+      } else {
+        delete s.cambios;
+        resumen.sinCambios++;
+      }
       return;
     }
     // Los comentarios del proyecto se vuelven a anclar a su texto en la versión corregida.

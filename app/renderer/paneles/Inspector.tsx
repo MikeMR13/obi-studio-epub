@@ -51,13 +51,13 @@ export function Inspector(p: Props) {
   const m = p.estado.libro.metadatos;
   const t = p.estado.libro.tema;
   const tip = p.estado.libro.tipografia;
-  const abiertos = (p.seccion?.comentarios ?? []).filter((c) => !c.resuelto).length;
+  const abiertos = (p.seccion?.comentarios ?? []).filter((c) => !c.resuelto).length + (p.seccion?.cambios?.length ?? 0);
   const pestanas: [Pestana, string][] = [
     ['seccion', 'Sección'],
     ['libro', 'Libro'],
     ['tema', 'Tema'],
     ['impresion', 'Impresión'],
-    ['comentarios', 'Comentarios'],
+    ['comentarios', 'Revisión'],
     ['validacion', 'Validación'],
   ];
   return (
@@ -67,7 +67,7 @@ export function Inspector(p: Props) {
           <button key={id} role="tab" aria-selected={p.pestana === id} className={p.pestana === id ? 'activa' : ''} onClick={() => p.onPestana(id)}>
             {nombre}
             {id === 'validacion' && p.validacion && !p.validacion.valido ? <span className="punto-error" aria-label="con errores" /> : null}
-            {id === 'comentarios' && abiertos > 0 ? <span className="contador" aria-label={`${abiertos} abiertos`}>{abiertos}</span> : null}
+            {id === 'comentarios' && abiertos > 0 ? <span className="contador" aria-label={`${abiertos} pendientes`}>{abiertos}</span> : null}
           </button>
         ))}
       </div>

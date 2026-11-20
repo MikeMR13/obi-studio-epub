@@ -6,8 +6,10 @@ export interface Campo {
   nombre: string;
   etiqueta: string;
   valor?: string;
-  tipo?: 'texto' | 'area';
+  tipo?: 'texto' | 'area' | 'opciones';
   ayuda?: string;
+  /** Para tipo 'opciones': botones de radio. */
+  opciones?: { valor: string; etiqueta: string; ayuda?: string }[];
 }
 
 interface Peticion {
@@ -85,7 +87,27 @@ export function Dialogos() {
           >
             <h2>{p.titulo}</h2>
             {p.mensaje && <p className="mensaje-dialogo" style={{ whiteSpace: 'pre-line' }}>{p.mensaje}</p>}
-            {p.campos.map((c, k) => (
+            {p.campos.map((c, k) =>
+              c.tipo === 'opciones' ? (
+                <fieldset key={c.nombre} className="campo opciones-dialogo">
+                  <legend>{c.etiqueta}</legend>
+                  {c.opciones?.map((o) => (
+                    <label key={o.valor} className="opcion-dialogo">
+                      <input
+                        type="radio"
+                        name={c.nombre}
+                        value={o.valor}
+                        checked={(valores[c.nombre] ?? '') === o.valor}
+                        onChange={() => setValores({ ...valores, [c.nombre]: o.valor })}
+                      />
+                      <span>
+                        {o.etiqueta}
+                        {o.ayuda && <small>{o.ayuda}</small>}
+                      </span>
+                    </label>
+                  ))}
+                </fieldset>
+              ) : (
               <label key={c.nombre} className="campo">
                 <span>{c.etiqueta}</span>
                 {c.tipo === 'area' ? (
@@ -104,7 +126,8 @@ export function Dialogos() {
                 )}
                 {c.ayuda && <small>{c.ayuda}</small>}
               </label>
-            ))}
+              ),
+            )}
             <div className="botones-dialogo">
               {!p.soloAceptar && (
                 <button type="button" onClick={() => cerrar(null)}>

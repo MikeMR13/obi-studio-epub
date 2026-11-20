@@ -71,10 +71,14 @@ export const api = {
   transformarPlugin: (id: string) => pedir<{ registros: string[]; estado: Estado }>('POST', `/api/plugins/${id}/transformar`),
   deshacerPlugin: () => pedir<Estado>('POST', '/api/plugins/deshacer'),
   escritura: (escritura: 'horizontal' | 'vertical') => pedir<Estado>('PUT', '/api/escritura', { escritura }),
-  correcciones: (archivo: File) =>
-    pedir<{ resumen: { actualizadas: string[]; nuevas: string[]; sinCambios: number; comentarios: number; avisos: string[] }; estado: Estado }>(
+  resolverCambio: (seccion: string, cambio: string, aceptar: boolean) =>
+    pedir<Estado>('POST', `/api/secciones/${seccion}/cambios/${cambio}/${aceptar ? 'aceptar' : 'rechazar'}`),
+  resolverTodos: (aceptar: boolean, seccion?: string) =>
+    pedir<{ fallos: string[]; estado: Estado }>('POST', `/api/cambios/${aceptar ? 'aceptar' : 'rechazar'}${seccion ? `?seccion=${seccion}` : ''}`),
+  correcciones: (archivo: File, revisar: boolean) =>
+    pedir<{ resumen: { actualizadas: string[]; nuevas: string[]; sinCambios: number; comentarios: number; cambios: number; avisos: string[] }; estado: Estado }>(
       'POST',
-      `/api/correcciones?nombre=${encodeURIComponent(archivo.name)}`,
+      `/api/correcciones?nombre=${encodeURIComponent(archivo.name)}${revisar ? '&revisar=1' : ''}`,
       undefined,
       archivo,
     ),

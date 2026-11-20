@@ -12,6 +12,7 @@ import { Ilustracion } from './paneles/Ilustracion';
 import { PanelImpresion, VistaImpresion } from './paneles/Impresion';
 import { PanelTema } from './paneles/Tema';
 import { Comentarios } from './paneles/Comentarios';
+import { Cambios } from './paneles/Cambios';
 import { Plugins } from './paneles/Plugins';
 import { Buscar } from './paneles/Buscar';
 import { Versiones } from './paneles/Versiones';
@@ -146,21 +147,47 @@ export function App() {
   };
 
   const correcciones = async (archivo: File) => {
-    const r = await llamar(() => api.correcciones(archivo), 'Fundiendo las correcciones…');
+    const modo = await pedirDatos(
+      'Importar correcciones',
+      [
+        {
+          nombre: 'modo',
+          etiqueta: `¿Cómo quieres incorporar «${archivo.name}»?`,
+          tipo: 'opciones',
+          valor: 'revisar',
+          opciones: [
+            { valor: 'revisar', etiqueta: 'Revisar cambio por cambio', ayuda: 'El texto no cambia hasta que aceptes cada corrección en la pestaña Revisión.' },
+            { valor: 'aplicar', etiqueta: 'Aplicar todo', ayuda: 'Sustituye el texto de cada capítulo corregido de una vez.' },
+          ],
+        },
+      ],
+      'Importar',
+      'Antes se guarda una versión del libro para poder volver atrás.',
+    );
+    if (!modo) return;
+    const revisar = modo.modo !== 'aplicar';
+    const r = await llamar(() => api.correcciones(archivo, revisar), 'Fundiendo las correcciones…');
     if (!r) return;
     aplicar(r.estado);
-    const { actualizadas, nuevas, sinCambios, comentarios, avisos } = r.resumen;
+    const { actualizadas, nuevas, sinCambios, comentarios, cambios, avisos } = r.resumen;
     await informar(
       'Correcciones importadas',
       [
-        actualizadas.length ? `Actualizadas (${actualizadas.length}): ${actualizadas.join(', ')}.` : 'Ninguna sección cambió.',
+        revisar
+          ? cambios
+            ? `Cambios propuestos: ${cambios}, en ${actualizadas.join(', ')}. Revísalos en la pestaña Revisión.`
+            : 'No hay cambios en el texto.'
+          : actualizadas.length
+            ? `Actualizadas (${actualizadas.length}): ${actualizadas.join(', ')}.`
+            : 'Ninguna sección cambió.',
         nuevas.length ? `Nuevas (${nuevas.length}): ${nuevas.join(', ')}.` : '',
         sinCambios ? `Sin cambios: ${sinCambios}.` : '',
-        comentarios ? `Comentarios y respuestas nuevos: ${comentarios} (pestaña Comentarios).` : '',
+        comentarios ? `Comentarios y respuestas nuevos: ${comentarios} (pestaña Revisión).` : '',
         avisos.length ? `Avisos: ${avisos.join(' ')}` : '',
         'Las ilustraciones, el tema y los bloques XHTML se conservaron.',
       ].filter(Boolean).join('\n'),
     );
+    if (revisar && cambios) setPestana('comentarios');
   };
 
   const exportarPdf = async (tipo: 'impresion' | 'digital') => {
@@ -451,7 +478,20 @@ export function App() {
             aplicar(await api.seccion(seccion.id, { imagenCabecera: r.recurso.id }));
           })
         }
-        panelComentarios={<Comentarios seccion={seccion} onSeccion={cambiarSeccion} />}
+        panelComentarios={
+          <>
+            <Cambios
+              estado={estado}
+              seccion={seccion}
+              onEstado={(e) => aplicar(e)}
+              onIrA={(id) => {
+                setActual(id);
+                setVista('editor');
+              }}
+            />
+            <Comentarios seccion={seccion} onSeccion={cambiarSeccion} />
+          </>
+        }
         panelTema={
           <PanelTema
             estado={estado}

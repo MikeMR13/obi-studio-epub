@@ -72,6 +72,7 @@ export function Comentarios({ seccion, onSeccion }: Props) {
 
   return (
     <div className="panel-comentarios">
+      <h3>Comentarios</h3>
       <p className="ayuda">
         Los comentarios no salen en el EPUB ni en el PDF. Viajan en el Word para corrección y vuelven con «Importar correcciones».
         Para comentar, selecciona texto y pulsa 💬 en la barra del editor.

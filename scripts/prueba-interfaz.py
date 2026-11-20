@@ -319,6 +319,9 @@ with sync_playwright() as p:
             zout.writestr(item, datos)
     paso("Word para corrección exportado", cambiado != xml, "texto del capítulo encontrado en el .docx")
     pagina.locator('input[type=file][accept=".docx"]').set_input_files(ruta_corregido)
+    modo = pagina.get_by_role("dialog").filter(has_text="Importar correcciones")
+    modo.get_by_text("Aplicar todo").click()
+    modo.get_by_role("button", name="Importar").click()
     dialogo = pagina.get_by_role("dialog")
     expect(dialogo).to_contain_text("Correcciones importadas", timeout=30000)
     texto_dialogo = dialogo.inner_text()
@@ -327,11 +330,43 @@ with sync_playwright() as p:
     pagina.locator(".lista-secciones").get_by_role("button", name="Capítulo 1 – La llegada").click()
     expect(pagina.locator(".pagina-editor")).to_contain_text("Final corregido de la escena")
     estado = pagina.evaluate("fetch('/api/estado').then(r => r.json())")
-    pagina.get_by_role("tab", name="Comentarios").click()
+    pagina.get_by_role("tab", name="Revisión").click()
     estado = pagina.evaluate("fetch('/api/estado').then(r => r.json())")
     cap = [x for x in estado["libro"]["secciones"] if x["titulo"] == "Capítulo 1 – La llegada"][0]
     paso("Los comentarios vuelven de Word sin duplicarse", len(cap.get("comentarios", [])) == 1 and cap["comentarios"][0].get("resuelto") is True and len(cap["comentarios"][0].get("respuestas", [])) == 1, str(cap.get("comentarios"))[:200])
     paso("Correcciones de Word fundidas", "Actualizadas (1)" in texto_dialogo and estado["libro"]["secciones"][i_ilus].get("paginaFija") is True and estado["libro"].get("escritura") == "vertical", texto_dialogo.replace("\n", " ")[:200])
+
+    # Control de cambios: importar para revisar y aceptar uno a uno.
+    pagina.get_by_role("button", name="Más ▾").click()
+    with pagina.expect_download(timeout=60000) as d:
+        pagina.get_by_role("menuitem", name="Word para corrección").click()
+    d.value.save_as(ruta_word)
+    with zipfile.ZipFile(ruta_word) as zin, zipfile.ZipFile(ruta_corregido, "w", zipfile.ZIP_DEFLATED) as zout:
+        for item in zin.infolist():
+            datos = zin.read(item.filename)
+            if item.filename == "word/document.xml":
+                xml = datos.decode("utf-8")
+                cambiado = xml.replace("No puede ser verdad.", "No podía ser verdad.", 1)
+                datos = cambiado.encode("utf-8")
+            zout.writestr(item, datos)
+    paso("Word con una corrección para revisar", cambiado != xml)
+    pagina.locator('input[type=file][accept=".docx"]').set_input_files(ruta_corregido)
+    modo = pagina.get_by_role("dialog").filter(has_text="Importar correcciones")
+    expect(modo.get_by_label("Revisar cambio por cambio")).to_be_checked()
+    pagina.screenshot(path=f"{CAPTURAS}/22-modo-correcciones.png")
+    modo.get_by_role("button", name="Importar").click()
+    dialogo = pagina.get_by_role("dialog").filter(has_text="Correcciones importadas")
+    expect(dialogo).to_contain_text("Cambios propuestos: 1", timeout=30000)
+    dialogo.get_by_role("button", name="Entendido").click()
+    cambios = pagina.locator(".panel-cambios")
+    expect(cambios.locator("del")).to_contain_text("puede")
+    expect(cambios.locator("ins")).to_contain_text("podía")
+    expect(pagina.locator(".pagina-editor")).to_contain_text("No puede ser verdad.")
+    pagina.screenshot(path=f"{CAPTURAS}/23-cambios.png")
+    cambios.get_by_role("button", name="Aceptar", exact=True).click()
+    expect(pagina.locator(".pagina-editor")).to_contain_text("No podía ser verdad.")
+    expect(pagina.locator(".panel-cambios")).to_have_count(0)
+    paso("Control de cambios: revisar y aceptar una corrección", True)
 
     # F5: plugins.
     for nombre in ["revision-ortotipografica", "limpieza-espacios"]:
@@ -400,14 +435,14 @@ with sync_playwright() as p:
     expect(versiones).to_contain_text("Antes de importar «corregido.docx»")
     versiones.get_by_label("Nombre de la versión").fill("Después de buscar")
     versiones.get_by_role("button", name="Guardar versión").click()
-    expect(versiones.locator(".lista-plugins > li")).to_have_count(2)
-    auto = versiones.locator(".lista-plugins > li").filter(has_text="Antes de importar")
+    expect(versiones.locator(".lista-plugins > li")).to_have_count(3)
+    auto = versiones.locator(".lista-plugins > li").filter(has_text="Antes de importar").last
     auto.get_by_role("button", name="Comparar con ahora").click()
     expect(auto.locator(".tabla-comparacion")).to_contain_text("Cambiada")
     pagina.screenshot(path=f"{CAPTURAS}/21-versiones.png")
     auto.get_by_role("button", name="Restaurar").click()
     pagina.get_by_role("dialog").filter(has_text="Restaurar versión").get_by_role("button", name="Restaurar").click()
-    expect(versiones.locator(".lista-plugins > li")).to_have_count(3)
+    expect(versiones.locator(".lista-plugins > li")).to_have_count(4)
     estado = pagina.evaluate("fetch('/api/estado').then(r => r.json())")
     texto_libro = str(estado["libro"]["secciones"])
     paso("Versiones: guardar, comparar y restaurar", "bosque" in texto_libro and "Final corregido" not in texto_libro, ", ".join(v["nombre"] for v in estado["versiones"]))

@@ -7,6 +7,7 @@ import { join } from 'node:path';
 import type { Comentario, Impresion, Libro, Metadatos, Recurso, Seccion, Tema, TipoSeccion, Tipografia } from '../src/model.js';
 import { ajustesImpresion, TAMANOS_IMPRESION, temaCompleto, validarTema } from '../src/model.js';
 import { TEMAS } from '../src/temas.js';
+import { ErrorCambio, aceptarCambio, aceptarTodos, rechazarCambio } from '../src/cambios.js';
 import { ErrorVersion, compararVersion, crearVersion, eliminarVersion, restaurarVersion, resumenVersiones, type DiferenciaSeccion, type ResumenVersion } from '../src/versiones.js';
 import { ErrorBusqueda, buscar, reemplazar, type Coincidencia, type OpcionesBusqueda } from '../src/buscar.js';
 import { evaluadorChrome, informeHtml, revisarAccesibilidad, type Evaluador, type InformeAccesibilidad } from '../src/accesibilidad.js';
@@ -467,6 +468,38 @@ export class Backend {
     return { nombre: nombreDeArchivo(this.libro.metadatos.titulo) + sufijo + '.pdf', datos: r.datos, paginas: r.paginas, avisos: revisarImpresion(this.libro, r.paginas) };
   }
 
+  // ----- Control de cambios -----
+
+  private seccionConCambios(id: string): Seccion {
+    const s = this.libro.secciones.find((x) => x.id === id);
+    if (!s) throw new ErrorUsuario('Sección no encontrada.', 404);
+    return s;
+  }
+
+  resolverCambio(seccion: string, cambio: string, aceptar: boolean) {
+    const s = this.seccionConCambios(seccion);
+    try {
+      if (aceptar) aceptarCambio(s, cambio);
+      else rechazarCambio(s, cambio);
+    } catch (e) {
+      if (e instanceof ErrorCambio) throw new ErrorUsuario(e.message);
+      throw e;
+    }
+    this.marcar();
+  }
+
+  /** Acepta o rechaza todos los cambios (de una sección o del libro). Devuelve los que no se pudieron aplicar. */
+  resolverTodos(aceptar: boolean, seccion?: string): string[] {
+    const fallos: string[] = [];
+    for (const s of seccion ? [this.seccionConCambios(seccion)] : this.libro.secciones) {
+      if (!s.cambios?.length) continue;
+      if (aceptar) fallos.push(...aceptarTodos(s).map((f) => `«${s.titulo}»: ${f}`));
+      else delete s.cambios;
+    }
+    this.marcar();
+    return fallos;
+  }
+
   // ----- Versiones -----
 
   private conVersion<T>(f: () => T): T {
@@ -624,17 +657,17 @@ export class Backend {
     return { nombre: nombreDeArchivo(this.libro.metadatos.titulo) + '-correccion.docx', datos: await exportarWord(this.libro) };
   }
 
-  async importarCorrecciones(nombre: string, datos: Uint8Array): Promise<ResumenCorrecciones> {
+  async importarCorrecciones(nombre: string, datos: Uint8Array, revisar = false): Promise<ResumenCorrecciones> {
     if (!nombre.toLowerCase().endsWith('.docx')) throw new ErrorUsuario('Las correcciones se importan desde un archivo .docx.');
     let r: ResumenCorrecciones;
     // Versión automática para poder volver atrás si las correcciones no convencen.
     crearVersion(this.libro, `Antes de importar «${nombre}»`);
     try {
-      r = await importarCorrecciones(this.libro, datos);
+      r = await importarCorrecciones(this.libro, datos, { revisar });
     } catch (e) {
       throw new ErrorUsuario(`No se pudo leer el Word: ${(e as Error).message}`);
     }
-    if (r.actualizadas.length || r.nuevas.length) this.marcar();
+    if (r.actualizadas.length || r.nuevas.length || r.comentarios) this.marcar();
     return r;
   }
 

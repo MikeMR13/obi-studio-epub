@@ -107,3 +107,83 @@ test('Versiones: guardar, comparar, restaurar con imágenes borradas y guardar e
   const zip = await (await import('jszip')).default.loadAsync(await serializarProyecto(l2));
   assert.deepEqual(Object.keys(zip.files).filter((f) => f.endsWith('.png')), ['recursos/img-img.png']);
 });
+
+// ---------------------------------------------------------------------------
+// Control de cambios.
+
+import { aceptarCambio, aceptarTodos, rechazarCambio } from '../cambios.js';
+import { diferenciaPalabras, textoBloques } from '../diferencias.js';
+import { exportarWord, importarCorrecciones } from '../formatos/word.js';
+
+function libroRevision(): Libro {
+  const l = libroNuevo('Revisión', 'Autora');
+  const cap = l.secciones.find((s) => s.tipo === 'capitulo')!;
+  cap.titulo = 'Capítulo 1';
+  cap.bloques = [
+    { tipo: 'parrafo', estilo: 'cuerpo', contenido: [{ tipo: 'texto', texto: 'Primer párrafo.' }, { tipo: 'nota', id: 'n1' }] },
+    parrafo('Segundo párrafo.'),
+    parrafo('Tercer parrafo con herrores.'),
+    parrafo('Cuarto párrafo.'),
+  ];
+  cap.notas = [{ id: 'n1', contenido: [{ tipo: 'texto', texto: 'Nota original.' }] }];
+  return l;
+}
+
+test('Diferencias palabra por palabra', () => {
+  assert.deepEqual(diferenciaPalabras('Tercer parrafo con herrores.', 'Tercer párrafo con errores.'), [
+    { tipo: 'igual', texto: 'Tercer ' },
+    { tipo: 'borrado', texto: 'parrafo' },
+    { tipo: 'insertado', texto: 'párrafo' },
+    { tipo: 'igual', texto: ' con ' },
+    { tipo: 'borrado', texto: 'herrores' },
+    { tipo: 'insertado', texto: 'errores' },
+    { tipo: 'igual', texto: '.' },
+  ]);
+});
+
+test('Control de cambios: las correcciones de Word quedan propuestas y se aceptan o rechazan una a una', async () => {
+  const corregido = libroRevision();
+  const c = corregido.secciones.find((s) => s.tipo === 'capitulo')!;
+  c.titulo = 'Capítulo 1: El inicio';
+  c.notas[0].contenido = [{ tipo: 'texto', texto: 'Nota corregida.' }];
+  c.bloques[2] = parrafo('Tercer párrafo con errores.');
+  c.bloques.push(parrafo('Quinto párrafo nuevo.'));
+  const docx = await exportarWord(corregido);
+
+  const l = libroRevision();
+  const s = l.secciones.find((x) => x.tipo === 'capitulo')!;
+  const antes = JSON.stringify(s.bloques);
+  const r = await importarCorrecciones(l, docx, { revisar: true });
+  assert.equal(r.cambios, 4);
+  assert.equal(JSON.stringify(s.bloques), antes, 'el texto no cambia hasta aceptar');
+  const [titulo, nota, tercero, quinto] = s.cambios!;
+  assert.deepEqual(titulo.titulo, { antes: 'Capítulo 1', despues: 'Capítulo 1: El inicio' });
+  assert.equal(textoBloques(tercero.antes), 'Tercer parrafo con herrores.');
+  assert.equal(textoBloques(tercero.despues), 'Tercer párrafo con errores.');
+  assert.equal(quinto.antes.length, 0);
+  assert.equal(nota.notas?.length, 1);
+
+  // Si el original se editó después, ese cambio no se aplica a ciegas.
+  const editado = structuredClone(s);
+  editado.bloques[2] = parrafo('Lo reescribí yo.');
+  assert.throws(() => aceptarCambio(editado, tercero.id), /se editó después/);
+
+  aceptarCambio(s, tercero.id);
+  rechazarCambio(s, nota.id);
+  aceptarCambio(s, quinto.id);
+  aceptarCambio(s, titulo.id);
+  assert.equal(s.cambios, undefined);
+  assert.equal(s.titulo, 'Capítulo 1: El inicio');
+  assert.deepEqual(s.bloques.map((b) => textoBloques([b])), ['Primer párrafo.', 'Segundo párrafo.', 'Tercer párrafo con errores.', 'Cuarto párrafo.', 'Quinto párrafo nuevo.']);
+  assert.equal(textoBloques([]) , '');
+  assert.match(JSON.stringify(s.notas), /Nota original/);
+
+  // Aceptar todo con la nota: la nota nueva sustituye a la vieja.
+  const l2 = libroRevision();
+  await importarCorrecciones(l2, docx, { revisar: true });
+  const s2 = l2.secciones.find((x) => x.tipo === 'capitulo')!;
+  assert.deepEqual(aceptarTodos(s2), []);
+  assert.equal(s2.notas.length, 1);
+  assert.match(JSON.stringify(s2.notas), /Nota corregida/);
+  assert.ok((await compilar(l2)).length > 1000);
+});

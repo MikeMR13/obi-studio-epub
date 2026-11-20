@@ -172,6 +172,14 @@ export async function iniciarServidor(op: OpcionesServidor = {}) {
       const { nombre, datos } = await backend.exportarWord();
       descarga(r, nombre, 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', datos);
     }],
+    ['POST', /^\/api\/secciones\/([\w-]+)\/cambios\/([\w-]+)\/(aceptar|rechazar)$/, async (_q, r, m) => {
+      backend.resolverCambio(m[1], m[2], m[3] === 'aceptar');
+      enviar(r, 200, backend.estado());
+    }],
+    ['POST', /^\/api\/cambios\/(aceptar|rechazar)$/, async (_q, r, m, url) => {
+      const fallos = backend.resolverTodos(m[1] === 'aceptar', url.searchParams.get('seccion') ?? undefined);
+      enviar(r, 200, { fallos, estado: backend.estado() });
+    }],
     ['POST', /^\/api\/versiones$/, async (q, r) => {
       backend.crearVersion(String((await json(q)).nombre ?? ''));
       enviar(r, 200, backend.estado());
@@ -220,7 +228,7 @@ export async function iniciarServidor(op: OpcionesServidor = {}) {
       descarga(r, nombre, tipoMime, datos);
     }],
     ['POST', /^\/api\/correcciones$/, async (q, r, _m, url) => {
-      const resumen = await backend.importarCorrecciones(url.searchParams.get('nombre') ?? '', await cuerpo(q));
+      const resumen = await backend.importarCorrecciones(url.searchParams.get('nombre') ?? '', await cuerpo(q), url.searchParams.get('revisar') === '1');
       enviar(r, 200, { resumen, estado: backend.estado() });
     }],
     ['GET', /^\/api\/proyecto$/, async (_q, r) => {
