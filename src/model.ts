@@ -364,10 +364,16 @@ export interface Tema {
   separadorImagen?: string;
   tituloEstilo: EstiloTitulo;
   tituloMayusculas: boolean;
+  /** Títulos en mayúsculas (text-transform), distinto de las versalitas. */
+  tituloEnMayusculas?: boolean;
   /** Tamaño del título de capítulo, en em. */
   tituloTamano: number;
   /** Espacio sobre el título en la apertura, en em. */
   tituloEspacio: number;
+  /** Espacio bajo el título, en em del título (sin valor = 1,5). */
+  tituloEspacioDebajo?: number;
+  /** Mantener la sangría en el primer párrafo tras un título o una escena (por defecto va sin sangría). */
+  sangriaTrasTitulo?: boolean;
   capitular: 'ninguna' | 'letra';
   /** Primera línea del capítulo en versalitas. */
   primeraLinea: boolean;
@@ -426,8 +432,11 @@ export function validarTema(entrada: unknown, propias: string[] = []): Partial<T
   if (typeof e.separadorImagen === 'string') t.separadorImagen = e.separadorImagen;
   opcion('tituloEstilo', ['centrado', 'izquierda', 'numero-grande', 'linea'] as const);
   if (typeof e.tituloMayusculas === 'boolean') t.tituloMayusculas = e.tituloMayusculas;
+  if (typeof e.tituloEnMayusculas === 'boolean') t.tituloEnMayusculas = e.tituloEnMayusculas;
   numero('tituloTamano', 1, 3);
   numero('tituloEspacio', 0, 12);
+  numero('tituloEspacioDebajo', 0, 6);
+  if (typeof e.sangriaTrasTitulo === 'boolean') t.sangriaTrasTitulo = e.sangriaTrasTitulo;
   opcion('capitular', ['ninguna', 'letra'] as const);
   if (typeof e.primeraLinea === 'boolean') t.primeraLinea = e.primeraLinea;
   if (typeof e.colorTitulos === 'string' && COLOR.test(e.colorTitulos)) t.colorTitulos = e.colorTitulos;

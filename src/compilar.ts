@@ -356,11 +356,11 @@ ${caras}
 html { margin: 0; padding: 0; }
 body { margin: 0 5%; font-family: ${f.familiaTexto}; line-height: ${t.interlineado}; orphans: 2; widows: 2; }
 h1, h2, h3 { font-weight: bold; line-height: 1.3; page-break-after: avoid; break-after: avoid; }
-h1 { margin: ${t.tituloEspacio}em 0 1.5em; }
+h1 { margin: ${t.tituloEspacio}em 0 ${t.tituloEspacioDebajo ?? 1.5}em; }
 h2 { font-size: 1.25em; margin: 1.5em 0 1em; }
 h3 { font-size: 1.1em; margin: 1.2em 0 0.8em; }
 p { margin: ${t.espacioParrafos}em 0 0; text-indent: ${t.sangria}em; text-align: ${t.alinear === 'justificado' ? 'justify' : 'left'}; }
-h1 + p, h2 + p, h3 + p, .escena + p, figure + p, p.sin-sangria { text-indent: 0; }
+${t.sangriaTrasTitulo ? 'p.sin-sangria' : 'h1 + p, h2 + p, h3 + p, .escena + p, figure + p, p.sin-sangria'} { text-indent: 0; }
 p.centrado { text-align: center; text-indent: 0; }
 p.derecha { text-align: right; text-indent: 0; }
 p.pensamiento { font-style: italic; }

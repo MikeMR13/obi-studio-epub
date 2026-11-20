@@ -39,6 +39,7 @@ Maquetador visual de novelas ligeras para Windows, macOS y Linux. Escribes y das
   2. Espaciado: espacio entre párrafos, espacio propio de cada párrafo que se aparte del general, líneas en blanco, espacio antes de los títulos y espaciado entre letras y palabras.
   3. Letras e imágenes: las fuentes del archivo (también WOFF y ofuscadas, si su licencia lo permite), las instaladas en el equipo, e imágenes originales o reducidas.
   4. Confirmación con lo que se conservará y lo que no; después, título, autor y exportar a EPUB, KEPUB o PDF digital.
+  `npx tsx scripts/validar-conversion.mts` convierte un EPUB de prueba con cada opción y compara en el navegador los estilos calculados del original y del convertido (sangría, interlineado, márgenes, líneas en blanco, espaciado, letras y títulos).
   El espacio propio de cada párrafo es parte del modelo: sale en el EPUB y el PDF, vuelve al importar y sobrevive al Word de corrección (como las líneas en blanco).
 
 ## Publicación, imágenes y fuentes (F6)

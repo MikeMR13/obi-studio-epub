@@ -30,11 +30,13 @@ export function ConversionPasos({ analisis, ocupado, onCancelar, onConvertir }: 
     d?.tema.sangria !== undefined ? t('sangría {0}', { 0: em(d.tema.sangria) }) : '',
     d?.tema.interlineado !== undefined ? t('interlineado {0}', { 0: d.tema.interlineado }) : '',
     alineacion,
+    d?.tema.sangriaTrasTitulo === true ? t('sangría también tras el título') : d?.tema.sangriaTrasTitulo === false ? t('sin sangría tras el título') : '',
   ].filter(Boolean);
   const detallesTitulos = [
     d?.titulos.tituloEstilo === 'izquierda' ? t('a la izquierda') : d?.titulos.tituloEstilo === 'centrado' ? t('centrados') : '',
     d?.titulos.colorTitulos ? t('color {0}', { 0: d.titulos.colorTitulos }) : '',
-    d?.titulos.tituloMayusculas ? t('en mayúsculas o versalitas') : '',
+    d?.titulos.tituloEnMayusculas ? t('en mayúsculas') : d?.titulos.tituloMayusculas ? t('en versalitas') : '',
+    d?.titulos.tituloTamano ? t('tamaño {0}', { 0: em(d.titulos.tituloTamano) }) : '',
   ].filter(Boolean);
   const letrasArchivo = [...new Set(analisis.fuentesArchivo.filter((f) => f.permiso.incrustable).map((f) => f.familia).filter(Boolean))];
   const bloqueadas = analisis.fuentesArchivo.filter((f) => !f.permiso.incrustable);
@@ -62,7 +64,12 @@ export function ConversionPasos({ analisis, ocupado, onCancelar, onConvertir }: 
           ayuda: analisis.tipo === 'docx' ? t('De un Word solo se puede leer el espacio general.') : undefined,
         },
         { clave: 'lineasEnBlanco', titulo: t('Líneas en blanco'), detalle: d?.lineasEnBlanco ? t('{0} líneas en blanco', { 0: d.lineasEnBlanco }) : '', disponible: !!d?.lineasEnBlanco },
-        { clave: 'espacioTitulos', titulo: t('Espacio antes de los títulos'), detalle: em(d?.espacioTitulos), disponible: d?.espacioTitulos !== undefined },
+        {
+          clave: 'espacioTitulos',
+          titulo: t('Espacio antes y después de los títulos'),
+          detalle: [d?.espacioTitulos !== undefined ? t('encima {0}', { 0: em(d.espacioTitulos) }) : '', d?.espacioBajoTitulos !== undefined ? t('debajo {0}', { 0: em(d.espacioBajoTitulos) }) : ''].filter(Boolean).join(' · '),
+          disponible: d?.espacioTitulos !== undefined || d?.espacioBajoTitulos !== undefined,
+        },
         { clave: 'espaciadoLetras', titulo: t('Espaciado entre letras y palabras'), detalle: espaciado.join(' · '), disponible: espaciado.length > 0 },
       ],
     },

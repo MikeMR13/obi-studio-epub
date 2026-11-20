@@ -39,7 +39,7 @@ export function cssTema(tema: Tema, familiaTexto: string, familiaTitulos: string
   const alineacion = tema.tituloEstilo === 'izquierda' || tema.tituloEstilo === 'linea' ? 'left' : 'center';
   const titulos = `h1, h2, h3 { font-family: ${familiaTitulos}; color: ${tema.colorTitulos}; text-align: ${alineacion}; }`;
   const reglas: string[] = [titulos];
-  reglas.push(`h1 { font-size: ${tema.tituloTamano}em; ${tema.tituloMayusculas ? 'font-variant: small-caps; letter-spacing: 0.04em;' : ''} }`);
+  reglas.push(`h1 { font-size: ${tema.tituloTamano}em; ${tema.tituloMayusculas ? 'font-variant: small-caps; letter-spacing: 0.04em;' : ''}${tema.tituloEnMayusculas ? ' text-transform: uppercase;' : ''} }`);
   reglas.push(`h1 .etiqueta, h1 .nombre, h1 .sep { font-family: inherit; }`);
   if (tema.tituloEstilo === 'numero-grande') {
     reglas.push(

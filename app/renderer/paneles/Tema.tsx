@@ -209,6 +209,14 @@ export function PanelTema({ estado, version, onTema, onGaleria, onTipografia, on
           <input type="checkbox" checked={tm.tituloMayusculas} onChange={(e) => onTema({ tituloMayusculas: e.target.checked })} />
           {t('Títulos en versalitas')}
         </label>
+        <label className="casilla">
+          <input type="checkbox" checked={!!tm.tituloEnMayusculas} onChange={(e) => onTema({ tituloEnMayusculas: e.target.checked })} />
+          {t('Títulos en mayúsculas')}
+        </label>
+        <label className="casilla">
+          <input type="checkbox" checked={!!tm.sangriaTrasTitulo} onChange={(e) => onTema({ sangriaTrasTitulo: e.target.checked })} />
+          {t('Sangría también tras títulos y escenas')}
+        </label>
         <label className="campo color">
           <span>{t('Color de los títulos')}</span>
           <input type="color" value={tm.colorTitulos} onChange={(e) => onTema({ colorTitulos: e.target.value })} />

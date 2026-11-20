@@ -74,7 +74,7 @@ p { margin: ${t.espacioParrafos}em 0 0; text-indent: ${t.sangria}em; text-align:
 h1, h2, h3 { font-weight: 700; line-height: 1.25; hyphens: none; break-after: avoid; }
 h2 { font-size: 1.2em; margin: 1.6em 0 0.8em; }
 h3 { font-size: 1.05em; margin: 1.2em 0 0.6em; }
-h1 + p, h2 + p, h3 + p, .escena + p, figure + p, p.sin-sangria { text-indent: 0; }
+${t.sangriaTrasTitulo ? 'p.sin-sangria' : 'h1 + p, h2 + p, h3 + p, .escena + p, figure + p, p.sin-sangria'} { text-indent: 0; }
 p.centrado { text-align: center; text-indent: 0; }
 p.derecha { text-align: right; text-indent: 0; }
 p.pensamiento { font-style: italic; }
@@ -95,7 +95,7 @@ td, th { border: 0.4pt solid #000; padding: 0.2em 0.5em; }
 
 section { break-before: page; counter-reset: footnote; }
 section.texto { break-before: ${a.capituloEnImpar ? (vertical ? 'left' : 'right') : 'page'}; }
-section.texto > h1 { string-set: capitulo content(text), libro "${titulo}"; margin: 0; padding: ${Math.max(6, tema.tituloEspacio * 5)}mm 0 10mm; }
+section.texto > h1 { string-set: capitulo content(text), libro "${titulo}"; margin: 0; padding: ${Math.max(6, tema.tituloEspacio * 5)}mm 0 ${tema.tituloEspacioDebajo !== undefined ? `${tema.tituloEspacioDebajo}em` : '10mm'}; }
 section.texto > .cabecera-capitulo { margin: 8mm 0 0; }
 section.texto > .cabecera-capitulo img { max-height: 45mm; }
 section.texto > .cabecera-capitulo + h1 { padding-top: 6mm; }

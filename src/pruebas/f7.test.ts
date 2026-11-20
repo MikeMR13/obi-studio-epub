@@ -277,6 +277,9 @@ span.negr { font-weight: bold; }
   assert.equal(t.tituloEstilo, 'izquierda');
   assert.equal(t.colorTitulos, '#336699');
   assert.equal(t.tituloEspacio, 3);
+  assert.equal(t.tituloEspacioDebajo, 0.83, 'el h2 sin margen propio usa el del navegador');
+  assert.equal(t.tituloTamano, 1.5, 'h2 sin tamaño propio: 1,5 em');
+  assert.equal(t.sangriaTrasTitulo, true, 'el original sangra también el primer párrafo');
   assert.equal(t.espaciadoLetras, 0.02);
   const cap = b.libro.secciones.find((x) => x.bloques.some((y) => y.tipo === 'parrafo' && JSON.stringify(y).includes('Mucho después')))!;
   const k = cap.bloques.findIndex((y) => JSON.stringify(y).includes('Mucho después'));

@@ -19,8 +19,9 @@ export interface DisenoOriginal {
   tema: Partial<Tema>;
   /** Espacio entre párrafos del original (el general) y sus márgenes arriba y abajo, en em. */
   espacio?: { general: number; arriba: number; abajo: number };
-  /** Espacio sobre los títulos de capítulo, en em (del título). */
+  /** Espacio sobre y bajo los títulos de capítulo, en em (del título). */
   espacioTitulos?: number;
+  espacioBajoTitulos?: number;
   espaciadoLetras?: number;
   espaciadoPalabras?: number;
   /** Títulos: alineación, color y mayúsculas. */
@@ -166,13 +167,29 @@ export function temaDeCss(css: string, xhtmls: string[]): Omit<DisenoOriginal, '
   else if (alh === 'center') titulos.tituloEstilo = 'centrado';
   const color = colorHex(h.color);
   if (color) titulos.colorTitulos = color;
-  if (/small-caps/i.test(h['font-variant'] ?? '') || /uppercase/i.test(h['text-transform'] ?? '')) titulos.tituloMayusculas = true;
+  if (/small-caps/i.test(h['font-variant'] ?? '')) titulos.tituloMayusculas = true;
+  if (/uppercase/i.test(h['text-transform'] ?? '')) titulos.tituloEnMayusculas = true;
+  // Tamaño del título (si el CSS no lo da, el del navegador: h1 = 2 em, h2 = 1,5 em). El espacio sobre el título
+  // se mide en em del propio título, así que hace falta el tamaño para que el hueco sea el mismo.
+  const tamano = h['font-size'] ? enEm(h['font-size']) : titulo === 'h1' ? 2 : 1.5;
+  // Primer párrafo tras el título: ¿lleva sangría en el original?
+  const tras = xhtmls.map((x) => x.match(new RegExp(`</${titulo}>\\s*<p\\b([^>]*)>`))).find(Boolean);
+  if (tras && tema.sangria) {
+    const clasesTras = tras[1].match(/\bclass\s*=\s*["']([^"']*)["']/)?.[1].split(/\s+/).filter(Boolean) ?? [];
+    const e = estiloDe(rs, 'p', clasesTras);
+    for (const r of rs) if (new RegExp(`^${titulo}\\s*\\+\\s*p$`, 'i').test(r.selector)) Object.assign(e, r.decl);
+    const sangriaTras = enEm(e['text-indent']);
+    tema.sangriaTrasTitulo = (sangriaTras ?? 0) > 0;
+  }
+  if (tamano !== undefined && tamano >= 1 && tamano <= 3) titulos.tituloTamano = Math.round(tamano * 100) / 100;
 
   // Espaciado.
   const m = margenes(p);
   const espacio = m ? { general: Math.min(2, Math.max(0, Math.round(Math.max(m.arriba, m.abajo) * 100) / 100)), arriba: m.arriba, abajo: m.abajo } : undefined;
   const mh = margenes(h);
   const espacioTitulos = mh && mh.arriba > 0 ? Math.min(12, Math.round(mh.arriba * 100) / 100) : undefined;
+  // Debajo del título: el del CSS o el del navegador (h1 0,67 em, h2 0,83 em).
+  const espacioBajoTitulos = Math.min(6, Math.round((mh && (h['margin-bottom'] || h.margin) ? mh.abajo : primeroTitulo(xhtmls) === 'h2' ? 0.83 : 0.67) * 100) / 100);
   const letras = enEm(p['letter-spacing']);
   const palabras = enEm(p['word-spacing']);
   let parrafosConEspacio = 0;
@@ -198,6 +215,7 @@ export function temaDeCss(css: string, xhtmls: string[]): Omit<DisenoOriginal, '
     titulos,
     ...(espacio ? { espacio } : {}),
     ...(espacioTitulos !== undefined ? { espacioTitulos } : {}),
+    espacioBajoTitulos,
     ...(letras ? { espaciadoLetras: Math.round(letras * 1000) / 1000 } : {}),
     ...(palabras ? { espaciadoPalabras: Math.round(palabras * 1000) / 1000 } : {}),
     parrafosConEspacio,
@@ -205,6 +223,10 @@ export function temaDeCss(css: string, xhtmls: string[]): Omit<DisenoOriginal, '
     familiaTexto: primeraFamilia(p['font-family']),
     familiaTitulos: primeraFamilia(h['font-family']),
   };
+}
+
+function primeroTitulo(xhtmls: string[]): string | undefined {
+  return xhtmls.filter((x) => !/<nav\b/.test(x)).map((x) => x.match(/<(h[12])\b/)?.[1]).find(Boolean);
 }
 
 function margenes(e: Record<string, string>): { arriba: number; abajo: number } | undefined {
@@ -352,7 +374,10 @@ export async function disenoDeDocx(datos: Uint8Array): Promise<DisenoOriginal> {
   else if (jch === 'left' || jch === 'start') titulos.tituloEstilo = 'izquierda';
   const color = de(titulo, 'color', 'val');
   if (color && /^[0-9a-f]{6}$/i.test(color)) titulos.colorTitulos = `#${color.toLowerCase()}`;
-  if (/<w:caps\b|<w:smallCaps\b/.test(titulo)) titulos.tituloMayusculas = true;
+  if (/<w:smallCaps\b/.test(titulo)) titulos.tituloMayusculas = true;
+  if (/<w:caps\b/.test(titulo)) titulos.tituloEnMayusculas = true;
+  const tamTituloEm = Math.round((tamTitulo / tamano) * 100) / 100;
+  if (tamTituloEm >= 1 && tamTituloEm <= 3) titulos.tituloTamano = tamTituloEm;
   const familiaTexto = de(normal, 'rFonts', 'ascii') ?? de(defecto, 'rFonts', 'ascii');
   const familiaTitulos = de(titulo, 'rFonts', 'ascii');
   return {

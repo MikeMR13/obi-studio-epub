@@ -680,9 +680,10 @@ export class Backend {
         cambios.espacioParrafos = d.espacio.general;
         conservado.push('espacio entre párrafos');
       }
-      if (op.espacioTitulos && d.espacioTitulos !== undefined) {
-        cambios.tituloEspacio = d.espacioTitulos;
-        conservado.push('espacio antes de los títulos');
+      if (op.espacioTitulos && (d.espacioTitulos !== undefined || d.espacioBajoTitulos !== undefined)) {
+        if (d.espacioTitulos !== undefined) cambios.tituloEspacio = d.espacioTitulos;
+        if (d.espacioBajoTitulos !== undefined) cambios.tituloEspacioDebajo = d.espacioBajoTitulos;
+        conservado.push('espacio antes y después de los títulos');
       }
       if (op.espaciadoLetras && (d.espaciadoLetras || d.espaciadoPalabras)) {
         if (d.espaciadoLetras) cambios.espaciadoLetras = d.espaciadoLetras;
