@@ -8,6 +8,7 @@ import type { Comentario, Impresion, Libro, Metadatos, Recurso, Seccion, Tema, T
 import { ajustesImpresion, TAMANOS_IMPRESION, temaCompleto, validarTema } from '../src/model.js';
 import { TEMAS } from '../src/temas.js';
 import { buscarGhostscript } from '../src/pdfx.js';
+import { CATALOGO_INTEGRADO, ListaCatalogos, archivoCatalogos, leerCatalogo, normalizarUrlCatalogo, paqueteDeCatalogo, versionMayor, type EntradaCatalogo } from '../src/catalogo.js';
 import { ErrorCambio, aceptarCambio, aceptarTodos, rechazarCambio } from '../src/cambios.js';
 import { ErrorVersion, compararVersion, crearVersion, eliminarVersion, restaurarVersion, resumenVersiones, type DiferenciaSeccion, type ResumenVersion } from '../src/versiones.js';
 import { ErrorBusqueda, buscar, reemplazar, type Coincidencia, type OpcionesBusqueda } from '../src/buscar.js';
@@ -630,6 +631,63 @@ export class Backend {
       this.marcar();
       this.antesDePlugin = { libro: antes, plugin: p.manifiesto.nombre };
       return { registros: r.registros };
+    });
+  }
+
+  // Catálogos de plugins.
+
+  private catalogos() {
+    return new ListaCatalogos(archivoCatalogos(this.plugins.carpeta));
+  }
+
+  async listarCatalogo(): Promise<{
+    catalogos: string[];
+    plugins: (EntradaCatalogo & { estado: 'nuevo' | 'instalado' | 'actualizable' })[];
+    errores: string[];
+  }> {
+    const urls = await this.catalogos().leer();
+    const instalados = await this.plugins.listar();
+    const errores: string[] = [];
+    const plugins: (EntradaCatalogo & { estado: 'nuevo' | 'instalado' | 'actualizable' })[] = [];
+    for (const origen of [CATALOGO_INTEGRADO, ...urls]) {
+      try {
+        for (const e of await leerCatalogo(origen)) {
+          if (plugins.some((x) => x.id === e.id && !versionMayor(e.version, x.version))) continue;
+          const i = instalados.find((x) => x.id === e.id);
+          const estado = !i ? 'nuevo' : versionMayor(e.version, i.version) ? 'actualizable' : 'instalado';
+          const previo = plugins.findIndex((x) => x.id === e.id);
+          if (previo >= 0) plugins.splice(previo, 1);
+          plugins.push({ ...e, estado });
+        }
+      } catch (e) {
+        errores.push((e as Error).message);
+      }
+    }
+    return { catalogos: urls, plugins, errores };
+  }
+
+  async agregarCatalogo(url: string) {
+    return this.conPlugin(async () => {
+      const u = normalizarUrlCatalogo(url);
+      const entradas = await leerCatalogo(u);
+      const lista = await this.catalogos().leer();
+      await this.catalogos().guardar([...lista, u]);
+      return entradas.length;
+    });
+  }
+
+  async quitarCatalogo(url: string) {
+    const lista = await this.catalogos().leer();
+    await this.catalogos().guardar(lista.filter((x) => x !== url));
+  }
+
+  async instalarDesdeCatalogo(origen: string, id: string): Promise<PluginInstalado> {
+    return this.conPlugin(async () => {
+      const urls = await this.catalogos().leer();
+      if (origen !== CATALOGO_INTEGRADO && !urls.includes(origen)) throw new ErrorPlugin('Ese catálogo no está en la lista.');
+      const e = (await leerCatalogo(origen)).find((x) => x.id === id);
+      if (!e) throw new ErrorPlugin('El plugin ya no está en el catálogo.');
+      return this.plugins.instalar(await paqueteDeCatalogo(e));
     });
   }
 

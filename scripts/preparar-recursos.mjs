@@ -60,6 +60,13 @@ for (const familia of ['literata', 'noto-sans', 'eb-garamond', 'cinzel']) {
   await cp(`${base}/LICENSE`, 'recursos/fuentes/LICENCIA-noto-serif-jp-OFL.txt').catch(() => undefined);
 }
 
+// Catálogo integrado de plugins (los de ejemplos/plugins).
+{
+  const { generarCatalogo } = await import('./catalogo-plugins.mjs');
+  await rm('recursos/plugins', { recursive: true, force: true });
+  await generarCatalogo('ejemplos/plugins', 'recursos/plugins', 'Plugins de Obi Studio');
+}
+
 // axe-core para el informe de accesibilidad (licencia MPL-2.0).
 await mkdir('recursos/axe', { recursive: true });
 await cp('node_modules/axe-core/axe.min.js', 'recursos/axe/axe.min.js');

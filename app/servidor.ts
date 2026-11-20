@@ -205,6 +205,20 @@ export async function iniciarServidor(op: OpcionesServidor = {}) {
       descarga(r, nombre, 'text/html; charset=utf-8', datos);
     }],
     ['GET', /^\/api\/plugins$/, async (_q, r) => enviar(r, 200, await backend.listarPlugins())],
+    ['GET', /^\/api\/catalogo$/, async (_q, r) => enviar(r, 200, await backend.listarCatalogo())],
+    ['POST', /^\/api\/catalogo$/, async (q, r) => {
+      const n = await backend.agregarCatalogo(String((await json(q)).url ?? ''));
+      enviar(r, 200, { nuevos: n, ...(await backend.listarCatalogo()) });
+    }],
+    ['DELETE', /^\/api\/catalogo$/, async (_q, r, _m, url) => {
+      await backend.quitarCatalogo(url.searchParams.get('url') ?? '');
+      enviar(r, 200, await backend.listarCatalogo());
+    }],
+    ['POST', /^\/api\/catalogo\/instalar$/, async (q, r) => {
+      const d = await json(q);
+      await backend.instalarDesdeCatalogo(String(d.origen ?? ''), String(d.id ?? ''));
+      enviar(r, 200, { instalados: await backend.listarPlugins(), ...(await backend.listarCatalogo()) });
+    }],
     ['POST', /^\/api\/plugins\/inspeccionar$/, async (q, r) => enviar(r, 200, await backend.inspeccionarPlugin(await cuerpo(q, 5 * 1024 * 1024)))],
     ['POST', /^\/api\/plugins$/, async (q, r) => {
       await backend.instalarPlugin(await cuerpo(q, 5 * 1024 * 1024));

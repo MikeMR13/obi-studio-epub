@@ -5,9 +5,11 @@ import type { AvisoImpresion } from '../../src/preflight';
 import type { InformeAccesibilidad } from '../../src/accesibilidad';
 import type { Coincidencia, OpcionesBusqueda } from '../../src/buscar';
 import type { DiferenciaSeccion } from '../../src/versiones';
+import type { EntradaCatalogo } from '../../src/catalogo';
 import type { Hallazgo, Manifiesto, PluginInstalado } from '../../src/plugins';
 
 export type { Coincidencia, OpcionesBusqueda, DiferenciaSeccion };
+export type Catalogo = { catalogos: string[]; plugins: (EntradaCatalogo & { estado: 'nuevo' | 'instalado' | 'actualizable' })[]; errores: string[] };
 export type { Estado, Resultado, AvisoImpresion, InformeAccesibilidad, Hallazgo, Manifiesto, PluginInstalado };
 
 export class ErrorApi extends Error {
@@ -64,6 +66,10 @@ export const api = {
     pedir<{ n: number; estado: Estado }>('POST', '/api/reemplazar', { opciones, reemplazo, solo }),
   accesibilidad: () => pedir<InformeAccesibilidad>('POST', '/api/accesibilidad'),
   plugins: () => pedir<PluginInstalado[]>('GET', '/api/plugins'),
+  catalogo: () => pedir<Catalogo>('GET', '/api/catalogo'),
+  agregarCatalogo: (url: string) => pedir<Catalogo & { nuevos: number }>('POST', '/api/catalogo', { url }),
+  quitarCatalogo: (url: string) => pedir<Catalogo>('DELETE', `/api/catalogo?url=${encodeURIComponent(url)}`),
+  instalarDeCatalogo: (origen: string, id: string) => pedir<Catalogo & { instalados: PluginInstalado[] }>('POST', '/api/catalogo/instalar', { origen, id }),
   inspeccionarPlugin: (archivo: Blob) => pedir<Manifiesto>('POST', '/api/plugins/inspeccionar', undefined, archivo),
   instalarPlugin: (archivo: Blob) => pedir<PluginInstalado[]>('POST', '/api/plugins', undefined, archivo),
   eliminarPlugin: (id: string) => pedir<PluginInstalado[]>('DELETE', `/api/plugins/${id}`),

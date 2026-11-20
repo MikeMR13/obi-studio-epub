@@ -386,8 +386,8 @@ with sync_playwright() as p:
         confirmacion = pagina.get_by_role("dialog").filter(has_text=f"Instalar «{titulo}»")
         expect(confirmacion).to_contain_text("No pide permisos")
         confirmacion.get_by_role("button", name="Instalar").click()
-        expect(plugins.locator(".lista-plugins")).to_contain_text(titulo)
-    paso("Instalar plugins mostrando sus permisos", plugins.locator(".lista-plugins > li").count() == 2)
+        expect(plugins.locator(".lista-plugins").first).to_contain_text(titulo)
+    paso("Instalar plugins mostrando sus permisos", plugins.locator(".lista-plugins").first.locator("> li").count() == 2)
     plugins.get_by_role("button", name="Revisar").click()
     expect(plugins.locator(".resultado-validacion h3")).to_contain_text("Revisión ortotipográfica", timeout=30000)
     texto_revision = plugins.locator(".resultado-validacion").inner_text()
@@ -399,6 +399,12 @@ with sync_playwright() as p:
     plugins.locator(".barra-deshacer").get_by_role("button", name="Deshacer").click()
     expect(plugins.locator(".barra-deshacer")).to_have_count(0)
     paso("Plugin de transformación con deshacer", True)
+    entrada_txt = plugins.locator(".entrada-catalogo").filter(has_text="Texto plano (.txt)")
+    entrada_txt.get_by_role("button", name="Instalar").click()
+    pagina.get_by_role("dialog").filter(has_text="Instalar «Texto plano (.txt)»").get_by_role("button", name="Instalar").click()
+    expect(entrada_txt).to_contain_text("Instalado", timeout=15000)
+    pagina.screenshot(path=f"{CAPTURAS}/18b-catalogo.png")
+    paso("Instalar desde el catálogo integrado", plugins.locator(".lista-plugins").first.locator("> li").count() == 3 and plugins.locator(".entrada-catalogo.instalado").count() == 3)
     plugins.get_by_role("button", name="Cerrar").click()
 
     # F5: informe de accesibilidad.

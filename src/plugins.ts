@@ -475,7 +475,7 @@ export interface PluginInstalado extends Manifiesto {
 }
 
 export class AlmacenPlugins {
-  constructor(private carpeta: string) {}
+  constructor(readonly carpeta: string) {}
 
   async listar(): Promise<PluginInstalado[]> {
     let nombres: string[] = [];

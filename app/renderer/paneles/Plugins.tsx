@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { TIPOS_SECCION } from '../../../src/model';
-import { api, descargar, type Estado, type Hallazgo, type PluginInstalado } from '../api';
+import { api, descargar, type Catalogo, type Estado, type Hallazgo, type PluginInstalado } from '../api';
 import { aviso, confirmar } from '../dialogos';
 
 const TIPOS: Record<string, string> = { revision: 'Revisión', transformacion: 'Transformación', exportador: 'Exportador', importador: 'Importador' };
@@ -19,9 +19,12 @@ export function Plugins({ estado, onCerrar, onEstado, onIrA }: Props) {
   const [ocupado, setOcupado] = useState('');
   const [revision, setRevision] = useState<{ plugin: string; hallazgos: Hallazgo[]; registros: string[] }>();
   const entrada = useRef<HTMLInputElement>(null);
+  const [catalogo, setCatalogo] = useState<Catalogo>();
+  const [urlCatalogo, setUrlCatalogo] = useState('');
 
   useEffect(() => {
     api.plugins().then(setLista).catch((e) => aviso((e as Error).message, 'error'));
+    api.catalogo().then(setCatalogo).catch((e) => aviso((e as Error).message, 'error'));
   }, []);
   useEffect(() => {
     const tecla = (e: KeyboardEvent) => e.key === 'Escape' && onCerrar();
@@ -55,10 +58,34 @@ export function Plugins({ estado, onCerrar, onEstado, onIrA }: Props) {
       aviso(`«${m.nombre}» instalado.`);
     });
 
+  const instalarDeCatalogo = (e: Catalogo['plugins'][number]) =>
+    conEspera(`Instalando «${e.nombre}»…`, async () => {
+      const permisos = e.permisos.length ? `Pide permiso para: ${e.permisos.map((x) => PERMISOS[x] ?? x).join(' y ')}.` : 'No pide permisos: solo ve el texto del libro.';
+      const ok = await confirmar(
+        `${e.estado === 'actualizable' ? 'Actualizar' : 'Instalar'} «${e.nombre}»`,
+        `${e.nombre} ${e.version}, de ${e.autor} (catálogo «${e.nombreCatalogo}»).\n${e.descripcion}\n${permisos}\nSe comprueba la huella del paquete antes de instalarlo.`,
+        e.estado === 'actualizable' ? 'Actualizar' : 'Instalar',
+      );
+      if (!ok) return;
+      const r = await api.instalarDeCatalogo(e.origen, e.id);
+      setLista(r.instalados);
+      setCatalogo(r);
+      aviso(`«${e.nombre}» instalado.`);
+    });
+
+  const agregarCatalogo = () =>
+    conEspera('Leyendo el catálogo…', async () => {
+      const r = await api.agregarCatalogo(urlCatalogo);
+      setCatalogo(r);
+      setUrlCatalogo('');
+      aviso(`Catálogo añadido con ${r.nuevos} plugins.`);
+    });
+
   const quitar = (p: PluginInstalado) =>
     conEspera('', async () => {
       if (!(await confirmar('Quitar plugin', `¿Quitar «${p.nombre}»?`, 'Quitar', true))) return;
       setLista(await api.eliminarPlugin(p.id));
+      setCatalogo(await api.catalogo());
       if (revision?.plugin === p.nombre) setRevision(undefined);
     });
 
@@ -150,8 +177,46 @@ export function Plugins({ estado, onCerrar, onEstado, onIrA }: Props) {
             {revision.registros.length > 0 && <p className="ayuda">{revision.registros.join(' ')}</p>}
           </div>
         )}
+        <h3 className="titulo-catalogo">Catálogo</h3>
+        <ul className="lista-plugins">
+          {catalogo?.plugins.map((e) => (
+            <li key={e.id} className={`entrada-catalogo ${e.estado}`}>
+              <div className="cabecera-plugin">
+                <strong>{e.nombre}</strong> <span>{e.version} · {e.autor} · {e.nombreCatalogo}</span>
+              </div>
+              <p>{e.descripcion}</p>
+              <div className="acciones-comentario">
+                {e.estado === 'instalado' ? (
+                  <span className="etiqueta">Instalado</span>
+                ) : (
+                  <button disabled={!!ocupado} onClick={() => instalarDeCatalogo(e)}>{e.estado === 'actualizable' ? 'Actualizar' : 'Instalar'}</button>
+                )}
+                {e.permisos.map((x) => (
+                  <span key={x} className="etiqueta permiso" title={PERMISOS[x]}>⚠ {x === 'red' ? 'Internet' : 'Imágenes'}</span>
+                ))}
+              </div>
+            </li>
+          ))}
+        </ul>
+        {catalogo?.errores.map((e) => (
+          <p key={e} className="error ayuda">{e}</p>
+        ))}
+        <details className="otros-catalogos">
+          <summary>Otros catálogos ({catalogo?.catalogos.length ?? 0})</summary>
+          <p className="ayuda">Un catálogo es una carpeta publicada en la web con catalogo.json (se crea con scripts/catalogo-plugins.mjs). Añade solo catálogos de autores en los que confíes.</p>
+          {catalogo?.catalogos.map((u) => (
+            <div key={u} className="fila-buscar">
+              <code className="url-catalogo">{u}</code>
+              <button onClick={() => conEspera('', async () => setCatalogo(await api.quitarCatalogo(u)))}>Quitar</button>
+            </div>
+          ))}
+          <form className="fila-buscar" onSubmit={(ev) => { ev.preventDefault(); void agregarCatalogo(); }}>
+            <input aria-label="URL del catálogo" placeholder="https://…/catalogo.json" value={urlCatalogo} onChange={(ev) => setUrlCatalogo(ev.target.value)} />
+            <button type="submit" disabled={!urlCatalogo.trim() || !!ocupado}>Añadir</button>
+          </form>
+        </details>
         <div className="botones-dialogo">
-          <button className="principal" onClick={() => entrada.current?.click()} disabled={!!ocupado}>Instalar plugin…</button>
+          <button className="principal" onClick={() => entrada.current?.click()} disabled={!!ocupado}>Instalar desde archivo…</button>
           <input ref={entrada} type="file" hidden accept=".obiplugin" onChange={(e) => { const f = e.target.files?.[0]; if (f) void instalar(f); e.target.value = ''; }} />
         </div>
       </div>

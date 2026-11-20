@@ -246,3 +246,36 @@ test('PDF/X-1a: CMYK, PDF 1.3, OutputIntent y cajas de corte', { skip: (!buscarG
   const p = doc.getPage(0);
   assert.ok(p.getTrimBox().width < p.getBleedBox().width, 'el sangrado se conserva');
 });
+
+// ---------------------------------------------------------------------------
+// Catálogo de plugins.
+
+import { leerCatalogo, normalizarUrlCatalogo, paqueteDeCatalogo, versionMayor, CATALOGO_INTEGRADO } from '../catalogo.js';
+import { mkdtemp as mkdtempCat } from 'node:fs/promises';
+import { tmpdir as tmpdirCat } from 'node:os';
+import { join as joinCat } from 'node:path';
+
+test('Catálogo de plugins: integrado, huella y estado de instalación', async () => {
+  const integrado = await leerCatalogo(CATALOGO_INTEGRADO);
+  assert.deepEqual(integrado.map((e) => e.id), ['limpieza-espacios', 'revision-ortotipografica', 'texto-plano']);
+  const datos = await paqueteDeCatalogo(integrado[0]);
+  assert.ok(datos.length > 100);
+  await assert.rejects(paqueteDeCatalogo({ ...integrado[0], sha256: '0'.repeat(64) }), /huella .* no coincide/);
+  await assert.rejects(paqueteDeCatalogo({ ...integrado[0], permisos: ['red'] }), /permisos distintos/);
+  assert.equal(normalizarUrlCatalogo('https://ejemplo.org/plugins'), 'https://ejemplo.org/plugins/catalogo.json');
+  assert.equal(normalizarUrlCatalogo('https://ejemplo.org/x/catalogo.json'), 'https://ejemplo.org/x/catalogo.json');
+  assert.throws(() => normalizarUrlCatalogo('http://ejemplo.org'), /https/);
+  assert.ok(versionMayor('1.10.0', '1.9.3'));
+  assert.ok(!versionMayor('1.0.0', '1.0.0'));
+
+  process.env.OBI_PLUGINS = await mkdtempCat(joinCat(tmpdirCat(), 'obi-cat-'));
+  const { Backend } = await import('../../app/backend.js');
+  const b = new Backend(await mkdtempCat(joinCat(tmpdirCat(), 'obi-rec-')));
+  let c = await b.listarCatalogo();
+  assert.deepEqual(c.plugins.map((p) => p.estado), ['nuevo', 'nuevo', 'nuevo']);
+  await b.instalarDesdeCatalogo(CATALOGO_INTEGRADO, 'texto-plano');
+  c = await b.listarCatalogo();
+  assert.equal(c.plugins.find((p) => p.id === 'texto-plano')!.estado, 'instalado');
+  await assert.rejects(b.instalarDesdeCatalogo('https://no-esta.example/catalogo.json', 'x'), /no está en la lista/);
+  await assert.rejects(b.agregarCatalogo('ftp://x'), /https|dirección/);
+});
