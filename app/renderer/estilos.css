@@ -457,3 +457,16 @@ p.error { font-weight: 600; }
 .marco-recorte { overflow: hidden; }
 .herramientas-imagen { display: flex; flex-wrap: wrap; gap: 6px; }
 .herramientas-imagen button[aria-label] { min-width: 36px; font-size: 16px; }
+.boton-fuentes { align-self: flex-start; }
+.panel-fuentes h3 { font-size: 14px; margin: 6px 0 0; }
+.botones-dialogo.izquierda { justify-content: flex-start; }
+.lista-fuentes li, .lista-fuentes-sistema li { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.lista-fuentes li > div, .lista-fuentes-sistema li > div { display: flex; flex-direction: column; min-width: 0; }
+.lista-fuentes small, .lista-fuentes-sistema small { color: var(--tenue); font-size: 12px; }
+.lista-fuentes-sistema small.error { color: var(--error); }
+.lista-fuentes-sistema { list-style: none; margin: 0; padding: 0; max-height: 260px; overflow: auto; border: 1px solid var(--linea); border-radius: 6px; }
+.lista-fuentes-sistema li { padding: 6px 10px; border-bottom: 1px solid var(--linea); font-size: 13.5px; }
+.lista-fuentes-sistema li:last-child { border-bottom: 0; }
+.buscar-fuente { width: 100%; }
+.panel-fuentes .lista-fuentes > li { flex-direction: row; align-items: center; justify-content: space-between; text-align: left; }
+.panel-fuentes .lista-fuentes-sistema li, .panel-fuentes h3 { text-align: left; }

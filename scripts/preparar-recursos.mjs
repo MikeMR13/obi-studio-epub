@@ -75,4 +75,8 @@ await cp('node_modules/axe-core/LICENSE', 'recursos/axe/LICENCIA-axe-core-MPL-2.
 
 await mkdir('recursos/hyphenopoly', { recursive: true });
 await cp('node_modules/hyphenopoly/patterns/es.wasm', 'recursos/hyphenopoly/es.wasm');
+// HarfBuzz (subconjuntos de las fuentes propias del usuario; licencia MIT «Old MIT»).
+await mkdir('recursos/harfbuzz', { recursive: true });
+await cp('node_modules/harfbuzzjs/dist/harfbuzz-subset.wasm', 'recursos/harfbuzz/harfbuzz-subset.wasm');
+await cp('node_modules/harfbuzzjs/LICENSE', 'recursos/harfbuzz/LICENCIA-harfbuzz.txt').catch(() => undefined);
 console.log('Recursos listos.');

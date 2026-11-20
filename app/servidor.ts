@@ -164,6 +164,22 @@ export async function iniciarServidor(op: OpcionesServidor = {}) {
       backend.optimizarImagenes(!!(await json(q)).activo);
       enviar(r, 200, backend.estado());
     }],
+    ['GET', /^\/api\/fuentes-sistema$/, async (_q, r) => {
+      const lista = await backend.fuentesSistema();
+      enviar(r, 200, lista.map((f) => ({ familia: f.familia, caras: f.caras.map(({ ruta: _r, ...c }) => c) })));
+    }],
+    ['POST', /^\/api\/fuentes-propias$/, async (q, r, _m, url) => {
+      const res = backend.anadirFuente(url.searchParams.get('nombre') ?? 'fuente', await cuerpo(q));
+      enviar(r, 200, { ...res, estado: backend.estado() });
+    }],
+    ['POST', /^\/api\/fuentes-propias\/sistema$/, async (q, r) => {
+      const res = await backend.anadirFuenteSistema(String((await json(q)).familia ?? ''));
+      enviar(r, 200, { ...res, estado: backend.estado() });
+    }],
+    ['DELETE', /^\/api\/fuentes-propias\/([\w-]+)$/, async (_q, r, m) => {
+      backend.quitarFuente(m[1]);
+      enviar(r, 200, backend.estado());
+    }],
     ['GET', /^\/api\/recursos\/([\w-]+)$/, async (_q, r, m) => {
       const rec = backend.recurso(m[1]);
       r.writeHead(200, { 'Content-Type': rec.tipoMime, 'Cache-Control': 'no-cache' });

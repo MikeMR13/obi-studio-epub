@@ -3,6 +3,7 @@
 import { readFileSync } from 'node:fs';
 import type { Fuente, Inline, Libro, Tema } from './model.js';
 import { esVertical, fuente } from './model.js';
+import { archivoCara, datosCara, fuentePropia } from './fuentes-propias.js';
 import { rutaRecurso } from './recursos.js';
 
 export const SUBCONJUNTOS = [
@@ -21,7 +22,18 @@ export interface ArchivoFuente {
   familia: string;
   peso: string;
   estilo: string;
+  /** unicode-range; vacío en las fuentes propias (ya son un subconjunto). */
   rango: string;
+  /** Fuentes propias: datos en memoria (subconjunto) y su formato. */
+  datos?: Uint8Array;
+  formato?: 'ttf' | 'otf';
+}
+
+export const MIME_FUENTE = { woff2: 'font/woff2', ttf: 'font/ttf', otf: 'font/otf' } as const;
+
+/** Datos de un archivo de fuente: los de la fuente propia o los de recursos/fuentes. */
+export function datosArchivoFuente(a: ArchivoFuente): Uint8Array | undefined {
+  return a.datos ?? leerFuente(a.archivo);
 }
 
 /** Archivos de una fuente; para títulos basta la redonda (normal) en 400 y 700. */
@@ -116,10 +128,21 @@ export interface FuentesLibro {
  * Con `libro`, se añade Noto Serif JP si el libro tiene texto japonés.
  */
 export function fuentesTema(tema: Tema, impresion = false, libro?: Libro): FuentesLibro {
-  const elegir = (id: string) => (impresion ? fuente(fuente(id).impresion) : fuente(id));
+  const elegir = (id: string): Fuente => {
+    const p = fuentePropia(libro, id);
+    if (p) return { id, nombre: p.familia, familia: p.familia, archivo: id, estilos: p.caras.map((c) => `${c.peso}-${c.estilo}`), impresion: id, generica: p.generica };
+    return impresion ? fuente(fuente(id).impresion) : fuente(id);
+  };
+  const archivosDe = (f: Fuente, soloRedonda = false): ArchivoFuente[] => {
+    const p = fuentePropia(libro, f.id);
+    if (!p || !libro) return archivosFuente(f, soloRedonda);
+    return p.caras
+      .filter((c) => !soloRedonda || c.estilo === 'normal')
+      .map((c) => ({ archivo: archivoCara(p, c), familia: p.familia, peso: String(c.peso), estilo: c.estilo, rango: '', datos: datosCara(libro, p, c), formato: c.formato }));
+  };
   const texto = elegir(tema.fuenteTexto);
   const titulos = elegir(tema.fuenteTitulos);
-  const archivos = [...archivosFuente(texto), ...(titulos.id === texto.id ? [] : archivosFuente(titulos, true))];
+  const archivos = [...archivosDe(texto), ...(titulos.id === texto.id ? [] : archivosDe(titulos, true))];
   const jp = libro ? archivosJaponeses(libro) : [];
   if (!jp.length) return { texto, titulos, archivos, familiaTexto: familiaCss(texto), familiaTitulos: familiaCss(titulos) };
   const vertical = !!libro && esVertical(libro);
@@ -133,11 +156,13 @@ export function fuentesTema(tema: Tema, impresion = false, libro?: Libro): Fuent
 }
 
 export function caraFuente(a: ArchivoFuente, carpeta: string): string {
-  return `@font-face { font-family: '${a.familia}'; font-weight: ${a.peso}; font-style: ${a.estilo}; src: url('${carpeta}${a.archivo}') format('woff2'); unicode-range: ${a.rango}; }`;
+  const formato = a.formato === 'otf' ? 'opentype' : a.formato === 'ttf' ? 'truetype' : 'woff2';
+  const familia = a.familia.replace(/['\\]/g, '');
+  return `@font-face { font-family: '${familia}'; font-weight: ${a.peso}; font-style: ${a.estilo}; src: url('${carpeta}${a.archivo}') format('${formato}');${a.rango ? ` unicode-range: ${a.rango};` : ''} }`;
 }
 
 export function familiaCss(f: Fuente): string {
-  return f.archivo ? `'${f.familia}', ${f.generica}` : f.generica;
+  return f.archivo ? `'${f.familia.replace(/['\\]/g, '')}', ${f.generica}` : f.generica;
 }
 
 export function leerFuente(archivo: string): Uint8Array | undefined {

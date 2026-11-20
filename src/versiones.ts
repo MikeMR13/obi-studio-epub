@@ -35,7 +35,8 @@ export function crearVersion(libro: Libro, nombre: string): ResumenVersion {
     if (!pool.some((x) => x.huella === h)) pool.push({ ...r, datos, huella: h });
     return { ...r, huella: h };
   });
-  const { versiones: _v, recursosVersiones: _p, ...resto } = libro;
+  // Las fuentes propias no se versionan (son binarios grandes): se quedan las actuales al restaurar.
+  const { versiones: _v, recursosVersiones: _p, fuentesPropias: _f, ...resto } = libro;
   const v: Version = {
     id: nuevoId('v'),
     nombre: limpio,
@@ -91,7 +92,10 @@ export function restaurarVersion(libro: Libro, id: string): { libro: Libro; avis
     if (r) recursos.push({ ...meta, datos: r.datos });
     else avisos.push(`No se encontró la imagen «${meta.nombre}».`);
   }
-  return { libro: { ...datos, recursos, versiones: libro.versiones, recursosVersiones: libro.recursosVersiones }, avisos };
+  return {
+    libro: { ...datos, recursos, versiones: libro.versiones, recursosVersiones: libro.recursosVersiones, ...(libro.fuentesPropias ? { fuentesPropias: libro.fuentesPropias } : {}) },
+    avisos,
+  };
 }
 
 export interface DiferenciaSeccion {

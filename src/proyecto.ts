@@ -4,7 +4,7 @@
 import JSZip from 'jszip';
 import { existsSync } from 'node:fs';
 import { rename, writeFile, copyFile } from 'node:fs/promises';
-import type { Libro, Recurso } from './model.js';
+import type { CaraFuentePropia, FuentePropia, Libro, Recurso } from './model.js';
 import { huella } from './versiones.js';
 
 export const EXTENSION_PROYECTO = '.obi';
@@ -27,10 +27,18 @@ export async function serializarProyecto(libro: Libro): Promise<Uint8Array> {
     if (!actuales.has(r.huella)) zip.file(archivo, datos);
     return { ...r, archivo };
   });
-  const json = { ...libro, recursos, ...(deVersiones.length ? { recursosVersiones: deVersiones } : {}) };
+  const fuentesPropias = libro.fuentesPropias?.map((f) => ({
+    ...f,
+    caras: f.caras.map(({ datos, ...c }) => {
+      const archivo = `fuentes/${f.id}-${c.peso}-${c.estilo}.${c.formato}`;
+      zip.file(archivo, datos);
+      return { ...c, archivo };
+    }),
+  }));
+  const json = { ...libro, recursos, ...(deVersiones.length ? { recursosVersiones: deVersiones } : {}), ...(fuentesPropias ? { fuentesPropias } : {}) };
   zip.file('libro.json', JSON.stringify(json, null, 1));
   for (const r of libro.recursos) zip.file(`recursos/${r.id}-${r.nombre}`, r.datos);
-  zip.file('LEEME.txt', 'Proyecto de Obi Studio EPUB. libro.json contiene el texto y la estructura; recursos/ las imágenes.\n');
+  zip.file('LEEME.txt', 'Proyecto de Obi Studio EPUB. libro.json contiene el texto y la estructura; recursos/ las imágenes y fuentes/ las fuentes propias.\n');
   return zip.generateAsync({ type: 'uint8array', compression: 'DEFLATE' });
 }
 
@@ -57,8 +65,17 @@ export async function deserializarProyecto(datos: Uint8Array): Promise<Libro> {
     const { archivo: _a, ...resto } = r;
     recursosVersiones.push({ ...resto, datos: await f.async('uint8array') });
   }
-  const { recursosVersiones: _rv, ...base } = crudo;
-  return { ...base, recursos, ...(recursosVersiones.length ? { recursosVersiones } : {}) };
+  const fuentesPropias: NonNullable<Libro['fuentesPropias']> = [];
+  for (const f of (crudo.fuentesPropias ?? []) as unknown as (Omit<FuentePropia, 'caras'> & { caras: (Omit<CaraFuentePropia, 'datos'> & { archivo: string })[] })[]) {
+    const caras: CaraFuentePropia[] = [];
+    for (const { archivo, ...c } of f.caras) {
+      const z = zip.file(archivo);
+      if (z) caras.push({ ...c, datos: await z.async('uint8array') });
+    }
+    if (caras.length) fuentesPropias.push({ ...f, caras });
+  }
+  const { recursosVersiones: _rv, fuentesPropias: _fp, ...base } = crudo;
+  return { ...base, recursos, ...(recursosVersiones.length ? { recursosVersiones } : {}), ...(fuentesPropias.length ? { fuentesPropias } : {}) };
 }
 
 /** Guarda de forma atómica y deja una copia .bak de la versión anterior. */

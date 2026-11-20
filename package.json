@@ -141,5 +141,8 @@
         "role": "Editor"
       }
     ]
+  },
+  "dependencies": {
+    "harfbuzzjs": "^1.6.4"
   }
 }

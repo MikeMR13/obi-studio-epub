@@ -3,8 +3,8 @@
  * y una página web de una sola pieza (imágenes y fuentes dentro) para colgarla en cualquier sitio.
  */
 import { cssLibro, seccionXhtml } from './compilar.js';
-import { leerFuente } from './fuentes.js';
-import { ROLES, esVertical, nuevaSeccion, parrafo, uuid, type Libro, type Seccion } from './model.js';
+import { datosArchivoFuente, fuentesTema, MIME_FUENTE } from './fuentes.js';
+import { ROLES, esVertical, nuevaSeccion, temaCompleto, parrafo, uuid, type Libro, type Seccion } from './model.js';
 
 export interface OpcionesMuestra {
   /** Ids de las secciones que entran en la muestra, en el orden del libro. */
@@ -91,9 +91,11 @@ export function sitioMuestra(libro: Libro, op: OpcionesMuestra): string {
     const d = datosImg.get(decodeURIComponent(nombre));
     return d ? `${attr}="${d}"` : todo;
   });
+  const fuentes = new Map(fuentesTema(temaCompleto(libro), false, libro).archivos.map((a) => [a.archivo, a]));
   const css = cssLibro(libro).replace(/url\('fuentes\/([^']+)'\)/g, (todo, archivo) => {
-    const d = leerFuente(archivo);
-    return d ? `url('data:font/woff2;base64,${base64(d)}')` : todo;
+    const a = fuentes.get(archivo);
+    const d = a && datosArchivoFuente(a);
+    return d ? `url('data:${MIME_FUENTE[a.formato ?? 'woff2']};base64,${base64(d)}')` : todo;
   }).replace(/^@charset[^;]*;/, '');
 
   const m = libro.metadatos;

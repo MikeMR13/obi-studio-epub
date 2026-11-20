@@ -169,3 +169,81 @@ test('Imágenes: girar y recortar desde la app, y EPUB con imágenes optimizadas
   const zip = await JSZip.loadAsync(epub);
   assert.ok(zip.file('EPUB/img/ruido.jpg') && !zip.file('EPUB/img/ruido.png'));
 });
+
+test('Fuentes propias: licencia, subconjunto, EPUB válido, PDF, proyecto y versiones', async () => {
+  const { readFileSync } = await import('node:fs');
+  const { mkdtemp } = await import('node:fs/promises');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const { leerFuentePropia, permisoFuente } = await import('../fuentes-propias.js');
+  const { buscarFuentesSistema } = await import('../fuentes-sistema.js');
+  const { Backend } = await import('../../app/backend.js');
+  const { serializarProyecto, deserializarProyecto } = await import('../proyecto.js');
+  const { archivosImpresion } = await import('../impresion.js');
+  const { sitioMuestra, seccionesPredeterminadas } = await import('../muestra.js');
+  const { crearVersion } = await import('../versiones.js');
+
+  const carpeta = join(import.meta.dirname, 'fuentes');
+  const regular = new Uint8Array(readFileSync(join(carpeta, 'CrimsonText-Regular.ttf')));
+  const cursiva = new Uint8Array(readFileSync(join(carpeta, 'CrimsonText-Italic.ttf')));
+  const info = leerFuentePropia(cursiva);
+  assert.deepEqual([info.familia, info.peso, info.estilo, info.formato], ['Crimson Text', 400, 'italic', 'ttf']);
+  assert.deepEqual(permisoFuente(0x0002), { incrustable: false, subconjunto: true, tipo: 'restringida' });
+  assert.equal(permisoFuente(0x0004).tipo, 'vista');
+  assert.equal(permisoFuente(0x0102).incrustable, false);
+  assert.equal(permisoFuente(0x0108).subconjunto, false);
+  assert.throws(() => leerFuentePropia(new TextEncoder().encode('wOF2xxxxxxxxxxxx')), /WOFF/);
+
+  // Una copia con fsType = 2 (restringida) no se puede añadir.
+  const restringida = regular.slice();
+  const v = new DataView(restringida.buffer);
+  for (let i = 0; i < v.getUint16(4); i++) {
+    const p = 12 + i * 16;
+    if (String.fromCharCode(...restringida.subarray(p, p + 4)) === 'OS/2') v.setUint16(v.getUint32(p + 8) + 8, 2);
+  }
+  const b = new Backend(await mkdtemp(join(tmpdir(), 'obi-fuentes-')));
+  b.libro = await libroTienda();
+  b.libro.secciones.find((s) => s.tipo === 'capitulo')!.bloques = [parrafo('Texto con «comillas» y la ñ de España.')];
+  assert.throws(() => b.anadirFuente('restringida.ttf', restringida), /no permite incrustarla/);
+
+  b.anadirFuente('CrimsonText-Regular.ttf', regular);
+  const r = b.anadirFuente('CrimsonText-Italic.ttf', cursiva);
+  assert.equal(r.familia, 'Crimson Text');
+  const f = b.libro.fuentesPropias![0];
+  assert.equal(f.caras.length, 2);
+  b.tema({ fuenteTexto: `propia-${f.id}`, fuenteTitulos: `propia-${f.id}` });
+  assert.equal(b.libro.tema.fuenteTexto, `propia-${f.id}`);
+  assert.ok(!('datos' in b.estado().libro.fuentesPropias![0].caras[0]), 'el estado no lleva los binarios');
+
+  const { datos } = await b.exportar();
+  const zip = await JSZip.loadAsync(datos);
+  const ttf = Object.keys(zip.files).filter((n) => n.endsWith('.ttf'));
+  assert.equal(ttf.length, 2, ttf.join());
+  const sub = await zip.file(ttf[0])!.async('uint8array');
+  assert.ok(sub.length <= regular.length, `subconjunto: ${sub.length} de ${regular.length}`);
+  const { subconjuntoFuente } = await import('../fuentes-propias.js');
+  const hola = subconjuntoFuente(regular, [...'Hola'].map((c) => c.codePointAt(0)!));
+  assert.ok(hola.length < regular.length / 4 && leerFuentePropia(hola).familia === 'Crimson Text', `«Hola»: ${hola.length}`);
+  const opf = await zip.file('EPUB/package.opf')!.async('string');
+  assert.match(opf, /media-type="font\/ttf"/);
+  assert.match(await zip.file('EPUB/estilos.css')!.async('string'), /font-family: 'Crimson Text'.*format\('truetype'\)/);
+  const val = await validarDatos(datos);
+  assert.equal(val.mensajes.length, 0, JSON.stringify(val.mensajes));
+
+  // PDF, mini web, proyecto y versiones.
+  const imp = archivosImpresion(b.libro, { interior: 10 } as never);
+  assert.ok([...imp.keys()].some((k) => k.startsWith('fuentes/') && k.endsWith('.ttf')));
+  assert.match(imp.get('impresion.css') as string, /Crimson Text/);
+  assert.match(sitioMuestra(b.libro, { secciones: seccionesPredeterminadas(b.libro) }), /data:font\/ttf;base64,/);
+  const vuelta = await deserializarProyecto(await serializarProyecto(b.libro));
+  assert.equal(vuelta.fuentesPropias?.[0].caras.find((c) => c.estilo === 'italic')?.datos.length, cursiva.length);
+  crearVersion(b.libro, 'Con fuentes');
+  assert.ok(b.libro.versiones!.at(-1)!.libro.length < 100_000, 'las versiones no guardan las fuentes');
+
+  const sistema = await buscarFuentesSistema([carpeta]);
+  assert.deepEqual(sistema.map((x) => [x.familia, x.caras.length]), [['Crimson Text', 3]]);
+
+  b.quitarFuente(f.id);
+  assert.equal(b.libro.fuentesPropias, undefined);
+  assert.equal(b.libro.tema.fuenteTexto, 'literata');
+});

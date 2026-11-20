@@ -1,15 +1,17 @@
 // Operaciones de la app sobre el libro abierto. La interfaz solo habla con esto.
 
 import JSZip from 'jszip';
-import { mkdir } from 'node:fs/promises';
+import { mkdir, readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
-import type { Bloque, Comentario, Impresion, Libro, Nota, Metadatos, Recurso, Seccion, Tema, TipoSeccion, Tipografia } from '../src/model.js';
+import { basename, join } from 'node:path';
+import type { Bloque, CaraFuentePropia, Comentario, FuentePropia, Impresion, Libro, Nota, Metadatos, Recurso, Seccion, Tema, TipoSeccion, Tipografia } from '../src/model.js';
 import { ajustesImpresion, TAMANOS_IMPRESION, temaCompleto, validarTema } from '../src/model.js';
 import { TEMAS } from '../src/temas.js';
 import { libroMuestra, sitioMuestra as crearSitioMuestra, type OpcionesMuestra } from '../src/muestra.js';
 import { TIENDAS, compilarParaTienda, revisarTienda, type AvisoTienda, type IdTienda } from '../src/tiendas.js';
 import { buscarGhostscript } from '../src/pdfx.js';
+import { ErrorFuente, PREFIJO, leerFuentePropia, permisoFuente, type PermisoFuente } from '../src/fuentes-propias.js';
+import { buscarFuentesSistema, type FamiliaSistema } from '../src/fuentes-sistema.js';
 import { ErrorImagen, girar, libroConImagenesOptimizadas, recortar } from '../src/procesar-imagen.js';
 import { ArchivoConfiguracion } from '../src/configuracion.js';
 import { CATALOGO_INTEGRADO, ListaCatalogos, archivoCatalogos, leerCatalogo, normalizarUrlCatalogo, paqueteDeCatalogo, versionMayor, type EntradaCatalogo } from '../src/catalogo.js';
@@ -80,8 +82,13 @@ export interface RecursoPublico extends Omit<Recurso, 'datos'> {
   bytes: number;
 }
 
+/** Fuente propia sin los datos binarios (lo que ve la interfaz). */
+export interface FuentePublica extends Omit<FuentePropia, 'caras'> {
+  caras: (Omit<CaraFuentePropia, 'datos'> & { bytes: number })[];
+}
+
 export interface Estado {
-  libro: Omit<Libro, 'recursos'> & { recursos: RecursoPublico[] };
+  libro: Omit<Libro, 'recursos' | 'fuentesPropias'> & { recursos: RecursoPublico[]; fuentesPropias?: FuentePublica[] };
   nombreArchivo: string;
   cambiado: boolean;
   palabras: Record<string, number>;
@@ -142,9 +149,10 @@ export class Backend {
     const recursos = this.libro.recursos.map(({ datos, ...r }) => ({ ...r, bytes: datos.length }));
     const palabras: Record<string, number> = {};
     for (const s of this.libro.secciones) palabras[s.id] = contarPalabras(s);
-    const { versiones: _v, recursosVersiones: _rv, ...libro } = this.libro;
+    const { versiones: _v, recursosVersiones: _rv, fuentesPropias, ...libro } = this.libro;
+    const propias = fuentesPropias?.map((f) => ({ ...f, caras: f.caras.map(({ datos, ...c }) => ({ ...c, bytes: datos.length })) }));
     return {
-      libro: { ...libro, recursos },
+      libro: { ...libro, recursos, ...(propias ? { fuentesPropias: propias } : {}) },
       versiones: resumenVersiones(this.libro),
       ghostscript: hayGhostscript(),
       ...(this.datosColaboracion?.() ? { colaboracion: this.datosColaboracion()! } : {}),
@@ -234,7 +242,7 @@ export class Backend {
   }
 
   tema(cambios: Partial<Tema> | Record<string, unknown>) {
-    const validos = validarTema(cambios);
+    const validos = validarTema(cambios, (this.libro.fuentesPropias ?? []).map((f) => PREFIJO + f.id));
     if ('separadorImagen' in validos && validos.separadorImagen && !this.libro.recursos.some((r) => r.id === validos.separadorImagen)) {
       delete validos.separadorImagen;
     }
@@ -439,6 +447,79 @@ export class Backend {
   }
 
   /** Exportar valida primero y bloquea si hay errores. */
+  // ----- Fuentes propias -----
+
+  private sistema?: Promise<FamiliaSistema[]>;
+
+  /** Fuentes instaladas en el sistema (se buscan una vez por sesión). */
+  async fuentesSistema(): Promise<FamiliaSistema[]> {
+    this.sistema ??= buscarFuentesSistema();
+    return this.sistema;
+  }
+
+  private agregarCara(datos: Uint8Array, origen: string, familiaEsperada?: string): { familia: string; permiso: PermisoFuente } {
+    let info;
+    try {
+      info = leerFuentePropia(datos);
+    } catch (e) {
+      throw e instanceof ErrorFuente ? new ErrorUsuario(e.message) : e;
+    }
+    const permiso = permisoFuente(info.fsType);
+    if (!permiso.incrustable) {
+      throw new ErrorUsuario(
+        permiso.tipo === 'mapa-de-bits'
+          ? `La licencia de «${info.nombreCompleto}» solo permite incrustarla como mapa de bits: no sirve para un libro.`
+          : `La licencia de «${info.nombreCompleto}» no permite incrustarla en documentos.`,
+      );
+    }
+    const familia = familiaEsperada ?? info.familia;
+    const lista = (this.libro.fuentesPropias ??= []);
+    let f = lista.find((x) => x.familia === familia);
+    if (!f) {
+      f = { id: nuevoId('fp'), familia, generica: /sans|gothic|grotesk|helvetica|arial/i.test(familia) ? 'sans-serif' : 'serif', caras: [] };
+      lista.push(f);
+    }
+    const cara: CaraFuentePropia = { peso: info.peso, estilo: info.estilo, formato: info.formato, fsType: info.fsType, origen, datos };
+    const i = f.caras.findIndex((c) => c.peso === cara.peso && c.estilo === cara.estilo);
+    if (i >= 0) f.caras[i] = cara;
+    else f.caras.push(cara);
+    f.caras.sort((a, b) => a.peso - b.peso || (a.estilo === b.estilo ? 0 : a.estilo === 'normal' ? -1 : 1));
+    return { familia, permiso };
+  }
+
+  /** Añade una cara desde un archivo .ttf u .otf que sube el usuario. */
+  anadirFuente(nombre: string, datos: Uint8Array): { familia: string; permiso: PermisoFuente } {
+    if (datos.length > 30 * 1024 * 1024) throw new ErrorUsuario('La fuente pesa demasiado (más de 30 MB).');
+    const r = this.agregarCara(datos, nombre.replace(/[/\\]/g, '').slice(0, 120));
+    this.marcar();
+    return r;
+  }
+
+  /** Añade una familia instalada en el sistema (todas sus caras, como mucho 8). */
+  async anadirFuenteSistema(familia: string): Promise<{ familia: string; permiso: PermisoFuente }> {
+    const f = (await this.fuentesSistema()).find((x) => x.familia === familia);
+    if (!f) throw new ErrorUsuario('Esa fuente no está instalada.', 404);
+    const caras = f.caras.filter((c) => c.permiso.incrustable);
+    if (!caras.length) throw new ErrorUsuario(`La licencia de «${familia}» no permite incrustarla en documentos.`);
+    let r: { familia: string; permiso: PermisoFuente } | undefined;
+    for (const c of caras.slice(0, 8)) r = this.agregarCara(new Uint8Array(await readFile(c.ruta)), basename(c.ruta), familia);
+    this.marcar();
+    return r!;
+  }
+
+  quitarFuente(id: string) {
+    const lista = this.libro.fuentesPropias ?? [];
+    if (!lista.some((f) => f.id === id)) throw new ErrorUsuario('Esa fuente no existe.', 404);
+    this.libro.fuentesPropias = lista.filter((f) => f.id !== id);
+    if (!this.libro.fuentesPropias.length) delete this.libro.fuentesPropias;
+    // El tema vuelve a una fuente incluida si usaba la que se quita.
+    const t = temaCompleto(this.libro);
+    if (t.fuenteTexto === PREFIJO + id || t.fuenteTitulos === PREFIJO + id) {
+      this.libro.tema = { ...t, ...(t.fuenteTexto === PREFIJO + id ? { fuenteTexto: 'literata' } : {}), ...(t.fuenteTitulos === PREFIJO + id ? { fuenteTitulos: 'literata' } : {}) };
+    }
+    this.marcar();
+  }
+
   /** El libro tal como va al EPUB: con las imágenes optimizadas si se pidió. */
   private async libroEpub(libro = this.libro): Promise<Libro> {
     return libro.optimizarImagenes ? (await libroConImagenesOptimizadas(libro)).libro : libro;

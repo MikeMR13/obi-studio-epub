@@ -253,6 +253,26 @@ export interface Fuente {
   soloTitulos?: boolean;
 }
 
+/** Una cara (grosor y estilo) de una fuente propia del usuario. */
+export interface CaraFuentePropia {
+  peso: number;
+  estilo: 'normal' | 'italic';
+  formato: 'ttf' | 'otf';
+  /** Campo fsType de la fuente (licencia de incrustación). */
+  fsType: number;
+  /** Nombre del archivo original. */
+  origen: string;
+  datos: Uint8Array;
+}
+
+/** Fuente propia (TTF u OTF del usuario), incrustada como subconjunto en el EPUB y el PDF. */
+export interface FuentePropia {
+  id: string;
+  familia: string;
+  generica: 'serif' | 'sans-serif';
+  caras: CaraFuentePropia[];
+}
+
 export const FUENTES: Fuente[] = [
   { id: 'serif', nombre: 'Con remate del lector', familia: 'serif', archivo: '', estilos: [], impresion: 'literata', generica: 'serif' },
   { id: 'sans-serif', nombre: 'Sin remate del lector', familia: 'sans-serif', archivo: '', estilos: [], impresion: 'noto-sans', generica: 'sans-serif' },
@@ -324,7 +344,7 @@ export function temaCompleto(libro: Pick<Libro, 'tema'>): Tema {
 const COLOR = /^#[0-9a-f]{6}$/i;
 
 /** Valida un tema que llega de fuera (archivo .obitema o la interfaz) y devuelve solo los campos correctos. */
-export function validarTema(entrada: unknown): Partial<Tema> {
+export function validarTema(entrada: unknown, propias: string[] = []): Partial<Tema> {
   const e = (entrada && typeof entrada === 'object' ? entrada : {}) as Record<string, unknown>;
   const t: Partial<Tema> = {};
   const numero = (k: keyof Tema, min: number, max: number) => {
@@ -335,8 +355,8 @@ export function validarTema(entrada: unknown): Partial<Tema> {
     if (validos.includes(e[k] as T)) (t as Record<string, unknown>)[k] = e[k];
   };
   if (typeof e.nombre === 'string') t.nombre = e.nombre.slice(0, 60);
-  opcion('fuenteTexto', FUENTES.filter((f) => !f.soloTitulos).map((f) => f.id));
-  opcion('fuenteTitulos', FUENTES.map((f) => f.id));
+  opcion('fuenteTexto', [...FUENTES.filter((f) => !f.soloTitulos).map((f) => f.id), ...propias]);
+  opcion('fuenteTitulos', [...FUENTES.map((f) => f.id), ...propias]);
   numero('interlineado', 1.1, 2.2);
   numero('sangria', 0, 4);
   numero('espacioParrafos', 0, 2);
@@ -432,6 +452,8 @@ export interface Libro {
   impresion?: Impresion;
   /** Dirección del texto: horizontal (predeterminada) o vertical japonesa (tategaki), de derecha a izquierda. */
   escritura?: 'horizontal' | 'vertical';
+  /** Fuentes propias del usuario; el tema las cita como «propia-<id>». */
+  fuentesPropias?: FuentePropia[];
   /** Reducir y recomprimir las imágenes al exportar el EPUB (el proyecto y el PDF conservan las originales). */
   optimizarImagenes?: boolean;
   /** Versiones guardadas con nombre (ver src/versiones.ts). No salen en el EPUB. */

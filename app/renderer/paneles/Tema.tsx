@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { Tema, Tipografia } from '../../../src/model';
 import { FUENTES, TEMA_PREDETERMINADO, validarTema } from '../../../src/model';
+import { FuentesPropias } from './FuentesPropias';
 import { TEMAS } from '../../../src/temas';
 import type { Estado } from '../api';
 import { api, urlRecurso } from '../api';
@@ -88,7 +89,7 @@ export function PanelTema({ estado, version, onTema, onGaleria, onTipografia, on
   const cargarTema = async (f: File) => {
     try {
       const datos = JSON.parse(await f.text());
-      const tema = validarTema(datos?.tema ?? datos);
+      const tema = validarTema(datos?.tema ?? datos, (estado.libro.fuentesPropias ?? []).map((f) => `propia-${f.id}`));
       if (!Object.keys(tema).length) throw new Error(t('El archivo no contiene un tema válido.'));
       onTema({ ...tema, nombre: tema.nombre ?? f.name.replace(/\.[^.]+$/, '') });
       aviso(t('Tema «{0}» cargado.', { 0: tema.nombre ?? f.name }));
@@ -108,6 +109,15 @@ export function PanelTema({ estado, version, onTema, onGaleria, onTipografia, on
   };
 
   const fuentesTexto = FUENTES.filter((f) => !f.soloTitulos);
+  const propias = estado.libro.fuentesPropias ?? [];
+  const opcionesPropias = propias.length > 0 && (
+    <optgroup label={t('Fuentes propias')}>
+      {propias.map((f) => (
+        <option key={f.id} value={`propia-${f.id}`}>{f.familia}</option>
+      ))}
+    </optgroup>
+  );
+  const [verFuentes, setVerFuentes] = useState(false);
 
   return (
     <div className="panel-tema">
@@ -138,6 +148,7 @@ export function PanelTema({ estado, version, onTema, onGaleria, onTipografia, on
               {fuentesTexto.map((f) => (
                 <option key={f.id} value={f.id}>{t(f.nombre)}</option>
               ))}
+              {opcionesPropias}
             </select>
           </label>
           <label className="campo">
@@ -146,10 +157,13 @@ export function PanelTema({ estado, version, onTema, onGaleria, onTipografia, on
               {FUENTES.map((f) => (
                 <option key={f.id} value={f.id}>{t(f.nombre)}</option>
               ))}
+              {opcionesPropias}
             </select>
           </label>
         </div>
         <small className="ayuda">{t('Las letras «del lector» no se incrustan: cada lector usa la suya. Las demás van dentro del EPUB (licencia libre OFL).')}</small>
+        <button className="boton-fuentes" onClick={() => setVerFuentes(true)}>{t('Fuentes propias…')}</button>
+        {verFuentes && <FuentesPropias estado={estado} onCerrar={() => setVerFuentes(false)} onEstado={onEstado} />}
         <label className="campo">
           <span>{t('Interlineado: {0}', { 0: tm.interlineado.toFixed(2) })}</span>
           <input type="range" min={1.1} max={2} step={0.05} value={tm.interlineado} onChange={(e) => onTema({ interlineado: Number(e.target.value) })} />

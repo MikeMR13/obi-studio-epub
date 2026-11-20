@@ -7,7 +7,7 @@ import type { Bloque, Imagen, Inline, Libro, Marca, Nota, Recurso, Seccion, Tipo
 import { esc, escAttr, limpiarXml } from './xml.js';
 import { temaCompleto, esVertical } from './model.js';
 import { cssTema, separadorXhtml as separadorTema, contenidoTitulo } from './estilo-tema.js';
-import { fuentesTema, caraFuente, familiaCss, leerFuente } from './fuentes.js';
+import { fuentesTema, caraFuente, familiaCss, datosArchivoFuente, MIME_FUENTE } from './fuentes.js';
 
 export const CARPETA = 'EPUB';
 
@@ -499,10 +499,10 @@ export function compilarArchivos(libro: Libro): Map<string, string | Uint8Array>
 
   const tema = temaCompleto(libro);
   for (const a of fuentesTema(tema, false, libro).archivos) {
-    const datos = leerFuente(a.archivo);
+    const datos = datosArchivoFuente(a);
     if (!datos) continue;
     archivos.set(`fuentes/${a.archivo}`, datos);
-    manifiesto.push({ href: `fuentes/${a.archivo}`, id: `f-${a.archivo.replace(/\.woff2$/, '').replace(/[^\w-]/g, '-')}`, tipo: 'font/woff2' });
+    manifiesto.push({ href: `fuentes/${a.archivo}`, id: `f-${a.archivo.replace(/\.\w+$/, '').replace(/[^\w-]/g, '-')}`, tipo: MIME_FUENTE[a.formato ?? 'woff2'] });
   }
 
   const lectura: { idref: string; props?: string }[] = [];

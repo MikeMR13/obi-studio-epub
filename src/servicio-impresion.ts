@@ -23,6 +23,7 @@ const TIPOS: Record<string, string> = {
   '.woff2': 'font/woff2',
   '.woff': 'font/woff',
   '.ttf': 'font/ttf',
+  '.otf': 'font/otf',
   '.map': 'application/json',
 };
 
@@ -62,7 +63,8 @@ export async function resolverImpresion(
   const archivo = decodeURIComponent(m[3]);
   if (archivo.startsWith('fuentes/')) {
     const f = rutaRecurso('fuentes', archivo.slice('fuentes/'.length).replace(/[/\\]/g, ''));
-    return f ? { tipo: 'font/woff2', datos: new Uint8Array(await readFile(f)) } : undefined;
+    // Si no está en recursos/fuentes, es una fuente propia del libro (va en los archivos de la versión).
+    if (f) return { tipo: 'font/woff2', datos: new Uint8Array(await readFile(f)) };
   }
   const d = (await archivos(m[2])).get(archivo);
   return d === undefined ? undefined : { tipo: TIPOS[extname(archivo)] ?? 'application/octet-stream', datos: d };

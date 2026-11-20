@@ -230,6 +230,7 @@ export function archivosImpresion(libro: Libro, op: OpcionesImpresion): Map<stri
   archivos.set('libro.html', htmlImpresion(libro, op));
   archivos.set('impresion.css', cssImpresion(libro, op));
   for (const r of libro.recursos) archivos.set(`img/${r.nombre}`, r.datos);
+  for (const a of fuentesTema(temaCompleto(libro), true, libro).archivos) if (a.datos) archivos.set(`fuentes/${a.archivo}`, a.datos);
   return archivos;
 }
 
