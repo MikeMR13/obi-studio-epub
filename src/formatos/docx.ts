@@ -48,7 +48,7 @@ export async function importarDocx(datos: Uint8Array): Promise<ResultadoImportac
       styleMap: MAPA_ESTILOS,
       includeDefaultStyleMap: true,
       // Mammoth no exporta la alineación: se convierte en un estilo antes de transformar.
-      transformDocument: mammoth.transforms.paragraph((p: any) => {
+      transformDocument: (mammoth as any).transforms.paragraph((p: any) => {
         if (p.styleId || p.styleName) {
           if (p.alignment === 'center' && /^(Normal|Body Text|Texto independiente)$/i.test(p.styleName ?? '')) {
             return { ...p, styleId: 'ObiCentrado', styleName: 'ObiCentrado' };

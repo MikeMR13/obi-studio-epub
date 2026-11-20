@@ -4,21 +4,24 @@
   "description": "Obi Studio EPUB: maquetador visual de novelas ligeras",
   "scripts": {
     "test": "node --import tsx --test src/pruebas/*.test.ts",
-    "tipos": "tsc --noEmit -p .",
+    "tipos": "tsc --noEmit -p . && tsc --noEmit -p app/renderer",
     "dev:web": "tsx app/servidor.ts --dev",
-    "cli": "tsx src/cli.ts"
+    "cli": "tsx src/cli.ts",
+    "build": "node scripts/construir.mjs",
+    "app": "node scripts/construir.mjs && electron .",
+    "recursos": "node scripts/preparar-recursos.mjs",
+    "instaladores": "node scripts/construir.mjs && electron-builder --publish never"
   },
-  "author": "",
+  "author": {
+    "name": "MikeMR13"
+  },
   "license": "UNLICENSED",
-  "dependencies": {
-    "@xmldom/xmldom": "^0.9.12",
-    "jszip": "^3.10.2",
-    "linkedom": "^0.18.15",
-    "mammoth": "^1.13.0"
-  },
   "devDependencies": {
+    "@tiptap/core": "^3.34.0",
     "@tiptap/extension-image": "^3.34.0",
     "@tiptap/extension-link": "^3.34.0",
+    "@tiptap/extension-subscript": "^3.34.0",
+    "@tiptap/extension-superscript": "^3.34.0",
     "@tiptap/extension-text-align": "^3.34.0",
     "@tiptap/pm": "^3.34.0",
     "@tiptap/react": "^3.34.0",
@@ -28,12 +31,90 @@
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.3.0",
     "docx": "^9.16.0",
+    "electron": "^45.4.1",
+    "electron-builder": "^26.18.0",
+    "esbuild": "^0.28.2",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2",
-    "vite": "^8.3.8"
+    "vite": "^8.3.8",
+    "@xmldom/xmldom": "^0.9.12",
+    "jszip": "^3.10.2",
+    "linkedom": "^0.18.15",
+    "mammoth": "^1.13.0"
   },
   "type": "module",
-  "private": true
+  "private": true,
+  "main": "dist/main.mjs",
+  "productName": "Obi Studio EPUB",
+  "build": {
+    "appId": "com.obistudio.epub",
+    "productName": "Obi Studio EPUB",
+    "directories": {
+      "output": "instaladores"
+    },
+    "files": [
+      "dist/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "recursos",
+        "to": "recursos",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ],
+    "asar": true,
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "artifactName": "Obi-Studio-EPUB-${version}-Windows.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "perMachine": false,
+      "language": "3082",
+      "shortcutName": "Obi Studio EPUB"
+    },
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
+      ],
+      "category": "public.app-category.productivity",
+      "artifactName": "Obi-Studio-EPUB-${version}-macOS-${arch}.${ext}",
+      "hardenedRuntime": true
+    },
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "category": "Office",
+      "artifactName": "Obi-Studio-EPUB-${version}-Linux.${ext}",
+      "maintainer": "MikeMR13"
+    },
+    "fileAssociations": [
+      {
+        "ext": "obi",
+        "name": "Proyecto de Obi Studio",
+        "role": "Editor"
+      }
+    ]
+  }
 }

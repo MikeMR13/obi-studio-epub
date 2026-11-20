@@ -5,12 +5,22 @@
     "moduleResolution": "NodeNext",
     "strict": true,
     "jsx": "react-jsx",
-    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "lib": [
+      "ES2023",
+      "DOM",
+      "DOM.Iterable"
+    ],
     "skipLibCheck": true,
     "noEmit": true,
     "allowImportingTsExtensions": false,
     "esModuleInterop": true,
-    "types": ["node"]
+    "types": [
+      "node"
+    ]
   },
-  "include": ["src", "app"]
+  "include": [
+    "src",
+    "app/*.ts",
+    "vite.config.ts"
+  ]
 }

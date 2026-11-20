@@ -1,0 +1,128 @@
+// Proceso principal de Electron: arranca el servidor local y abre la ventana.
+
+import { app, BrowserWindow, Menu, dialog, shell, type MenuItemConstructorOptions } from 'electron';
+import { iniciarServidor } from './servidor.js';
+import { Backend } from './backend.js';
+import { join } from 'node:path';
+
+let ventana: BrowserWindow | null = null;
+let salirConfirmado = false;
+
+async function crearVentana() {
+  const backend = new Backend(join(app.getPath('userData'), 'recuperacion'));
+  const { url, puerto } = await iniciarServidor({ backend });
+  const origen = `http://127.0.0.1:${puerto}`;
+
+  ventana = new BrowserWindow({
+    width: 1400,
+    height: 900,
+    minWidth: 1000,
+    minHeight: 640,
+    title: 'Obi Studio EPUB',
+    backgroundColor: '#efeae2',
+    show: false,
+    webPreferences: { contextIsolation: true, sandbox: true, nodeIntegration: false, spellcheck: true },
+  });
+  ventana.webContents.session.setSpellCheckerLanguages(['es', 'es-419', 'es-ES'].filter((l) => ventana!.webContents.session.availableSpellCheckerLanguages.includes(l)));
+  ventana.once('ready-to-show', () => ventana?.show());
+
+  // Solo se navega dentro de la app; los enlaces externos se abren en el navegador del sistema.
+  ventana.webContents.on('will-navigate', (e, destino) => {
+    if (!destino.startsWith(origen)) {
+      e.preventDefault();
+      if (/^https?:/.test(destino)) void shell.openExternal(destino);
+    }
+  });
+  ventana.webContents.setWindowOpenHandler(({ url: destino }) => {
+    if (/^https?:/.test(destino)) void shell.openExternal(destino);
+    return { action: 'deny' };
+  });
+
+  // Descargas (exportar EPUB, guardar proyecto): diálogo nativo de guardar.
+  ventana.webContents.session.on('will-download', (_e, item) => {
+    const nombre = item.getFilename();
+    const esEpub = nombre.endsWith('.epub');
+    item.setSaveDialogOptions({
+      title: esEpub ? 'Exportar EPUB' : 'Guardar proyecto',
+      defaultPath: join(app.getPath('documents'), nombre),
+      filters: esEpub ? [{ name: 'Libro EPUB', extensions: ['epub'] }] : [{ name: 'Proyecto de Obi Studio', extensions: ['obi'] }],
+    });
+  });
+
+  // Aviso de cambios sin guardar al cerrar.
+  ventana.on('close', async (e) => {
+    if (salirConfirmado || !backend.cambiado) return;
+    e.preventDefault();
+    const r = await dialog.showMessageBox(ventana!, {
+      type: 'question',
+      buttons: ['Guardar copia y salir', 'Salir sin guardar', 'Cancelar'],
+      defaultId: 0,
+      cancelId: 2,
+      message: 'Hay cambios sin guardar.',
+      detail: 'Si sales sin guardar, el último estado queda en la copia de recuperación.',
+    });
+    if (r.response === 2) return;
+    await backend.guardarRecuperacion();
+    if (r.response === 0) {
+      const destino = await dialog.showSaveDialog(ventana!, {
+        defaultPath: join(app.getPath('documents'), backend.nombreArchivo),
+        filters: [{ name: 'Proyecto de Obi Studio', extensions: ['obi'] }],
+      });
+      if (destino.canceled || !destino.filePath) return;
+      const { guardarProyecto } = await import('../src/proyecto.js');
+      await guardarProyecto(destino.filePath, backend.libro);
+    }
+    salirConfirmado = true;
+    ventana?.close();
+  });
+
+  const plantilla: MenuItemConstructorOptions[] = [
+    ...(process.platform === 'darwin' ? [{ role: 'appMenu' as const }] : []),
+    { label: 'Archivo', submenu: [{ role: process.platform === 'darwin' ? 'close' : 'quit', label: 'Salir' }] },
+    {
+      label: 'Edición',
+      submenu: [
+        { role: 'undo', label: 'Deshacer' },
+        { role: 'redo', label: 'Rehacer' },
+        { type: 'separator' },
+        { role: 'cut', label: 'Cortar' },
+        { role: 'copy', label: 'Copiar' },
+        { role: 'paste', label: 'Pegar' },
+        { role: 'pasteAndMatchStyle', label: 'Pegar sin formato' },
+        { role: 'selectAll', label: 'Seleccionar todo' },
+      ],
+    },
+    {
+      label: 'Ver',
+      submenu: [
+        { role: 'zoomIn', label: 'Acercar' },
+        { role: 'zoomOut', label: 'Alejar' },
+        { role: 'resetZoom', label: 'Tamaño real' },
+        { type: 'separator' },
+        { role: 'togglefullscreen', label: 'Pantalla completa' },
+        ...(app.isPackaged ? [] : [{ role: 'toggleDevTools' as const, label: 'Herramientas de desarrollo' }]),
+      ],
+    },
+    {
+      label: 'Ayuda',
+      submenu: [
+        { label: 'Acerca de Obi Studio', click: () => dialog.showMessageBox(ventana!, { message: `Obi Studio EPUB ${app.getVersion()}`, detail: 'Maquetador de novelas ligeras. Valida con EPUBCheck 5.4.' }) },
+      ],
+    },
+  ];
+  Menu.setApplicationMenu(Menu.buildFromTemplate(plantilla));
+
+  // Menú contextual con sugerencias de ortografía.
+  ventana.webContents.on('context-menu', (_e, p) => {
+    const items: MenuItemConstructorOptions[] = p.dictionarySuggestions.slice(0, 6).map((s) => ({ label: s, click: () => ventana?.webContents.replaceMisspelling(s) }));
+    if (p.misspelledWord) items.push({ label: 'Añadir al diccionario', click: () => ventana?.webContents.session.addWordToSpellCheckerDictionary(p.misspelledWord) }, { type: 'separator' });
+    if (p.isEditable) items.push({ role: 'cut', label: 'Cortar' }, { role: 'copy', label: 'Copiar' }, { role: 'paste', label: 'Pegar' });
+    else if (p.selectionText) items.push({ role: 'copy', label: 'Copiar' });
+    if (items.length) Menu.buildFromTemplate(items).popup();
+  });
+
+  await ventana.loadURL(url);
+}
+
+app.whenReady().then(crearVentana);
+app.on('window-all-closed', () => app.quit());

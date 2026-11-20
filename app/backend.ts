@@ -1,0 +1,282 @@
+// Operaciones de la app sobre el libro abierto. La interfaz solo habla con esto.
+
+import JSZip from 'jszip';
+import { mkdir } from 'node:fs/promises';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
+import type { Libro, Metadatos, Recurso, Seccion, Tema, TipoSeccion, Tipografia } from '../src/model.js';
+import { libroNuevo, nuevaSeccion, nuevoId, contarPalabras } from '../src/model.js';
+import { compilar, compilarArchivos, archivoSeccion, rutaImagen, cssLibro, CONTAINER } from '../src/compilar.js';
+import { importarEpub } from '../src/formatos/epub.js';
+import { importarDocx } from '../src/formatos/docx.js';
+import { errorXhtml } from '../src/formatos/dom.js';
+import { deserializarProyecto, guardarProyecto, serializarProyecto } from '../src/proyecto.js';
+import { validarDatos, type Resultado } from '../src/validar.js';
+import { aplicarTipografiaLibro, aplicarTipografiaSeccion } from '../src/tipografia.js';
+import { tamanoImagen, tipoPorContenido, extension } from '../src/imagen.js';
+
+export class ErrorUsuario extends Error {
+  constructor(mensaje: string, public estado = 400, public datos?: unknown) {
+    super(mensaje);
+  }
+}
+
+export interface RecursoPublico extends Omit<Recurso, 'datos'> {
+  bytes: number;
+}
+
+export interface Estado {
+  libro: Omit<Libro, 'recursos'> & { recursos: RecursoPublico[] };
+  nombreArchivo: string;
+  cambiado: boolean;
+  palabras: Record<string, number>;
+  avisos: string[];
+}
+
+export class Backend {
+  libro: Libro = libroNuevo();
+  nombreArchivo = 'libro-sin-titulo.obi';
+  cambiado = false;
+  avisos: string[] = [];
+  ultimaValidacion?: Resultado;
+  private temporizador?: NodeJS.Timeout;
+
+  constructor(private carpetaRecuperacion = join(homedir(), '.obi-studio')) {}
+
+  estado(): Estado {
+    const recursos = this.libro.recursos.map(({ datos, ...r }) => ({ ...r, bytes: datos.length }));
+    const palabras: Record<string, number> = {};
+    for (const s of this.libro.secciones) palabras[s.id] = contarPalabras(s);
+    return { libro: { ...this.libro, recursos }, nombreArchivo: this.nombreArchivo, cambiado: this.cambiado, palabras, avisos: this.avisos };
+  }
+
+  private marcar() {
+    this.cambiado = true;
+    this.ultimaValidacion = undefined;
+    clearTimeout(this.temporizador);
+    this.temporizador = setTimeout(() => void this.guardarRecuperacion(), 60_000);
+  }
+
+  async guardarRecuperacion(): Promise<string> {
+    await mkdir(this.carpetaRecuperacion, { recursive: true });
+    const ruta = join(this.carpetaRecuperacion, 'recuperacion.obi');
+    await guardarProyecto(ruta, this.libro);
+    return ruta;
+  }
+
+  seccion(id: string): Seccion {
+    const s = this.libro.secciones.find((x) => x.id === id);
+    if (!s) throw new ErrorUsuario('La sección no existe.', 404);
+    return s;
+  }
+
+  nuevo(titulo?: string, autor?: string) {
+    this.libro = libroNuevo(titulo || 'Libro sin título', autor || '');
+    this.nombreArchivo = nombreDeArchivo(this.libro.metadatos.titulo) + '.obi';
+    this.cambiado = false;
+    this.avisos = [];
+  }
+
+  async importar(nombre: string, datos: Uint8Array) {
+    const ext = nombre.toLowerCase().split('.').pop();
+    let libro: Libro;
+    let avisos: string[] = [];
+    try {
+      if (ext === 'obi') libro = await deserializarProyecto(datos);
+      else if (ext === 'epub') {
+        const r = await importarEpub(datos);
+        libro = r.libro;
+        avisos = r.avisos.map((a) => (a.archivo ? `${a.mensaje} (${a.archivo})` : a.mensaje));
+      } else if (ext === 'docx') {
+        const r = await importarDocx(datos);
+        libro = r.libro;
+        avisos = r.avisos.map((a) => a.mensaje);
+      } else if (ext === 'doc' || ext === 'rtf') {
+        throw new ErrorUsuario('Abre el archivo en Word o LibreOffice y guárdalo como .docx para importarlo.');
+      } else throw new ErrorUsuario('Formato no admitido. Usa .epub, .docx u .obi.');
+    } catch (e) {
+      if (e instanceof ErrorUsuario) throw e;
+      throw new ErrorUsuario(`No se pudo abrir el archivo: ${(e as Error).message}`);
+    }
+    this.libro = libro;
+    this.avisos = avisos;
+    this.nombreArchivo = ext === 'obi' ? nombre : nombreDeArchivo(libro.metadatos.titulo || nombre.replace(/\.[^.]+$/, '')) + '.obi';
+    this.cambiado = ext !== 'obi';
+    this.ultimaValidacion = undefined;
+  }
+
+  metadatos(cambios: Partial<Metadatos>) {
+    this.libro.metadatos = { ...this.libro.metadatos, ...cambios };
+    for (const [k, v] of Object.entries(this.libro.metadatos)) {
+      if (v === '' || v === null || v === undefined) delete (this.libro.metadatos as unknown as Record<string, unknown>)[k];
+    }
+    if (!this.libro.metadatos.titulo) this.libro.metadatos.titulo = 'Libro sin título';
+    this.marcar();
+  }
+
+  tema(cambios: Partial<Tema>) {
+    this.libro.tema = { ...this.libro.tema, ...cambios };
+    this.marcar();
+  }
+
+  tipografia(cambios: Partial<Tipografia>) {
+    this.libro.tipografia = { ...this.libro.tipografia, ...cambios };
+    this.marcar();
+  }
+
+  aplicarTipografia(seccionId?: string): number {
+    const n = seccionId ? aplicarTipografiaSeccion(this.seccion(seccionId), this.libro.tipografia) : aplicarTipografiaLibro(this.libro);
+    if (n) this.marcar();
+    return n;
+  }
+
+  anadirSeccion(tipo: TipoSeccion, titulo: string, despuesDe?: string): Seccion {
+    const s = nuevaSeccion(tipo, titulo);
+    s.bloques = tipo === 'ilustracion' || tipo === 'portada' || tipo === 'indice' ? [] : [{ tipo: 'parrafo', estilo: 'cuerpo', contenido: [] }];
+    const i = despuesDe ? this.libro.secciones.findIndex((x) => x.id === despuesDe) : -1;
+    if (i >= 0) this.libro.secciones.splice(i + 1, 0, s);
+    else this.libro.secciones.push(s);
+    this.marcar();
+    return s;
+  }
+
+  actualizarSeccion(id: string, cambios: Partial<Seccion>) {
+    const s = this.seccion(id);
+    const { id: _id, ...resto } = cambios;
+    Object.assign(s, resto);
+    this.marcar();
+  }
+
+  eliminarSeccion(id: string) {
+    if (this.libro.secciones.length <= 1) throw new ErrorUsuario('El libro necesita al menos una sección.');
+    this.seccion(id);
+    this.libro.secciones = this.libro.secciones.filter((s) => s.id !== id);
+    this.marcar();
+  }
+
+  ordenar(ids: string[]) {
+    const mapa = new Map(this.libro.secciones.map((s) => [s.id, s]));
+    if (ids.length !== mapa.size || ids.some((i) => !mapa.has(i))) throw new ErrorUsuario('El nuevo orden no coincide con las secciones del libro.');
+    this.libro.secciones = ids.map((i) => mapa.get(i)!);
+    this.marcar();
+  }
+
+  anadirRecurso(nombre: string, datos: Uint8Array): RecursoPublico {
+    const tipo = tipoPorContenido(datos);
+    if (!tipo) throw new ErrorUsuario('Formato de imagen no admitido. Usa JPG, PNG, GIF, WebP o SVG.');
+    const base = nombre
+      .replace(/\.[^.]+$/, '')
+      .normalize('NFD')
+      .replace(/[̀-ͯ]/g, '')
+      .replace(/[^A-Za-z0-9_-]+/g, '_')
+      .replace(/^_+|_+$/g, '') || 'imagen';
+    let archivo = `${base}.${extension(tipo)}`;
+    let k = 2;
+    while (this.libro.recursos.some((r) => r.nombre.toLowerCase() === archivo.toLowerCase())) archivo = `${base}-${k++}.${extension(tipo)}`;
+    const tam = tamanoImagen(datos);
+    const r: Recurso = { id: nuevoId('i'), nombre: archivo, tipoMime: tipo, datos, ancho: tam?.ancho, alto: tam?.alto };
+    this.libro.recursos.push(r);
+    this.marcar();
+    const { datos: _d, ...pub } = r;
+    return { ...pub, bytes: datos.length };
+  }
+
+  reemplazarRecurso(id: string, datos: Uint8Array) {
+    const r = this.libro.recursos.find((x) => x.id === id);
+    if (!r) throw new ErrorUsuario('La imagen no existe.', 404);
+    const tipo = tipoPorContenido(datos);
+    if (!tipo) throw new ErrorUsuario('Formato de imagen no admitido.');
+    r.datos = datos;
+    if (tipo !== r.tipoMime) {
+      r.tipoMime = tipo;
+      r.nombre = r.nombre.replace(/\.[^.]+$/, '') + '.' + extension(tipo);
+    }
+    const tam = tamanoImagen(datos);
+    r.ancho = tam?.ancho;
+    r.alto = tam?.alto;
+    this.marcar();
+  }
+
+  recurso(id: string): Recurso {
+    const r = this.libro.recursos.find((x) => x.id === id);
+    if (!r) throw new ErrorUsuario('La imagen no existe.', 404);
+    return r;
+  }
+
+  /** Archivos del EPUB para la vista previa (misma salida que la exportación). */
+  archivosVista(): Map<string, string | Uint8Array> {
+    return compilarArchivos(this.libro);
+  }
+
+  codigo(id: string): string {
+    const s = this.seccion(id);
+    return compilarArchivos({ ...this.libro, secciones: this.libro.secciones }).get(archivoSeccion(s)) as string;
+  }
+
+  /** Aplica XHTML editado a mano: se vuelve a importar con el mismo importador, así el código y el editor no se desincronizan. */
+  async aplicarCodigo(id: string, xhtml: string): Promise<Seccion[]> {
+    const s = this.seccion(id);
+    const cuerpo = xhtml.replace(/^<\?xml[^>]*>\s*/, '').replace(/<!DOCTYPE[^>]*>\s*/i, '');
+    const error = errorXhtml(cuerpo);
+    if (error) throw new ErrorUsuario(`El XHTML no está bien formado: ${error}`);
+    const zip = new JSZip();
+    zip.file('mimetype', 'application/epub+zip', { compression: 'STORE' });
+    zip.file('META-INF/container.xml', CONTAINER);
+    const imgs = this.libro.recursos.map((r) => `<item id="${r.id}" href="${rutaImagen(r.nombre)}" media-type="${r.tipoMime}"/>`).join('');
+    for (const r of this.libro.recursos) zip.file(`EPUB/${rutaImagen(r.nombre)}`, r.datos);
+    zip.file('EPUB/estilos.css', cssLibro(this.libro));
+    zip.file('EPUB/s.xhtml', xhtml);
+    zip.file(
+      'EPUB/package.opf',
+      `<?xml version="1.0"?><package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="u"><metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:identifier id="u">x</dc:identifier><dc:title>x</dc:title><dc:language>${this.libro.metadatos.idioma}</dc:language></metadata><manifest><item id="s" href="s.xhtml" media-type="application/xhtml+xml"/><item id="css" href="estilos.css" media-type="text/css"/>${imgs}</manifest><spine><itemref idref="s"/></spine></package>`,
+    );
+    const { libro } = await importarEpub(await zip.generateAsync({ type: 'uint8array' }));
+    // Las imágenes vuelven con ids nuevos: se mapean por nombre a las del libro.
+    const porNombre = new Map(this.libro.recursos.map((r) => [r.nombre, r.id]));
+    const idNuevo = new Map(libro.recursos.map((r) => [r.id, porNombre.get(r.nombre) ?? r.id]));
+    for (const r of libro.recursos) if (!porNombre.has(r.nombre)) this.libro.recursos.push(r);
+    const nuevas = libro.secciones.map((x, k) => {
+      for (const b of x.bloques) if (b.tipo === 'imagen') b.recurso = idNuevo.get(b.recurso) ?? b.recurso;
+      if (k === 0) return { ...x, id: s.id, tipo: s.tipo === x.tipo || x.tipo === 'otro' || x.tipo === 'capitulo' ? s.tipo : x.tipo };
+      return { ...x, tipo: x.tipo === 'otro' ? s.tipo : x.tipo };
+    });
+    if (!nuevas.length) nuevas.push({ ...s, bloques: [] });
+    const i = this.libro.secciones.findIndex((x) => x.id === id);
+    this.libro.secciones.splice(i, 1, ...nuevas);
+    this.marcar();
+    return nuevas;
+  }
+
+  async validar(): Promise<Resultado> {
+    const r = await validarDatos(await compilar(this.libro));
+    this.ultimaValidacion = r;
+    return r;
+  }
+
+  /** Exportar valida primero y bloquea si hay errores. */
+  async exportar(): Promise<{ nombre: string; datos: Uint8Array }> {
+    const datos = await compilar(this.libro);
+    const r = await validarDatos(datos);
+    this.ultimaValidacion = r;
+    if (!r.valido) throw new ErrorUsuario('El EPUB tiene errores. Corrígelos antes de exportar.', 409, r);
+    return { nombre: nombreDeArchivo(this.libro.metadatos.titulo) + '.epub', datos };
+  }
+
+  async proyecto(): Promise<{ nombre: string; datos: Uint8Array }> {
+    const datos = await serializarProyecto(this.libro);
+    this.cambiado = false;
+    return { nombre: this.nombreArchivo, datos };
+  }
+}
+
+export function nombreDeArchivo(titulo: string): string {
+  return (
+    titulo
+      .normalize('NFD')
+      .replace(/[̀-ͯ]/g, '')
+      .replace(/[^A-Za-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .toLowerCase()
+      .slice(0, 60) || 'libro'
+  );
+}

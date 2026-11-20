@@ -26,13 +26,14 @@ export interface Resultado {
 }
 
 const aqui = dirname(fileURLToPath(import.meta.url));
+const recursosApp = (process as { resourcesPath?: string }).resourcesPath;
 
 export function rutaEpubcheck(): string | undefined {
   const candidatos = [
     process.env.EPUBCHECK_JAR,
     resolve(aqui, '../recursos/epubcheck/epubcheck.jar'),
     resolve(aqui, '../../recursos/epubcheck/epubcheck.jar'),
-    process.resourcesPath ? join(process.resourcesPath, 'recursos/epubcheck/epubcheck.jar') : undefined,
+    recursosApp ? join(recursosApp, 'recursos/epubcheck/epubcheck.jar') : undefined,
   ].filter(Boolean) as string[];
   return candidatos.find((c) => existsSync(c));
 }
@@ -43,7 +44,7 @@ export function rutaJava(): string {
   const propios = [
     resolve(aqui, `../recursos/java/bin/java${ext}`),
     resolve(aqui, `../../recursos/java/bin/java${ext}`),
-    process.resourcesPath ? join(process.resourcesPath, `recursos/java/bin/java${ext}`) : '',
+    recursosApp ? join(recursosApp, `recursos/java/bin/java${ext}`) : '',
   ];
   return propios.find((p) => p && existsSync(p)) ?? 'java';
 }

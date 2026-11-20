@@ -1,0 +1,213 @@
+// Servidor local de Obi Studio: la misma API para la app de escritorio (Electron) y para el navegador en desarrollo.
+// Solo escucha en 127.0.0.1 y, fuera de desarrollo, exige un token por sesión.
+
+import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
+import { readFile } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
+import { dirname, extname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { randomBytes } from 'node:crypto';
+import { Backend, ErrorUsuario } from './backend.js';
+
+const aqui = dirname(fileURLToPath(import.meta.url));
+
+const TIPOS: Record<string, string> = {
+  '.html': 'text/html; charset=utf-8',
+  '.js': 'text/javascript; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.xhtml': 'application/xhtml+xml; charset=utf-8',
+  '.svg': 'image/svg+xml',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.webp': 'image/webp',
+  '.gif': 'image/gif',
+  '.woff2': 'font/woff2',
+  '.json': 'application/json',
+};
+
+async function cuerpo(req: IncomingMessage, limite = 300 * 1024 * 1024): Promise<Uint8Array> {
+  const trozos: Buffer[] = [];
+  let total = 0;
+  for await (const t of req) {
+    total += (t as Buffer).length;
+    if (total > limite) throw new ErrorUsuario('El archivo es demasiado grande.', 413);
+    trozos.push(t as Buffer);
+  }
+  return new Uint8Array(Buffer.concat(trozos));
+}
+
+async function json<T = any>(req: IncomingMessage): Promise<T> {
+  const d = await cuerpo(req, 50 * 1024 * 1024);
+  if (!d.length) return {} as T;
+  try {
+    return JSON.parse(new TextDecoder().decode(d));
+  } catch {
+    throw new ErrorUsuario('Petición mal formada.');
+  }
+}
+
+function enviar(res: ServerResponse, estado: number, datos: unknown) {
+  res.writeHead(estado, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
+  res.end(JSON.stringify(datos));
+}
+
+function descarga(res: ServerResponse, nombre: string, tipo: string, datos: Uint8Array) {
+  res.writeHead(200, {
+    'Content-Type': tipo,
+    'Content-Length': datos.length,
+    'Content-Disposition': `attachment; filename="${nombre}"; filename*=UTF-8''${encodeURIComponent(nombre)}`,
+    'Cache-Control': 'no-store',
+  });
+  res.end(Buffer.from(datos));
+}
+
+export interface OpcionesServidor {
+  puerto?: number;
+  dev?: boolean;
+  backend?: Backend;
+  token?: string;
+}
+
+export async function iniciarServidor(op: OpcionesServidor = {}) {
+  const backend = op.backend ?? new Backend();
+  const token = op.dev ? '' : op.token ?? randomBytes(24).toString('hex');
+  const raizRenderer = [resolve(aqui, '../dist/renderer'), resolve(aqui, '../renderer')].find((r) => existsSync(join(r, 'index.html')));
+
+  let vite: any;
+  if (op.dev) {
+    const { createServer: crearVite } = await import('vite');
+    vite = await crearVite({ configFile: resolve(aqui, '../vite.config.ts'), server: { middlewareMode: true }, appType: 'spa' });
+  }
+
+  const rutas: [string, RegExp, (req: IncomingMessage, res: ServerResponse, m: RegExpMatchArray, url: URL) => Promise<void>][] = [
+    ['GET', /^\/api\/estado$/, async (_q, r) => enviar(r, 200, backend.estado())],
+    ['POST', /^\/api\/nuevo$/, async (q, r) => {
+      const d = await json(q);
+      backend.nuevo(d.titulo, d.autor);
+      enviar(r, 200, backend.estado());
+    }],
+    ['POST', /^\/api\/importar$/, async (q, r, _m, url) => {
+      await backend.importar(url.searchParams.get('nombre') ?? 'archivo', await cuerpo(q));
+      enviar(r, 200, backend.estado());
+    }],
+    ['PUT', /^\/api\/metadatos$/, async (q, r) => {
+      backend.metadatos(await json(q));
+      enviar(r, 200, backend.estado());
+    }],
+    ['PUT', /^\/api\/tema$/, async (q, r) => {
+      backend.tema(await json(q));
+      enviar(r, 200, backend.estado());
+    }],
+    ['PUT', /^\/api\/tipografia$/, async (q, r) => {
+      backend.tipografia(await json(q));
+      enviar(r, 200, backend.estado());
+    }],
+    ['POST', /^\/api\/tipografia\/aplicar$/, async (q, r) => {
+      const d = await json(q);
+      const cambios = backend.aplicarTipografia(d.seccion);
+      enviar(r, 200, { cambios, estado: backend.estado() });
+    }],
+    ['POST', /^\/api\/secciones$/, async (q, r) => {
+      const d = await json(q);
+      const s = backend.anadirSeccion(d.tipo ?? 'capitulo', d.titulo ?? '', d.despuesDe);
+      enviar(r, 200, { seccion: s.id, estado: backend.estado() });
+    }],
+    ['PUT', /^\/api\/secciones\/([\w-]+)$/, async (q, r, m) => {
+      backend.actualizarSeccion(m[1], await json(q));
+      enviar(r, 200, backend.estado());
+    }],
+    ['DELETE', /^\/api\/secciones\/([\w-]+)$/, async (_q, r, m) => {
+      backend.eliminarSeccion(m[1]);
+      enviar(r, 200, backend.estado());
+    }],
+    ['PUT', /^\/api\/orden$/, async (q, r) => {
+      backend.ordenar((await json(q)).ids);
+      enviar(r, 200, backend.estado());
+    }],
+    ['POST', /^\/api\/recursos$/, async (q, r, _m, url) => {
+      const rec = backend.anadirRecurso(url.searchParams.get('nombre') ?? 'imagen', await cuerpo(q));
+      enviar(r, 200, { recurso: rec, estado: backend.estado() });
+    }],
+    ['PUT', /^\/api\/recursos\/([\w-]+)$/, async (q, r, m) => {
+      backend.reemplazarRecurso(m[1], await cuerpo(q));
+      enviar(r, 200, backend.estado());
+    }],
+    ['GET', /^\/api\/recursos\/([\w-]+)$/, async (_q, r, m) => {
+      const rec = backend.recurso(m[1]);
+      r.writeHead(200, { 'Content-Type': rec.tipoMime, 'Cache-Control': 'no-cache' });
+      r.end(Buffer.from(rec.datos));
+    }],
+    ['GET', /^\/api\/codigo\/([\w-]+)$/, async (_q, r, m) => enviar(r, 200, { xhtml: backend.codigo(m[1]) })],
+    ['PUT', /^\/api\/codigo\/([\w-]+)$/, async (q, r, m) => {
+      const nuevas = await backend.aplicarCodigo(m[1], (await json(q)).xhtml ?? '');
+      enviar(r, 200, { secciones: nuevas.map((s) => s.id), estado: backend.estado() });
+    }],
+    ['POST', /^\/api\/validar$/, async (_q, r) => enviar(r, 200, await backend.validar())],
+    ['GET', /^\/api\/exportar$/, async (_q, r) => {
+      const { nombre, datos } = await backend.exportar();
+      descarga(r, nombre, 'application/epub+zip', datos);
+    }],
+    ['GET', /^\/api\/proyecto$/, async (_q, r) => {
+      const { nombre, datos } = await backend.proyecto();
+      descarga(r, nombre, 'application/octet-stream', datos);
+    }],
+    ['GET', /^\/vista\/(.+)$/, async (_q, r, m) => {
+      const archivos = backend.archivosVista();
+      const ruta = decodeURIComponent(m[1]);
+      const d = archivos.get(ruta);
+      if (d === undefined) throw new ErrorUsuario('No encontrado', 404);
+      r.writeHead(200, { 'Content-Type': TIPOS[extname(ruta)] ?? 'application/octet-stream', 'Cache-Control': 'no-store' });
+      r.end(typeof d === 'string' ? d : Buffer.from(d));
+    }],
+  ];
+
+  const servidor = createServer(async (req, res) => {
+    try {
+      const url = new URL(req.url ?? '/', 'http://127.0.0.1');
+      const esApi = url.pathname.startsWith('/api/') || url.pathname.startsWith('/vista/');
+      if (esApi && token) {
+        const t = req.headers['x-obi-token'] ?? url.searchParams.get('t') ?? leerCookie(req.headers.cookie, 'obi');
+        if (t !== token) return enviar(res, 403, { error: 'Acceso no autorizado.' });
+      }
+      if (esApi) {
+        for (const [metodo, re, fn] of rutas) {
+          const m = url.pathname.match(re);
+          if (m && req.method === metodo) return await fn(req, res, m, url);
+        }
+        return enviar(res, 404, { error: 'Ruta desconocida.' });
+      }
+      if (vite) return vite.middlewares(req, res);
+      if (!raizRenderer) return enviar(res, 500, { error: 'Falta compilar la interfaz (npm run build).' });
+      let ruta = join(raizRenderer, url.pathname === '/' ? 'index.html' : decodeURIComponent(url.pathname));
+      if (!ruta.startsWith(raizRenderer) || !existsSync(ruta)) ruta = join(raizRenderer, 'index.html');
+      const cabeceras: Record<string, string> = {
+        'Content-Type': TIPOS[extname(ruta)] ?? 'application/octet-stream',
+        'Content-Security-Policy':
+          "default-src 'self'; img-src 'self' blob: data:; style-src 'self' 'unsafe-inline'; script-src 'self'; frame-src 'self'; object-src 'none'",
+      };
+      if (token && url.searchParams.get('t') === token) cabeceras['Set-Cookie'] = `obi=${token}; HttpOnly; SameSite=Strict; Path=/`;
+      res.writeHead(200, cabeceras);
+      res.end(await readFile(ruta));
+    } catch (e) {
+      if (e instanceof ErrorUsuario) return enviar(res, e.estado, { error: e.message, datos: e.datos });
+      console.error(e);
+      enviar(res, 500, { error: `Error interno: ${(e as Error).message}` });
+    }
+  });
+
+  await new Promise<void>((ok) => servidor.listen(op.puerto ?? 0, '127.0.0.1', ok));
+  const direccion = servidor.address();
+  const puerto = typeof direccion === 'object' && direccion ? direccion.port : 0;
+  return { servidor, puerto, token, backend, url: `http://127.0.0.1:${puerto}/${token ? `?t=${token}` : ''}` };
+}
+
+function leerCookie(cabecera: string | undefined, nombre: string): string | undefined {
+  return cabecera?.split(';').map((c) => c.trim().split('=')).find(([k]) => k === nombre)?.[1];
+}
+
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  const dev = process.argv.includes('--dev');
+  const puerto = Number(process.env.PUERTO ?? 5180);
+  const s = await iniciarServidor({ dev, puerto });
+  console.log(`Obi Studio en ${s.url}`);
+}
