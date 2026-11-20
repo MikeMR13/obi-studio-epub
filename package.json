@@ -1,0 +1,39 @@
+{
+  "name": "obi-studio-epub",
+  "version": "1.0.0-alpha.1",
+  "description": "Obi Studio EPUB: maquetador visual de novelas ligeras",
+  "scripts": {
+    "test": "node --import tsx --test src/pruebas/*.test.ts",
+    "tipos": "tsc --noEmit -p .",
+    "dev:web": "tsx app/servidor.ts --dev",
+    "cli": "tsx src/cli.ts"
+  },
+  "author": "",
+  "license": "UNLICENSED",
+  "dependencies": {
+    "@xmldom/xmldom": "^0.9.12",
+    "jszip": "^3.10.2",
+    "linkedom": "^0.18.15",
+    "mammoth": "^1.13.0"
+  },
+  "devDependencies": {
+    "@tiptap/extension-image": "^3.34.0",
+    "@tiptap/extension-link": "^3.34.0",
+    "@tiptap/extension-text-align": "^3.34.0",
+    "@tiptap/pm": "^3.34.0",
+    "@tiptap/react": "^3.34.0",
+    "@tiptap/starter-kit": "^3.34.0",
+    "@types/node": "^26.6.6",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.3.0",
+    "docx": "^9.16.0",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.8"
+  },
+  "type": "module",
+  "private": true
+}

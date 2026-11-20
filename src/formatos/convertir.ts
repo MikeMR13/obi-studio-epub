@@ -1,0 +1,425 @@
+// Conversión de HTML/XHTML (de un EPUB o de Word) a bloques del modelo.
+// Lo que el editor visual no sabe representar se guarda como bloque «crudo» para no perder nada.
+
+import type { Bloque, EstiloParrafo, Inline, Marca, Nota } from '../model.js';
+import { ESTILOS_PARRAFO, nuevoId, normalizarInlines } from '../model.js';
+import { ELEMENTO, TEXTO, CDATA, attr, clases, hijos, nombre, serializar, texto, tiposEpub, type Nodo } from './dom.js';
+
+export interface EstiloCss {
+  negrita?: boolean;
+  cursiva?: boolean;
+  versalitas?: boolean;
+  subrayado?: boolean;
+  tachado?: boolean;
+  superindice?: boolean;
+  alinear?: 'center' | 'right' | 'left' | 'justify';
+  oculto?: boolean;
+}
+
+/** Reglas de clase muy simples (`.x`, `p.x`, `span.x`) sacadas de las hojas de estilo del EPUB. */
+export function analizarCss(css: string, destino = new Map<string, EstiloCss>()): Map<string, EstiloCss> {
+  const sinComentarios = css.replace(/\/\*[\s\S]*?\*\//g, '');
+  const re = /([^{}@]+)\{([^{}]*)\}/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(sinComentarios))) {
+    const estilo = estiloDeDeclaraciones(m[2]);
+    if (!Object.keys(estilo).length) continue;
+    for (const selector of m[1].split(',')) {
+      const s = selector.trim();
+      const clase = s.match(/^(?:[a-z0-9]+)?\.([\w-]+)$/i)?.[1];
+      if (!clase) continue;
+      destino.set(clase, { ...(destino.get(clase) ?? {}), ...estilo });
+    }
+  }
+  return destino;
+}
+
+export function estiloDeDeclaraciones(decl: string): EstiloCss {
+  const e: EstiloCss = {};
+  for (const parte of decl.split(';')) {
+    const [prop, ...resto] = parte.split(':');
+    if (!prop || !resto.length) continue;
+    const p = prop.trim().toLowerCase();
+    const v = resto.join(':').trim().toLowerCase();
+    if (p === 'font-weight') e.negrita = v === 'bold' || v === 'bolder' || parseInt(v) >= 600;
+    else if (p === 'font-style') e.cursiva = v.startsWith('italic') || v.startsWith('oblique');
+    else if (p === 'font-variant' || p === 'font-variant-caps') e.versalitas = v.includes('small-caps');
+    else if (p === 'text-decoration' || p === 'text-decoration-line') {
+      e.subrayado = v.includes('underline');
+      e.tachado = v.includes('line-through');
+    } else if (p === 'vertical-align') e.superindice = v === 'super';
+    else if (p === 'text-align' && ['center', 'right', 'left', 'justify'].includes(v)) e.alinear = v as EstiloCss['alinear'];
+    else if (p === 'display' && v === 'none') e.oculto = true;
+  }
+  for (const k of Object.keys(e) as (keyof EstiloCss)[]) if (e[k] === false) delete e[k];
+  return e;
+}
+
+export interface OpcionesConversion {
+  css: Map<string, EstiloCss>;
+  /** Devuelve el id del recurso para un src/href de imagen, o undefined. */
+  imagen: (src: string) => string | undefined;
+  /** Devuelve la ruta de imagen que debe usarse dentro del XHTML crudo. */
+  rutaCruda: (src: string) => string | null;
+  /** ¿Este enlace es una llamada a nota? Si lo es, devuelve la clave de la nota. */
+  claveNota: (a: Nodo) => string | undefined;
+  /** ¿Este elemento es el cuerpo de una nota (ya extraída aparte)? */
+  esCuerpoNota: (n: Nodo) => boolean;
+  /** ¿Este enlace es un enlace de vuelta de una nota? */
+  esEnlaceVuelta?: (a: Nodo) => boolean;
+}
+
+export interface Parte {
+  titulo?: string;
+  /** Tipo semántico detectado en el elemento que abre la parte (epub:type / role). */
+  tipos: string[];
+  /** aria-label del elemento que abre la parte (título no visible). */
+  etiqueta?: string;
+  bloques: Bloque[];
+}
+
+const SEPARADOR = /^\s*(?:[*＊⁂◇◆□■○●☆★◎※~～·•\-–—=]\s*){1,7}$/;
+const BLOQUES_CONTENEDOR = new Set(['div', 'section', 'article', 'main', 'header', 'footer', 'body', 'center', 'hgroup']);
+const INLINE = new Set([
+  'span', 'a', 'b', 'strong', 'i', 'em', 'u', 's', 'strike', 'del', 'ins', 'sup', 'sub', 'small', 'big', 'font', 'cite',
+  'abbr', 'mark', 'q', 'code', 'kbd', 'var', 'dfn', 'time', 'bdi', 'bdo', 'ruby', 'br', 'img', 'label', 'tt', 'wbr',
+]);
+const CRUDOS = new Set(['table', 'math', 'video', 'audio', 'iframe', 'object', 'pre', 'dl', 'form', 'details']);
+
+const CLASES_PROPIAS = new Set<string>(ESTILOS_PARRAFO.map((e) => e.id));
+
+function estiloDeNodo(n: Nodo, o: OpcionesConversion): EstiloCss {
+  let e: EstiloCss = {};
+  // Las clases de estilo de párrafo de Obi Studio ya se traducen a estilos; no se convierten en marcas.
+  for (const c of clases(n)) if (!CLASES_PROPIAS.has(c)) e = { ...e, ...(o.css.get(c) ?? {}) };
+  const enLinea = attr(n, 'style');
+  if (enLinea) e = { ...e, ...estiloDeDeclaraciones(enLinea) };
+  return e;
+}
+
+function marcasDeEstilo(e: EstiloCss): Marca[] {
+  const m: Marca[] = [];
+  if (e.negrita) m.push('negrita');
+  if (e.cursiva) m.push('cursiva');
+  if (e.versalitas) m.push('versalitas');
+  if (e.subrayado) m.push('subrayado');
+  if (e.tachado) m.push('tachado');
+  if (e.superindice) m.push('superindice');
+  return m;
+}
+
+const MARCA_ETIQUETA: Record<string, Marca> = {
+  b: 'negrita',
+  strong: 'negrita',
+  i: 'cursiva',
+  em: 'cursiva',
+  cite: 'cursiva',
+  u: 'subrayado',
+  ins: 'subrayado',
+  s: 'tachado',
+  strike: 'tachado',
+  del: 'tachado',
+  sup: 'superindice',
+  sub: 'subindice',
+};
+
+interface EstadoInline {
+  marcas: Marca[];
+  enlace?: string;
+  idioma?: string;
+}
+
+export function convertirInlines(nodos: Nodo[], o: OpcionesConversion, estado: EstadoInline = { marcas: [] }): Inline[] {
+  const salida: Inline[] = [];
+  for (const n of nodos) {
+    if (n.nodeType === TEXTO || n.nodeType === CDATA) {
+      const t = (n.nodeValue ?? '').replace(/[\r\n\t ]+/g, ' ');
+      if (t) salida.push({ tipo: 'texto', texto: t, marcas: [...estado.marcas], enlace: estado.enlace, idioma: estado.idioma });
+      continue;
+    }
+    if (n.nodeType !== ELEMENTO) continue;
+    const et = nombre(n);
+    const est = estiloDeNodo(n, o);
+    if (est.oculto) continue;
+    if (et === 'br') {
+      salida.push({ tipo: 'salto' });
+      continue;
+    }
+    if (et === 'img' || et === 'svg' || et === 'script' || et === 'style' || et === 'rt' || et === 'rp') continue;
+    if (et === 'a') {
+      const clave = o.claveNota(n);
+      if (clave) {
+        salida.push({ tipo: 'nota', id: clave });
+        continue;
+      }
+      if (o.esEnlaceVuelta?.(n)) continue;
+    }
+    if (et === 'sup' && hijos(n).length === 1 && nombre(hijos(n)[0]) === 'a' && o.claveNota(hijos(n)[0])) {
+      salida.push({ tipo: 'nota', id: o.claveNota(hijos(n)[0])! });
+      continue;
+    }
+    if (et === 'ruby') {
+      const base = hijos(n)
+        .filter((h) => h.nodeType === TEXTO || (h.nodeType === ELEMENTO && !['rt', 'rp'].includes(nombre(h))))
+        .map((h) => texto(h))
+        .join('')
+        .trim();
+      const lectura = hijos(n)
+        .filter((h) => nombre(h) === 'rt')
+        .map((h) => texto(h))
+        .join('')
+        .trim();
+      if (base && lectura) salida.push({ tipo: 'ruby', base, lectura, marcas: estado.marcas.length ? [...estado.marcas] : undefined });
+      else if (base) salida.push({ tipo: 'texto', texto: base, marcas: [...estado.marcas], enlace: estado.enlace, idioma: estado.idioma });
+      continue;
+    }
+    const nuevo: EstadoInline = { marcas: [...estado.marcas], enlace: estado.enlace, idioma: estado.idioma };
+    const m = MARCA_ETIQUETA[et];
+    if (m && !nuevo.marcas.includes(m)) nuevo.marcas.push(m);
+    for (const mm of marcasDeEstilo(est)) if (!nuevo.marcas.includes(mm)) nuevo.marcas.push(mm);
+    const lang = attr(n, 'xml:lang') || attr(n, 'lang');
+    if (lang) nuevo.idioma = lang;
+    if (et === 'a') {
+      const href = attr(n, 'href');
+      if (/^(https?:|mailto:)/i.test(href)) nuevo.enlace = href;
+    }
+    salida.push(...convertirInlines(hijos(n), o, nuevo));
+  }
+  return salida;
+}
+
+/** Inlines limpios: espacios del principio y final recortados, idioma del libro omitido. */
+export function inlinesLimpios(nodos: Nodo[], o: OpcionesConversion, base: EstadoInline = { marcas: [] }, idiomaLibro?: string): Inline[] {
+  let lista = convertirInlines(nodos, o, base);
+  for (const i of lista) {
+    if (i.tipo === 'texto') {
+      if (i.idioma && idiomaLibro && i.idioma.split('-')[0] === idiomaLibro.split('-')[0]) delete i.idioma;
+      if (!i.enlace) delete i.enlace;
+      if (!i.idioma) delete i.idioma;
+    }
+  }
+  lista = normalizarInlines(lista);
+  // Recortar espacios en los extremos y saltos sobrantes.
+  while (lista.length && lista[0].tipo === 'salto') lista.shift();
+  while (lista.length && lista[lista.length - 1].tipo === 'salto') lista.pop();
+  const primero = lista[0];
+  if (primero?.tipo === 'texto') primero.texto = primero.texto.replace(/^\s+/, '');
+  const ultimo = lista[lista.length - 1];
+  if (ultimo?.tipo === 'texto') ultimo.texto = ultimo.texto.replace(/\s+$/, '');
+  return normalizarInlines(lista);
+}
+
+function estiloParrafo(n: Nodo, o: OpcionesConversion, heredado?: EstiloParrafo): EstiloParrafo {
+  const propios = clases(n);
+  const directo = ESTILOS_PARRAFO.find((e) => propios.includes(e.id));
+  if (directo) return directo.id;
+  const e = estiloDeNodo(n, o);
+  if (e.alinear === 'center') return 'centrado';
+  if (e.alinear === 'right') return 'derecha';
+  return heredado ?? 'cuerpo';
+}
+
+function contieneSoloImagen(n: Nodo): Nodo | undefined {
+  let imagen: Nodo | undefined;
+  const recorrer = (x: Nodo): boolean => {
+    for (const h of hijos(x)) {
+      if (h.nodeType === TEXTO && (h.nodeValue ?? '').trim()) return false;
+      if (h.nodeType !== ELEMENTO) continue;
+      const et = nombre(h);
+      if (et === 'img' || et === 'svg') {
+        if (imagen) return false;
+        imagen = h;
+      } else if (et === 'br') continue;
+      else if (!recorrer(h)) return false;
+    }
+    return true;
+  };
+  return recorrer(n) ? imagen : undefined;
+}
+
+function srcImagen(n: Nodo): { src: string; alt: string } | undefined {
+  if (nombre(n) === 'img') return { src: attr(n, 'src'), alt: attr(n, 'alt') };
+  if (nombre(n) === 'svg') {
+    const img = hijos(n).find((h) => nombre(h) === 'image');
+    const otros = hijos(n).filter((h) => h.nodeType === ELEMENTO && !['image', 'title', 'desc'].includes(nombre(h)));
+    if (!img || otros.length) return undefined;
+    const titulo = hijos(n).find((h) => nombre(h) === 'title');
+    return { src: attr(img, 'xlink:href') || attr(img, 'href'), alt: attr(n, 'aria-label') || (titulo ? texto(titulo).trim() : '') };
+  }
+  return undefined;
+}
+
+export function convertirBloques(raiz: Nodo, o: OpcionesConversion, idiomaLibro?: string): Parte[] {
+  const partes: Parte[] = [{ tipos: [], bloques: [] }];
+  const actual = () => partes[partes.length - 1];
+
+  const anadirImagen = (n: Nodo, pie?: string): boolean => {
+    const s = srcImagen(n);
+    if (!s) return false;
+    const id = o.imagen(s.src);
+    if (!id) return false;
+    const decorativa = attr(n, 'role') === 'presentation' || (nombre(n) === 'img' && n.getAttribute?.('alt') === '' && !pie);
+    actual().bloques.push({ tipo: 'imagen', recurso: id, alt: s.alt.trim(), decorativa: decorativa || undefined, pie: pie || undefined });
+    return true;
+  };
+
+  const anadirCrudo = (n: Nodo) => {
+    const xhtml = serializar(n, (el, a, v) => {
+      if ((el === 'img' && a === 'src') || (el === 'image' && (a === 'xlink:href' || a === 'href'))) return o.rutaCruda(v);
+      if (a === 'id') return null; // los id se regeneran; evita choques
+      return v;
+    });
+    actual().bloques.push({ tipo: 'crudo', xhtml });
+  };
+
+  const anadirParrafo = (nodos: Nodo[], estilo: EstiloParrafo, base: EstadoInline) => {
+    const contenido = inlinesLimpios(nodos, o, base, idiomaLibro);
+    const plano = contenido.map((i) => (i.tipo === 'texto' ? i.texto : i.tipo === 'ruby' ? i.base : '')).join('');
+    if (!contenido.length) return;
+    if (SEPARADOR.test(plano) && !contenido.some((i) => i.tipo === 'nota')) {
+      actual().bloques.push({ tipo: 'separador' });
+      return;
+    }
+    if (!plano.trim() && !contenido.some((i) => i.tipo !== 'texto' && i.tipo !== 'salto')) return;
+    actual().bloques.push({ tipo: 'parrafo', estilo, contenido });
+  };
+
+  const recorrer = (n: Nodo, estiloHeredado?: EstiloParrafo, base: EstadoInline = { marcas: [] }) => {
+    let pendientes: Nodo[] = [];
+    const vaciar = () => {
+      if (pendientes.length) anadirParrafo(pendientes, estiloHeredado ?? 'cuerpo', base);
+      pendientes = [];
+    };
+    for (const h of hijos(n)) {
+      if (h.nodeType === TEXTO || h.nodeType === CDATA) {
+        pendientes.push(h);
+        continue;
+      }
+      if (h.nodeType !== ELEMENTO) continue;
+      const et = nombre(h);
+      if (o.esCuerpoNota(h)) continue;
+      if (['script', 'style', 'head', 'title', 'meta', 'link', 'nav'].includes(et)) continue;
+      const est = estiloDeNodo(h, o);
+      if (est.oculto) continue;
+      if (INLINE.has(et) && !(et === 'img' || et === 'svg')) {
+        pendientes.push(h);
+        continue;
+      }
+      vaciar();
+      const marcasBloque: EstadoInline = { ...base, marcas: [...base.marcas, ...marcasDeEstilo(est)] };
+      if (et === 'h1') {
+        const t = texto(h).replace(/\s+/g, ' ').trim();
+        if (actual().bloques.length || actual().titulo !== undefined) partes.push({ tipos: [], bloques: [] });
+        actual().titulo = t;
+        continue;
+      }
+      if (/^h[2-6]$/.test(et)) {
+        const contenido = inlinesLimpios(hijos(h), o, { marcas: [] }, idiomaLibro);
+        if (!contenido.length) continue;
+        // Un h2 al principio de una parte sin título hace de título.
+        if (et === 'h2' && actual().titulo === undefined && !actual().bloques.length) {
+          actual().titulo = texto(h).replace(/\s+/g, ' ').trim();
+          continue;
+        }
+        actual().bloques.push({ tipo: 'subtitulo', nivel: et === 'h2' ? 2 : 3, contenido });
+        continue;
+      }
+      if (et === 'hr') {
+        actual().bloques.push({ tipo: 'separador' });
+        continue;
+      }
+      if (clases(h).includes('escena') || attr(h, 'role') === 'separator') {
+        actual().bloques.push({ tipo: 'separador' });
+        continue;
+      }
+      if (et === 'img' || et === 'svg') {
+        if (!anadirImagen(h) && et === 'svg') anadirCrudo(h);
+        continue;
+      }
+      if (et === 'figure') {
+        const img = contieneSoloImagen({ ...h, childNodes: hijos(h).filter((x) => nombre(x) !== 'figcaption') } as Nodo);
+        const cap = hijos(h).find((x) => nombre(x) === 'figcaption');
+        if (img && anadirImagen(img, cap ? texto(cap).replace(/\s+/g, ' ').trim() : undefined)) continue;
+        anadirCrudo(h);
+        continue;
+      }
+      if (et === 'p' || et === 'li' || et === 'dd' || et === 'dt') {
+        const img = contieneSoloImagen(h);
+        if (img) {
+          if (!anadirImagen(img) && nombre(img) === 'svg') anadirCrudo(img);
+          continue;
+        }
+        if (h.parentNode && hijos(h).some((x) => nombre(x) === 'p' || nombre(x) === 'div')) {
+          recorrer(h, estiloParrafo(h, o, estiloHeredado), marcasBloque);
+          continue;
+        }
+        anadirParrafo(hijos(h), estiloParrafo(h, o, estiloHeredado), marcasBloque);
+        continue;
+      }
+      if (et === 'ul' || et === 'ol') {
+        const elementos = hijos(h)
+          .filter((x) => nombre(x) === 'li' && !o.esCuerpoNota(x))
+          .map((li) => inlinesLimpios(hijos(li), o, marcasBloque, idiomaLibro))
+          .filter((e) => e.length);
+        if (elementos.length) actual().bloques.push({ tipo: 'lista', ordenada: et === 'ol', elementos });
+        continue;
+      }
+      if (et === 'blockquote') {
+        recorrer(h, 'cita', marcasBloque);
+        continue;
+      }
+      if (et === 'aside') {
+        recorrer(h, estiloHeredado, marcasBloque);
+        continue;
+      }
+      if (CRUDOS.has(et)) {
+        anadirCrudo(h);
+        continue;
+      }
+      if (BLOQUES_CONTENEDOR.has(et) || !INLINE.has(et)) {
+        const tipos = tiposEpub(h);
+        if (et === 'section' && !actual().bloques.length && !actual().tipos.length) {
+          if (tipos.length) actual().tipos = tipos;
+          if (attr(h, 'aria-label')) actual().etiqueta = attr(h, 'aria-label');
+        }
+        // Un div que solo tiene texto en línea es un párrafo.
+        const soloInline = hijos(h).every((x) => x.nodeType !== ELEMENTO || INLINE.has(nombre(x)));
+        const img = contieneSoloImagen(h);
+        if (img) {
+          if (!anadirImagen(img) && nombre(img) === 'svg') anadirCrudo(img);
+          continue;
+        }
+        if (soloInline && et !== 'body' && et !== 'section') anadirParrafo(hijos(h), estiloParrafo(h, o, estiloHeredado), marcasBloque);
+        else recorrer(h, et === 'div' ? estiloParrafo(h, o, estiloHeredado) : estiloHeredado, marcasBloque);
+        continue;
+      }
+    }
+    vaciar();
+  };
+  recorrer(raiz);
+  return partes.filter((p, k) => k === 0 ? p.bloques.length || p.titulo !== undefined : true);
+}
+
+/** Contenido de una nota: sus párrafos unidos con saltos de línea, sin el enlace de vuelta ni el número inicial. */
+export function contenidoNota(n: Nodo, o: OpcionesConversion, idiomaLibro?: string): Inline[] {
+  const bloques = convertirBloques(n, { ...o, esCuerpoNota: () => false }, idiomaLibro).flatMap((p) => p.bloques);
+  const inlines: Inline[] = [];
+  for (const b of bloques) {
+    if (b.tipo !== 'parrafo' && b.tipo !== 'subtitulo') continue;
+    if (inlines.length) inlines.push({ tipo: 'salto' });
+    inlines.push(...b.contenido);
+  }
+  if (!inlines.length) {
+    const solo = inlinesLimpios(hijos(n), o, { marcas: [] }, idiomaLibro);
+    inlines.push(...solo);
+  }
+  const primero = inlines[0];
+  if (primero?.tipo === 'texto') {
+    primero.texto = primero.texto.replace(/^\s*(\[\d+\]|\(\d+\)|\d+[.)]?|\*+|※\d*)\s*/, '');
+  }
+  return normalizarInlines(inlines.filter((i) => i.tipo !== 'nota'));
+}
+
+export function nuevaNota(contenido: Inline[]): Nota {
+  return { id: nuevoId('n'), contenido };
+}
