@@ -21,6 +21,8 @@ import { Configuracion } from './paneles/Configuracion';
 import { Publicar } from './paneles/Publicar';
 import { Muestra } from './paneles/Muestra';
 import { Cubierta } from './paneles/Cubierta';
+import { Sencillo } from './paneles/Sencillo';
+import type { ResumenConversion } from './api';
 import type { Pestana } from './paneles/Inspector';
 import { cambiarIdioma, idiomaInterfaz, t } from './i18n';
 
@@ -63,6 +65,8 @@ export function App() {
   });
   const [ocupado, setOcupado] = useState('');
   const entradaArchivo = useRef<HTMLInputElement>(null);
+  const entradaConversion = useRef<HTMLInputElement>(null);
+  const [sencillo, setSencillo] = useState<ResumenConversion | null>(null);
 
   const aplicar = useCallback((e: Estado, cambioVisible = true) => {
     setEstado(e);
@@ -103,10 +107,22 @@ export function App() {
     aplicar(e);
     setActual(e.libro.secciones[0]?.id ?? '');
     setValidacion(null);
+    setSencillo(null);
     setInicio(false);
     setVista('editor');
     aviso(t('Se abrió «{0}» con {1} secciones.', { 0: e.libro.metadatos.titulo, 1: e.libro.secciones.length }));
     if (e.avisos.length) setTimeout(() => aviso(t('{0} avisos al importar: {1}', { 0: e.avisos.length, 1: e.avisos.slice(0, 2).join(' · ') }), 'error'), 400);
+  };
+
+  const convertir = async (archivo: File) => {
+    if (estado?.cambiado && !(await confirmar(t('Abrir otro archivo'), t('Hay cambios sin guardar en el libro actual. ¿Abrir otro archivo de todos modos?'), t('Abrir')))) return;
+    const r = await llamar(() => api.conversion(archivo), t('Convirtiendo «{0}»…', { 0: archivo.name }));
+    if (!r) return;
+    aplicar(r.estado);
+    setActual(r.estado.libro.secciones[0]?.id ?? '');
+    setValidacion(null);
+    setSencillo(r);
+    setInicio(false);
   };
 
   const libroNuevo = async () => {
@@ -119,6 +135,7 @@ export function App() {
     if (!e) return;
     aplicar(e);
     setActual(e.libro.secciones.find((s) => s.tipo === 'capitulo')?.id ?? e.libro.secciones[0].id);
+    setSencillo(null);
     setInicio(false);
     setValidacion(null);
   };
@@ -292,6 +309,27 @@ export function App() {
     />
   );
 
+  if (sencillo && !inicio) {
+    return (
+      <>
+        <Dialogos />
+        <Sencillo
+          resumen={sencillo}
+          estado={estado}
+          onEstado={(e) => aplicar(e)}
+          onEditor={() => {
+            setSencillo(null);
+            setVista('editor');
+          }}
+          onInicio={() => {
+            setSencillo(null);
+            setInicio(true);
+          }}
+        />
+      </>
+    );
+  }
+
   if (inicio) {
     return (
       <div className="inicio">
@@ -316,6 +354,23 @@ export function App() {
               <strong>{t('Importar o abrir')}</strong>
               <span>{t('EPUB, Word (.docx) o un proyecto de Obi Studio (.obi).')}</span>
             </button>
+            <button className="tarjeta" onClick={() => entradaConversion.current?.click()}>
+              <span className="icono-tarjeta">⇄</span>
+              <strong>{t('Conversión sencilla')}</strong>
+              <span>{t('De EPUB o Word a EPUB, conservando el diseño, los formatos y las imágenes del original.')}</span>
+            </button>
+            <input
+              ref={entradaConversion}
+              type="file"
+              hidden
+              accept=".epub,.docx"
+              aria-label={t('Archivo para la conversión sencilla')}
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) void convertir(f);
+                e.target.value = '';
+              }}
+            />
             {estado.cambiado && (
               <button className="tarjeta" onClick={() => setInicio(false)}>
                 <span className="icono-tarjeta">↩</span>

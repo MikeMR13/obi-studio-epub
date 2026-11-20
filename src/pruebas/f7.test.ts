@@ -185,3 +185,105 @@ test('CSS propio y fuentes ofuscadas: EPUB válido', async () => {
   assert.deepEqual([...original.slice(0, 4)], [0, 1, 0, 0], 'al desofuscar vuelve a ser una TrueType');
   assert.notDeepEqual([...ofuscada.slice(0, 4)], [0, 1, 0, 0]);
 });
+
+/** WOFF 1.0 a partir de una TrueType (para probar la lectura de fuentes WOFF). */
+async function aWoff(ttf: Uint8Array): Promise<Uint8Array> {
+  const { deflateSync } = await import('node:zlib');
+  const v = new DataView(ttf.buffer, ttf.byteOffset, ttf.byteLength);
+  const n = v.getUint16(4);
+  const tablas = Array.from({ length: n }, (_, i) => {
+    const p = 12 + i * 16;
+    const datos = ttf.slice(v.getUint32(p + 8), v.getUint32(p + 8) + v.getUint32(p + 12));
+    const comp = new Uint8Array(deflateSync(datos));
+    return { tag: v.getUint32(p), suma: v.getUint32(p + 4), datos, comp: comp.length < datos.length ? comp : datos };
+  });
+  let largo = 44 + 20 * n;
+  for (const t of tablas) largo += (t.comp.length + 3) & ~3;
+  const salida = new Uint8Array(largo);
+  const w = new DataView(salida.buffer);
+  w.setUint32(0, 0x774f4646);
+  w.setUint32(4, v.getUint32(0));
+  w.setUint32(8, largo);
+  w.setUint16(12, n);
+  let pos = 44 + 20 * n;
+  tablas.forEach((t, i) => {
+    const e = 44 + i * 20;
+    w.setUint32(e, t.tag);
+    w.setUint32(e + 4, pos);
+    w.setUint32(e + 8, t.comp.length);
+    w.setUint32(e + 12, t.datos.length);
+    w.setUint32(e + 16, t.suma);
+    salida.set(t.comp, pos);
+    pos += (t.comp.length + 3) & ~3;
+  });
+  return salida;
+}
+
+test('Conversión sencilla: conserva el diseño y las fuentes del EPUB original', async () => {
+  const { readFileSync } = await import('node:fs');
+  const { mkdtemp } = await import('node:fs/promises');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const { epubAjeno } = await import('./fixtures.js');
+  const { Backend } = await import('../../app/backend.js');
+  const { claveOfuscacion, ofuscarFuente } = await import('../compilar.js');
+  const { woffASfnt, disenoDeDocx } = await import('../diseno-original.js');
+  const regular = new Uint8Array(readFileSync(join(import.meta.dirname, 'fuentes', 'CrimsonText-Regular.ttf')));
+  const cursiva = new Uint8Array(readFileSync(join(import.meta.dirname, 'fuentes', 'CrimsonText-Italic.ttf')));
+  const woff = await aWoff(regular);
+  assert.deepEqual([...woffASfnt(woff)!.slice(0, 4)], [0, 1, 0, 0]);
+
+  const zip = await JSZip.loadAsync(await epubAjeno());
+  const opf = (await zip.file('OEBPS/content.opf')!.async('string'))
+    .replace('<item id="css"', '<item id="f1" href="Fonts/libro.woff" media-type="font/woff"/><item id="f2" href="Fonts/libro-i.ttf" media-type="font/ttf"/><item id="css"');
+  zip.file('OEBPS/content.opf', opf);
+  zip.file('OEBPS/Fonts/libro.woff', woff);
+  zip.file('OEBPS/Fonts/libro-i.ttf', ofuscarFuente(cursiva, claveOfuscacion('urn:uuid:12345678-1234-4234-8234-123456789abc')));
+  zip.file('META-INF/encryption.xml', `<?xml version="1.0"?><encryption xmlns="urn:oasis:names:tc:opendocument:xmlns:container" xmlns:enc="http://www.w3.org/2001/04/xmlenc#"><enc:EncryptedData><enc:EncryptionMethod Algorithm="http://www.idpf.org/2008/embedding"/><enc:CipherData><enc:CipherReference URI="OEBPS/Fonts/libro-i.ttf"/></enc:CipherData></enc:EncryptedData></encryption>`);
+  zip.file(
+    'OEBPS/Styles/style.css',
+    `@font-face { font-family: "Libro"; src: url(../Fonts/libro.woff); }
+@font-face { font-family: "Libro"; font-style: italic; src: url(../Fonts/libro-i.ttf); }
+body { font-family: "Libro", serif; }
+p { text-indent: 1.5em; margin: 0 0 0.3em; line-height: 1.5; text-align: justify; }
+h2.titulo { text-align: left; color: #336699; }
+.centrar { text-align: center; text-indent: 0; }
+.ital { font-style: italic; }
+span.negr { font-weight: bold; }
+.sc { font-variant: small-caps; }
+.oculto { display: none; }`,
+  );
+  const datos = await zip.generateAsync({ type: 'uint8array' });
+  const b = new Backend(await mkdtemp(join(tmpdir(), 'obi-conv-')));
+  const r = await b.conversionSencilla('ajeno.epub', datos);
+  const t = b.libro.tema;
+  assert.equal(t.nombre, 'Diseño original');
+  assert.equal(t.sangria, 1.5);
+  assert.equal(t.interlineado, 1.5);
+  assert.equal(t.espacioParrafos, 0.3);
+  assert.equal(t.alinear, 'justificado');
+  assert.equal(t.tituloEstilo, 'izquierda');
+  assert.equal(t.colorTitulos, '#336699');
+  const f = b.libro.fuentesPropias?.find((x) => x.familia === 'Libro');
+  assert.ok(f && f.caras.length === 2, JSON.stringify(b.libro.fuentesPropias?.map((x) => [x.familia, x.caras.length])));
+  assert.equal(t.fuenteTexto, `propia-${f!.id}`);
+  assert.ok(r.conservado.some((x) => x.includes('Libro')), r.conservado.join());
+  assert.ok(r.capitulos >= 1 && r.imagenes >= 1 && r.notas === 1);
+  const { datos: epub } = await b.exportar();
+  const v = await validarDatos(epub);
+  assert.equal(v.mensajes.length, 0, JSON.stringify(v.mensajes));
+
+  // Word: el estilo Normal y el Título 1.
+  const { Document, Packer, Paragraph, HeadingLevel, AlignmentType } = await import('docx');
+  const docx = new Document({
+    styles: {
+      default: { document: { run: { font: 'Georgia', size: 24 }, paragraph: { indent: { firstLine: 360 }, spacing: { line: 360, after: 120 }, alignment: AlignmentType.JUSTIFIED } } },
+      paragraphStyles: [{ id: 'Heading1', name: 'Heading 1', run: { color: '884422', font: 'Georgia' }, paragraph: { alignment: AlignmentType.CENTER } }],
+    },
+    sections: [{ children: [new Paragraph({ text: 'Capítulo', heading: HeadingLevel.HEADING_1 }), new Paragraph('Texto.')] }],
+  });
+  const d = await disenoDeDocx(new Uint8Array(await Packer.toBuffer(docx)));
+  assert.equal(d.tema.sangria, 1.5, JSON.stringify(d));
+  assert.equal(d.tema.espacioParrafos, 0.5);
+  assert.equal(d.familiaTexto, 'Georgia');
+});

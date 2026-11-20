@@ -695,6 +695,21 @@ with sync_playwright() as p:
     pagina.wait_for_load_state("load")
     expect(pagina.get_by_role("button", name="Exportar EPUB")).to_be_visible(timeout=15000)
     paso("Volver a español", True)
+
+    # Conversión sencilla desde el inicio (al final: sustituye el libro abierto).
+    pagina.locator("button.marca").click()
+    pagina.get_by_label("Archivo para la conversión sencilla").set_input_files(f"{DOCS}/ajeno.epub")
+    dialogo = pagina.get_by_role("dialog").filter(has_text="Abrir otro archivo")
+    if dialogo.count():
+        dialogo.get_by_role("button", name="Abrir").click()
+    expect(pagina.locator(".sencillo")).to_be_visible(timeout=30000)
+    pagina.screenshot(path=f"{CAPTURAS}/37-conversion-sencilla.png")
+    with pagina.expect_download(timeout=90000) as d:
+        pagina.get_by_role("button", name="Convertir a EPUB").click()
+    texto_s = pagina.locator(".resumen-sencillo").inner_text()
+    paso("Conversión sencilla de un EPUB", d.value.suggested_filename.endswith(".epub") and "Secciones de texto" in texto_s, texto_s.replace("\n", " · ")[:120])
+    pagina.get_by_role("button", name="Abrir en el editor completo").click()
+    expect(pagina.locator(".lista-secciones")).to_be_visible(timeout=15000)
     navegador.close()
 
 fallos = [r for r in resultados if not r[1]]

@@ -15,6 +15,7 @@ import { buscarFuentesSistema, type FamiliaSistema } from '../src/fuentes-sistem
 import { ErrorImagen, girar, libroConImagenesOptimizadas, recortar } from '../src/procesar-imagen.js';
 import { esVertical } from '../src/model.js';
 import { revisarCss, type ProblemaCss } from '../src/css-propio.js';
+import { disenoDeDocx, disenoDeEpub, type DisenoOriginal } from '../src/diseno-original.js';
 import { PAPELES_KDP, archivosCubierta, cubiertaCompleta, medidasCubierta, posprocesarCubierta, revisarCubierta, type AvisoCubierta, type MedidasCubierta } from '../src/cubierta.js';
 import { ArchivoConfiguracion } from '../src/configuracion.js';
 import { CATALOGO_INTEGRADO, ListaCatalogos, archivoCatalogos, leerCatalogo, normalizarUrlCatalogo, paqueteDeCatalogo, versionMayor, type EntradaCatalogo } from '../src/catalogo.js';
@@ -83,6 +84,17 @@ export class ErrorUsuario extends Error {
 
 export interface RecursoPublico extends Omit<Recurso, 'datos'> {
   bytes: number;
+}
+
+export interface ResumenConversion {
+  estado: Estado;
+  capitulos: number;
+  ilustraciones: number;
+  imagenes: number;
+  notas: number;
+  /** Lo que se conservó del diseño original. */
+  conservado: string[];
+  avisos: string[];
 }
 
 /** Fuente propia sin los datos binarios (lo que ve la interfaz). */
@@ -527,6 +539,76 @@ export class Backend {
     else delete this.libro.cssPropio;
     this.marcar();
     return [];
+  }
+
+  // ----- Conversión sencilla -----
+
+  /**
+   * Abre un EPUB o Word y le aplica el diseño del original (letra, sangría, interlineado, alineación,
+   * títulos y fuentes incrustadas o instaladas) para convertirlo sin tener que elegir un tema.
+   */
+  async conversionSencilla(nombre: string, datos: Uint8Array, conservar = true): Promise<ResumenConversion> {
+    await this.importar(nombre, datos);
+    const ext = nombre.toLowerCase().split('.').pop();
+    const conservado: string[] = [];
+    const avisos: string[] = [...this.avisos];
+    if (conservar && (ext === 'epub' || ext === 'docx')) {
+      let d: DisenoOriginal | undefined;
+      try {
+        d = ext === 'epub' ? await disenoDeEpub(datos) : await disenoDeDocx(datos);
+      } catch {
+        avisos.push('No se pudo leer el diseño del original; se usa el tema predeterminado.');
+      }
+      if (d) {
+        avisos.push(...d.avisos);
+        const t = temaCompleto(this.libro);
+        this.libro.tema = { ...t, ...validarTema(d.tema), nombre: 'Diseño original' };
+        if (Object.keys(d.tema).length) conservado.push('sangría, interlineado, espacios y alineación');
+        // Fuentes del EPUB (si su licencia permite incrustarlas).
+        for (const f of d.fuentes) {
+          try {
+            this.agregarCara(f.datos, f.nombre, f.familia || undefined);
+          } catch (e) {
+            avisos.push(`«${f.nombre}»: ${(e as Error).message}`);
+          }
+        }
+        const elegir = async (familia: string | undefined, campo: 'fuenteTexto' | 'fuenteTitulos') => {
+          if (!familia) return;
+          const igual = (x: string) => x.toLowerCase() === familia.toLowerCase();
+          let p = this.libro.fuentesPropias?.find((x) => igual(x.familia));
+          if (!p) {
+            // Si no viene en el archivo, se busca instalada en el sistema.
+            const sistema = (await this.fuentesSistema().catch(() => [])).find((x) => igual(x.familia));
+            if (sistema?.caras.some((c) => c.permiso.incrustable)) {
+              try {
+                await this.anadirFuenteSistema(sistema.familia);
+                p = this.libro.fuentesPropias?.find((x) => igual(x.familia));
+              } catch (e) {
+                avisos.push((e as Error).message);
+              }
+            }
+          }
+          if (p) {
+            this.libro.tema = { ...temaCompleto(this.libro), [campo]: PREFIJO + p.id };
+            if (!conservado.includes(`letra «${p.familia}»`)) conservado.push(`letra «${p.familia}»`);
+          } else avisos.push(`La letra «${familia}» no viene en el archivo ni está instalada: se usa Literata.`);
+        };
+        await elegir(d.familiaTexto, 'fuenteTexto');
+        await elegir(d.familiaTitulos ?? d.familiaTexto, 'fuenteTitulos');
+      }
+    }
+    this.marcar();
+    const imagenes = this.libro.recursos.length;
+    const notas = this.libro.secciones.reduce((n, s) => n + s.notas.length, 0);
+    return {
+      estado: this.estado(),
+      capitulos: this.libro.secciones.filter((s) => !['portada', 'ilustracion', 'indice'].includes(s.tipo)).length,
+      ilustraciones: this.libro.secciones.filter((s) => s.tipo === 'ilustracion').length,
+      imagenes,
+      notas,
+      conservado,
+      avisos,
+    };
   }
 
   quitarFuente(id: string) {
