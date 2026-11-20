@@ -23,6 +23,19 @@ Maquetador visual de novelas ligeras para Windows, macOS y Linux. Escribes y das
 - **Proyecto `.obi`:** un ZIP con `libro.json` y las imágenes. Copia de recuperación automática cada minuto con cambios.
 - EPUBCheck y un Java mínimo (jlink, 56 MB) van **dentro del instalador**.
 
+## Géneros, cubierta y conversión sencilla (F7)
+
+- **Recuadros de novela ligera** (barra del editor → «Recuadro…»):
+  - Isekai y fantasía: ventana de sistema, notificación y ventana de estado (filas con dato y valor).
+  - Comedia romántica: chat (mensajes con quién escribe y lado), diario (con fecha) y nota o mensaje.
+  - Son bloques del modelo: salen en el EPUB como `div.recuadro` con párrafos (legibles sin CSS y con nombre para los lectores de pantalla), en el PDF con el mismo diseño, vuelven al importar sin pérdidas, viajan al Word de corrección y entran en buscar, tipografía y notas.
+- **Dividir una ilustración horizontal** en dos páginas (vista de la ilustración), para lectores que no muestran dobles páginas; en libros verticales va primero la mitad derecha.
+- **Cubierta de imprenta** (Más → Cubierta de imprenta…): contraportada, lomo y portada en un PDF a la medida exacta. El lomo se calcula con los grosores de KDP (blanco, crema o color prémium) o se escribe el de la plantilla de IngramSpark u otra imprenta; zona del código de barras libre, texto en el lomo solo a partir de 80 páginas, aviso si la portada no llega a 300 ppp y vista previa.
+- **CSS propio** (Tema → CSS propio): se añade después del tema en el EPUB y el PDF, y se revisa mientras se escribe con las reglas de EPUBCheck (sin `direction`, `@import`, recursos remotos ni `position: fixed`).
+- **Revisiones rápidas** en buscar y reemplazar: espacios dobles, espacio antes de un signo, falta de espacio tras coma, guion de diálogo, comillas rectas, tres puntos y preguntas sin «¿».
+- **Fuentes ofuscadas** (algoritmo del IDPF, con `encryption.xml`) para las fuentes propias que lo pidan, e **imágenes en escala de grises** para imprimir en blanco y negro.
+- **Conversión sencilla** (en el inicio): de EPUB o Word a EPUB conservando el diseño del original (sangría, interlineado, espacios, alineación, títulos y sus fuentes, también las WOFF y las ofuscadas, o las instaladas en el sistema), con los formatos y las imágenes; una sola pantalla con título, autor y exportar a EPUB, KEPUB o PDF digital.
+
 ## Publicación, imágenes y fuentes (F6)
 
 - **Publicar en tiendas** (Más → Publicar en tiendas…): revisión con las reglas oficiales de Kindle (KDP), Apple Books, Kobo, Google Play e IngramSpark (portada, peso y píxeles de las imágenes, página fija…), descarga de la portada aparte y EPUB ajustado a cada una y validado: reduce las imágenes que superan el límite, quita la página fija para IngramSpark y añade `com.apple.ibooks.display-options.xml` para Apple si hay fuentes incrustadas.
@@ -151,6 +164,9 @@ En local: `npm run instaladores` construye el del sistema actual en `instaladore
 | `src/procesar-imagen.ts` | Reducir, girar, recortar y optimizar imágenes (jimp, JavaScript puro) |
 | `src/fuentes-propias.ts`, `src/fuentes-sistema.ts` | Fuentes del usuario: nombre, licencia `fsType`, subconjuntos con HarfBuzz; fuentes instaladas en el sistema |
 | `src/configuracion.ts` | Configuración de la app (colaboración desactivada por defecto) |
+| `src/cubierta.ts` | Cubierta de imprenta: medidas, lomo, revisión, HTML y posproceso del PDF |
+| `src/css-propio.ts`, `src/revisiones.ts` | CSS propio revisado y revisiones rápidas de ortotipografía |
+| `src/diseno-original.ts` | Diseño y fuentes del archivo original para la conversión sencilla (incluye WOFF → TTF) |
 | `app/colaboracion.ts`, `app/renderer/colaborar.tsx` | Servidor de colaboración (Yjs) y página de invitados |
 | `app/renderer/i18n.ts`, `app/renderer/i18n-en.ts` | Idioma de la interfaz y catálogo inglés |
 | `src/plugins.ts` | Plugins: manifiesto, ejecución aislada, validación de lo que devuelven, plugins instalados |
@@ -169,5 +185,5 @@ En local: `npm run instaladores` construye el del sistema actual en `instaladore
 
 - Probar los instaladores en un Windows y un macOS reales, con certificados de firma.
 - Colaboración por internet (hoy, solo en la red local) y comentarios y control de cambios para los invitados.
-- Ofuscación de fuentes (IDPF) para fuentes comerciales y conversión de las ilustraciones a escala de grises para imprimir en blanco y negro.
+- Más recuadros de género si hacen falta (fichas de personaje, mapas de mazmorra) y plantillas de cubierta con tipografía de título.
 - Más idiomas de interfaz (el sistema ya admite añadir catálogos).
