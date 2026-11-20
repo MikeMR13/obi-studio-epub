@@ -285,7 +285,7 @@ test('Catálogo de plugins: integrado, huella y estado de instalación', async (
 
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join as unir } from 'node:path';
-import { ESTILOS_PARRAFO, FUENTES, TAMANOS_IMPRESION, TIPOS_SECCION } from '../model.js';
+import { ESTILOS_PARRAFO, FUENTES, TAMANOS_IMPRESION, TIPOS_SECCION, VARIANTES_RECUADRO } from '../model.js';
 import { TEMAS } from '../temas.js';
 
 test('Interfaz: cada texto de t() y cada nombre del modelo tiene traducción al inglés', async () => {
@@ -314,6 +314,13 @@ test('Interfaz: cada texto de t() y cada nombre del modelo tiene traducción al 
   // Plantillas de los perfiles por tienda.
   const tiendas = readFileSync(unir(import.meta.dirname, '..', 'tiendas.ts'), 'utf8');
   for (const m of tiendas.matchAll(/aviso\(\s*'\w+',\s*'((?:\\.|[^'\\])*)'/g)) claves.add(m[1]);
+  // Plantillas de la cubierta, recuadros y fuentes.
+  const cubierta = readFileSync(unir(import.meta.dirname, '..', 'cubierta.ts'), 'utf8');
+  for (const m of cubierta.matchAll(/plantilla: '((?:\\.|[^'\\])*)'/g)) claves.add(m[1]);
+  for (const x of VARIANTES_RECUADRO) {
+    claves.add(x.nombre);
+    if (x.titulo) claves.add(x.titulo);
+  }
   const faltan = [...claves].filter((k) => !(k in EN));
   assert.deepEqual(faltan, []);
   // Los marcadores {0}, {1}… se conservan en la traducción.

@@ -4,7 +4,7 @@ import JSZip from 'jszip';
 import { mkdir, readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { basename, join } from 'node:path';
-import type { Bloque, CaraFuentePropia, Comentario, FuentePropia, Imagen, Impresion, Libro, Nota, Metadatos, Recurso, Seccion, Tema, TipoSeccion, Tipografia } from '../src/model.js';
+import type { Bloque, CaraFuentePropia, Comentario, Cubierta, FuentePropia, Imagen, Impresion, Libro, Nota, Metadatos, Recurso, Seccion, Tema, TipoSeccion, Tipografia } from '../src/model.js';
 import { ajustesImpresion, TAMANOS_IMPRESION, temaCompleto, validarTema } from '../src/model.js';
 import { TEMAS } from '../src/temas.js';
 import { libroMuestra, sitioMuestra as crearSitioMuestra, type OpcionesMuestra } from '../src/muestra.js';
@@ -14,6 +14,7 @@ import { ErrorFuente, PREFIJO, leerFuentePropia, permisoFuente, type PermisoFuen
 import { buscarFuentesSistema, type FamiliaSistema } from '../src/fuentes-sistema.js';
 import { ErrorImagen, girar, libroConImagenesOptimizadas, recortar } from '../src/procesar-imagen.js';
 import { esVertical } from '../src/model.js';
+import { PAPELES_KDP, archivosCubierta, cubiertaCompleta, medidasCubierta, posprocesarCubierta, revisarCubierta, type AvisoCubierta, type MedidasCubierta } from '../src/cubierta.js';
 import { ArchivoConfiguracion } from '../src/configuracion.js';
 import { CATALOGO_INTEGRADO, ListaCatalogos, archivoCatalogos, leerCatalogo, normalizarUrlCatalogo, paqueteDeCatalogo, versionMayor, type EntradaCatalogo } from '../src/catalogo.js';
 import { ErrorCambio, aceptarCambio, aceptarTodos, rechazarCambio } from '../src/cambios.js';
@@ -634,6 +635,72 @@ export class Backend {
     // Solo se guardan las últimas versiones.
     for (const k of [...this.paquetes.keys()]) if (Number(k) < this.contadorImpresion - 4) this.paquetes.delete(k);
     return urlVisor(this.base, this.clave, Number(v));
+  }
+
+  // ----- Cubierta de imprenta -----
+
+  private paginasCubierta(): number | undefined {
+    return this.libro.cubierta?.paginas ?? this.ultimasPaginas;
+  }
+
+  cubierta(cambios: Record<string, unknown>) {
+    const actual = cubiertaCompleta(this.libro);
+    const n: Cubierta = { ...actual };
+    const color = /^#[0-9a-f]{6}$/i;
+    if (cambios.imprenta === 'kdp' || cambios.imprenta === 'otra') n.imprenta = cambios.imprenta;
+    if (PAPELES_KDP.some((p) => p.id === cambios.papel)) n.papel = cambios.papel as Cubierta['papel'];
+    const numero = (v: unknown, min: number, max: number) => (v === null || v === '' ? undefined : Number.isFinite(Number(v)) ? Math.min(max, Math.max(min, Number(v))) : undefined);
+    if ('lomoManual' in cambios) n.lomoManual = numero(cambios.lomoManual, 0.5, 120);
+    if ('paginas' in cambios) n.paginas = numero(cambios.paginas, 1, 3000) && Math.round(numero(cambios.paginas, 1, 3000)!);
+    for (const k of ['portada', 'contraportada'] as const) {
+      if (!(k in cambios)) continue;
+      const v = cambios[k];
+      if (!v) delete n[k];
+      else if (typeof v === 'string' && this.libro.recursos.some((r) => r.id === v)) n[k] = v;
+      else throw new ErrorUsuario('Esa imagen no está en el libro.');
+    }
+    if ('textoContraportada' in cambios) {
+      const v = typeof cambios.textoContraportada === 'string' ? cambios.textoContraportada.slice(0, 3000) : '';
+      if (v.trim()) n.textoContraportada = v;
+      else delete n.textoContraportada;
+    }
+    if (typeof cambios.colorFondo === 'string' && color.test(cambios.colorFondo)) n.colorFondo = cambios.colorFondo;
+    if (typeof cambios.colorTexto === 'string' && color.test(cambios.colorTexto)) n.colorTexto = cambios.colorTexto;
+    if (typeof cambios.codigoBarras === 'boolean') n.codigoBarras = cambios.codigoBarras;
+    for (const k of Object.keys(n) as (keyof Cubierta)[]) if (n[k] === undefined) delete n[k];
+    this.libro.cubierta = n;
+    this.marcar();
+  }
+
+  revisionCubierta(): { avisos: AvisoCubierta[]; medidas?: MedidasCubierta; paginas?: number } {
+    const paginas = this.paginasCubierta();
+    return { avisos: revisarCubierta(this.libro, paginas), ...(paginas ? { medidas: medidasCubierta(this.libro, paginas), paginas } : {}) };
+  }
+
+  private prepararCubierta(paginas: number): string {
+    const v = String(++this.contadorImpresion);
+    this.paquetes.set(v, archivosCubierta(this.libro, paginas));
+    for (const k of [...this.paquetes.keys()]) if (Number(k) < this.contadorImpresion - 4) this.paquetes.delete(k);
+    return urlVisor(this.base, this.clave, Number(v));
+  }
+
+  vistaCubierta(): string {
+    const paginas = this.paginasCubierta();
+    if (!paginas) throw new ErrorUsuario('Indica el número de páginas del interior.');
+    return this.prepararCubierta(paginas);
+  }
+
+  async exportarCubierta(): Promise<{ nombre: string; datos: Uint8Array }> {
+    const paginas = this.paginasCubierta();
+    const errores = revisarCubierta(this.libro, paginas).filter((a) => a.gravedad === 'error');
+    if (errores.length || !paginas) throw new ErrorUsuario(`No se puede crear la cubierta: ${errores.map((e) => e.plantilla).join(' ')}`);
+    let datos;
+    try {
+      datos = await posprocesarCubierta(await this.renderizador(this.prepararCubierta(paginas)), this.libro, paginas);
+    } catch (e) {
+      throw new ErrorUsuario(`No se pudo crear la cubierta: ${(e as Error).message}`);
+    }
+    return { nombre: nombreDeArchivo(this.libro.metadatos.titulo) + '-cubierta.pdf', datos };
   }
 
   /** URL del visor para la vista previa de impresión. */

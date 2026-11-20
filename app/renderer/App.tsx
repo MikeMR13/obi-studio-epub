@@ -20,6 +20,7 @@ import { Colaborar } from './paneles/Colaborar';
 import { Configuracion } from './paneles/Configuracion';
 import { Publicar } from './paneles/Publicar';
 import { Muestra } from './paneles/Muestra';
+import { Cubierta } from './paneles/Cubierta';
 import type { Pestana } from './paneles/Inspector';
 import { cambiarIdioma, idiomaInterfaz, t } from './i18n';
 
@@ -38,6 +39,7 @@ export function App() {
   const [verConfiguracion, setVerConfiguracion] = useState(false);
   const [verPublicar, setVerPublicar] = useState(false);
   const [verMuestra, setVerMuestra] = useState(false);
+  const [verCubierta, setVerCubierta] = useState(false);
   const [configuracion, setConfiguracion] = useState<{ colaboracion: boolean }>({ colaboracion: false });
   useEffect(() => {
     api.configuracion().then(setConfiguracion).catch(() => undefined);
@@ -350,6 +352,7 @@ export function App() {
           }}
         />
       )}
+      {verCubierta && <Cubierta estado={estado} onCerrar={() => setVerCubierta(false)} onEstado={(e) => aplicar(e)} />}
       {verMuestra && (
         <Muestra
           estado={estado}
@@ -396,6 +399,7 @@ export function App() {
               <ul className="desplegable" role="menu">
                 <li><button role="menuitem" onClick={() => { setMenuMas(false); setVerPublicar(true); }}>{t('Publicar en tiendas…')}<small>{t('Kindle, Apple Books, Kobo, Google Play e IngramSpark')}</small></button></li>
                 <li><button role="menuitem" onClick={() => { setMenuMas(false); setVerMuestra(true); }}>{t('Muestra gratuita…')}<small>{t('EPUB de muestra y página web')}</small></button></li>
+                <li><button role="menuitem" onClick={() => { setMenuMas(false); setVerCubierta(true); }}>{t('Cubierta de imprenta…')}<small>{t('Contraportada, lomo y portada en un PDF')}</small></button></li>
                 <li><button role="menuitem" onClick={() => descargarFormato('/api/exportar-kepub', t('KEPUB para Kobo exportado.'), t('Creando el KEPUB…'))}>{t('KEPUB para Kobo')}<small>{t('Estadísticas de lectura y subrayado preciso en Kobo')}</small></button></li>
                 <li><button role="menuitem" onClick={() => { setMenuMas(false); setPestana('impresion'); }}>{t('PDF…')}<small>{t('Para imprenta o digital')}</small></button></li>
                 <li><button role="menuitem" onClick={() => descargarFormato('/api/exportar-word', t('Word para corrección exportado.'), t('Creando el Word…'))}>{t('Word para corrección')}<small>{t('Para enviar a correctores; vuelve con «Importar correcciones»')}</small></button></li>

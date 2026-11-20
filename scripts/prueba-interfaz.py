@@ -612,6 +612,27 @@ with sync_playwright() as p:
     paso("Publicar: cambiar de tienda y descargar la portada", "portada" in d.value.suggested_filename)
     publicar.get_by_role("button", name="Cerrar").click()
 
+    # F7: cubierta de imprenta.
+    pagina.get_by_role("button", name="Más ▾").click()
+    pagina.get_by_role("menuitem", name="Cubierta de imprenta…").click()
+    cubierta = pagina.locator(".panel-cubierta")
+    cubierta.get_by_label("Páginas del interior").fill("240")
+    cubierta.get_by_label("Páginas del interior").blur()
+    expect(cubierta.locator(".dato[role=status]")).to_contain_text("lomo de 15.24 mm", timeout=15000)
+    visor_c = cubierta.frame_locator("iframe")
+    expect(visor_c.locator('[data-vivliostyle-viewer-status="complete"]').first).to_be_attached(timeout=90000)
+    pagina.wait_for_timeout(800)
+    pagina.screenshot(path=f"{CAPTURAS}/36-cubierta.png")
+    with pagina.expect_download(timeout=180000) as d:
+        cubierta.get_by_role("button", name="Crear PDF de la cubierta").click()
+    ruta_c = f"{CAPTURAS}/cubierta.pdf"
+    d.value.save_as(ruta_c)
+    info_c = subprocess.run(["pdfinfo", ruta_c], capture_output=True, text=True).stdout
+    tam_c = [l for l in info_c.splitlines() if l.startswith("Page size")]
+    # 6 × 9 in, 240 páginas en crema: 2 × 6 + 0,6 + 0,25 = 12,85 in = 925,2 pt; alto 9,25 in = 666 pt.
+    paso("Cubierta de imprenta con el lomo de KDP", bool(tam_c) and "925.2 x 666" in tam_c[0], tam_c[0] if tam_c else info_c[:200])
+    cubierta.get_by_role("button", name="Cerrar").click()
+
     # F6: muestra gratuita.
     pagina.get_by_role("button", name="Más ▾").click()
     pagina.get_by_role("menuitem", name="Muestra gratuita…").click()

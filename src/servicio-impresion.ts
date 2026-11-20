@@ -1,5 +1,6 @@
 // Entrega por HTTP lo que necesita el visor de Vivliostyle: el libro de impresión, sus imágenes, las fuentes y el visor.
 
+import { archivosCubierta, posprocesarCubierta } from './cubierta.js';
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { extname, join, normalize } from 'node:path';
@@ -98,6 +99,28 @@ export async function pdfDesdeLibro(libro: Libro, tipo: TipoPdf, renderizar: Ren
       },
       renderizar,
     );
+  } finally {
+    servidor.close();
+  }
+}
+
+/** PDF de la cubierta de imprenta desde la línea de comandos o las pruebas. */
+export async function cubiertaDesdeLibro(libro: Libro, paginas: number, renderizar: Renderizador = renderizadorChrome()): Promise<Uint8Array> {
+  const clave = globalThis.crypto.randomUUID();
+  const archivos = archivosCubierta(libro, paginas);
+  const servidor = createServer(async (req, res) => {
+    const r = await resolverImpresion(new URL(req.url ?? '/', 'http://x').pathname, clave, async () => archivos);
+    if (!r) {
+      res.writeHead(404).end();
+      return;
+    }
+    res.writeHead(200, { 'Content-Type': r.tipo });
+    res.end(typeof r.datos === 'string' ? r.datos : Buffer.from(r.datos));
+  });
+  await new Promise<void>((ok) => servidor.listen(0, '127.0.0.1', ok));
+  const puerto = (servidor.address() as { port: number }).port;
+  try {
+    return await posprocesarCubierta(await renderizar(urlVisor(`http://127.0.0.1:${puerto}`, clave, 1)), libro, paginas);
   } finally {
     servidor.close();
   }

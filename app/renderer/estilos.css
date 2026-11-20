@@ -492,3 +492,9 @@ p.error { font-weight: 600; }
 .recuadro-chat .linea-recuadro[data-lado="der"] .texto-linea { text-align: right; }
 .recuadro-chat .linea-recuadro .texto-linea { background: #fff; border: 1px solid #d9c7d0; border-radius: 12px; padding: 2px 10px; }
 .insertar-recuadro { max-width: 9em; }
+.panel-cubierta { width: min(1180px, 96vw); max-height: 94vh; }
+.cuerpo-cubierta { display: grid; grid-template-columns: 340px minmax(0, 1fr); gap: 16px; min-height: 0; overflow: auto; }
+.ajustes-cubierta { display: flex; flex-direction: column; gap: 8px; text-align: left; }
+.vista-cubierta { display: flex; min-height: 420px; }
+.vista-cubierta iframe { flex: 1; border: 1px solid var(--linea); border-radius: var(--radio); background: #d9d4cb; width: 100%; min-height: 420px; }
+@media (max-width: 900px) { .cuerpo-cubierta { grid-template-columns: 1fr; } }

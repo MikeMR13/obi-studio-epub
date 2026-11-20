@@ -140,3 +140,16 @@ test('PDF para imprenta: marcas de corte y páginas a color', { skip: !hayNavega
   assert.ok(avisos.some((a) => a.plantilla?.startsWith('Páginas a color')));
   assert.ok(avisos.some((a) => a.plantilla?.startsWith('Las marcas de corte')));
 });
+
+test('Cubierta de imprenta en PDF: tamaño exacto y una sola página', { skip: !hayNavegador, timeout: 300_000 }, async () => {
+  const { cubiertaDesdeLibro } = await import('../servicio-impresion.js');
+  const l = libroDePrueba();
+  l.metadatos.portada = l.recursos[0].id;
+  const pdf = await PDFDocument.load(await cubiertaDesdeLibro(l, 240));
+  assert.equal(pdf.getPageCount(), 1);
+  const p = pdf.getPage(0);
+  const ancho = 2 * 3.175 + 2 * 139.7 + 15.24;
+  assert.ok(Math.abs(p.getMediaBox().width - ancho * PT) < 0.5, `ancho ${p.getMediaBox().width / PT} mm`);
+  assert.ok(Math.abs(p.getMediaBox().height - (215.9 + 6.35) * PT) < 0.5);
+  assert.ok(Math.abs(p.getTrimBox().width - (ancho - 6.35) * PT) < 0.5);
+});

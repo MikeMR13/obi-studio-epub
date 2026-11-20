@@ -493,6 +493,26 @@ export const IMPRESION_PREDETERMINADA: Impresion = {
   ilustracionesASangre: false,
 };
 
+/** Cubierta de imprenta (contraportada, lomo y portada). */
+export interface Cubierta {
+  /** KDP calcula el lomo por página; con otra imprenta (IngramSpark…) se escribe el de su plantilla. */
+  imprenta: 'kdp' | 'otra';
+  papel: 'blanco' | 'crema' | 'color-premium';
+  /** Ancho del lomo en mm, para imprentas que lo dan en su plantilla. */
+  lomoManual?: number;
+  /** Número de páginas del interior; si falta, se usa el del último PDF de imprenta. */
+  paginas?: number;
+  /** Imagen de la portada si no es la del libro (por ejemplo, una versión a 300 ppp con sangrado). */
+  portada?: string;
+  contraportada?: string;
+  /** Texto de la contraportada; si falta, la sinopsis. */
+  textoContraportada?: string;
+  colorFondo: string;
+  colorTexto: string;
+  /** Reservar la zona blanca del código de barras (KDP la exige libre). */
+  codigoBarras: boolean;
+}
+
 export interface Libro {
   formato: 'obi-studio';
   version: 1;
@@ -505,6 +525,7 @@ export interface Libro {
   impresion?: Impresion;
   /** Dirección del texto: horizontal (predeterminada) o vertical japonesa (tategaki), de derecha a izquierda. */
   escritura?: 'horizontal' | 'vertical';
+  cubierta?: Cubierta;
   /** Fuentes propias del usuario; el tema las cita como «propia-<id>». */
   fuentesPropias?: FuentePropia[];
   /** Reducir y recomprimir las imágenes al exportar el EPUB (el proyecto y el PDF conservan las originales). */

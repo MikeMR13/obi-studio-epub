@@ -100,3 +100,31 @@ test('Dividir una ilustración horizontal en dos páginas', async () => {
   const r = await validarDatos(await compilar(b.libro));
   assert.equal(r.mensajes.length, 0, JSON.stringify(r.mensajes));
 });
+
+test('Cubierta de imprenta: lomo de KDP, zona del código de barras, avisos y HTML', async () => {
+  const { medidasCubierta, revisarCubierta, htmlCubierta, CODIGO_BARRAS } = await import('../cubierta.js');
+  const l = libroNuevo('La espada del alba', 'Aiko');
+  l.recursos.push({ id: 'p', nombre: 'portada.jpg', tipoMime: 'image/jpeg', datos: new Uint8Array(10), ancho: 900, alto: 1400 });
+  l.metadatos.portada = 'p';
+  l.metadatos.descripcion = 'Sinopsis del libro.';
+  // 5,5 × 8,5 in, 240 páginas en crema: 240 × 0,0025 in = 0,6 in = 15,24 mm.
+  const m = medidasCubierta(l, 240);
+  assert.equal(m.lomo, 15.24);
+  assert.equal(m.anchoTotal, Math.round((2 * 3.175 + 2 * 139.7 + 15.24) * 100) / 100);
+  assert.equal(m.altoTotal, Math.round((2 * 3.175 + 215.9) * 100) / 100);
+  l.cubierta = { imprenta: 'kdp', papel: 'blanco', colorFondo: '#000000', colorTexto: '#ffffff', codigoBarras: true };
+  assert.equal(medidasCubierta(l, 100).lomo, Math.round(100 * 0.002252 * 25.4 * 100) / 100);
+  assert.equal(medidasCubierta(l, 79).textoLomo, false);
+  const avisos = revisarCubierta(l, 240).map((a) => a.plantilla);
+  assert.ok(avisos.some((a) => a.startsWith('La portada mide')), 'portada de poca resolución');
+  l.cubierta = { ...l.cubierta, imprenta: 'otra' };
+  assert.ok(revisarCubierta(l, 240).some((a) => a.gravedad === 'error' && a.plantilla.startsWith('Escribe el ancho del lomo')));
+  l.cubierta.lomoManual = 13.5;
+  assert.equal(medidasCubierta(l, 240).lomo, 13.5);
+  const html = htmlCubierta(l, 240);
+  assert.match(html, /@page \{ size: 2\d\d\.\d+mm 222\.25mm; margin: 0; \}/);
+  assert.match(html, /class="codigo-barras"/);
+  assert.match(html, /La espada del alba/);
+  assert.match(html, /Sinopsis del libro\./);
+  assert.equal(CODIGO_BARRAS.ancho, 50.8);
+});

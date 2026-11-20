@@ -329,6 +329,16 @@ export async function iniciarServidor(op: OpcionesServidor = {}) {
       enviar(r, 200, backend.estado());
     }],
     ['GET', /^\/api\/impresion\/revision$/, async (_q, r) => enviar(r, 200, { avisos: backend.revisionImpresion(), paginas: backend.ultimasPaginas })],
+    ['PUT', /^\/api\/cubierta$/, async (q, r) => {
+      backend.cubierta(await json(q));
+      enviar(r, 200, { estado: backend.estado(), ...backend.revisionCubierta() });
+    }],
+    ['GET', /^\/api\/cubierta\/revision$/, async (_q, r) => enviar(r, 200, backend.revisionCubierta())],
+    ['GET', /^\/api\/cubierta\/visor$/, async (_q, r) => enviar(r, 200, { url: backend.vistaCubierta() })],
+    ['GET', /^\/api\/cubierta\/exportar$/, async (_q, r) => {
+      const { nombre, datos } = await backend.exportarCubierta();
+      descarga(r, nombre, 'application/pdf', datos);
+    }],
     ['GET', /^\/api\/impresion\/visor$/, async (_q, r) => enviar(r, 200, { url: await backend.vistaImpresion() })],
     ['GET', /^\/api\/exportar-pdf$/, async (_q, r, _m, url) => {
       const tipo = url.searchParams.get('tipo') === 'digital' ? 'digital' : 'impresion';

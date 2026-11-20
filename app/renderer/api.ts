@@ -8,6 +8,7 @@ import type { DiferenciaSeccion } from '../../src/versiones';
 import type { EntradaCatalogo } from '../../src/catalogo';
 import type { AvisoTienda } from '../../src/tiendas';
 import type { CaraSistema } from '../../src/fuentes-sistema';
+import type { AvisoCubierta, MedidasCubierta } from '../../src/cubierta';
 import type { PermisoFuente } from '../../src/fuentes-propias';
 import type { EstadoColaboracion } from '../colaboracion';
 import type { Hallazgo, Manifiesto, PluginInstalado } from '../../src/plugins';
@@ -15,6 +16,7 @@ import type { Hallazgo, Manifiesto, PluginInstalado } from '../../src/plugins';
 export type { Coincidencia, OpcionesBusqueda, DiferenciaSeccion, AvisoTienda };
 export type Catalogo = { catalogos: string[]; plugins: (EntradaCatalogo & { estado: 'nuevo' | 'instalado' | 'actualizable' })[]; errores: string[] };
 import { t } from './i18n';
+export type RevisionCubierta = { avisos: AvisoCubierta[]; medidas?: MedidasCubierta; paginas?: number };
 export type FamiliaSistemaPublica = { familia: string; caras: Omit<CaraSistema, 'ruta'>[] };
 export type ResultadoFuente = { familia: string; permiso: PermisoFuente; estado: Estado };
 export type { Estado, Resultado, AvisoImpresion, InformeAccesibilidad, Hallazgo, Manifiesto, PluginInstalado };
@@ -62,6 +64,9 @@ export const api = {
     ),
   editarImagen: (id: string, op: { girar?: number; recorte?: { x: number; y: number; ancho: number; alto: number } }) => pedir<Estado>('POST', `/api/recursos/${id}/editar`, op),
   dividirIlustracion: (id: string) => pedir<{ seccion: string; estado: Estado }>('POST', `/api/secciones/${id}/dividir`),
+  revisionCubierta: () => pedir<RevisionCubierta>('GET', '/api/cubierta/revision'),
+  cambiarCubierta: (c: Record<string, unknown>) => pedir<RevisionCubierta & { estado: Estado }>('PUT', '/api/cubierta', c),
+  visorCubierta: () => pedir<{ url: string }>('GET', '/api/cubierta/visor'),
   optimizarImagenes: (activo: boolean) => pedir<Estado>('PUT', '/api/optimizar-imagenes', { activo }),
   fuentesSistema: () => pedir<FamiliaSistemaPublica[]>('GET', '/api/fuentes-sistema'),
   anadirFuente: (archivo: File) => pedir<ResultadoFuente>('POST', `/api/fuentes-propias?nombre=${encodeURIComponent(archivo.name)}`, undefined, archivo),
