@@ -1,11 +1,12 @@
 // Esquema del editor visual: solo admite lo que el modelo del libro sabe guardar.
 
 import { Mark, Node, mergeAttributes } from '@tiptap/core';
+import { Plugin, TextSelection } from '@tiptap/pm/state';
 import StarterKit from '@tiptap/starter-kit';
 import Paragraph from '@tiptap/extension-paragraph';
 import Superscript from '@tiptap/extension-superscript';
 import Subscript from '@tiptap/extension-subscript';
-import { ESTILOS_PARRAFO } from '../../../src/model.js';
+import { ESTILOS_PARRAFO, VARIANTES_RECUADRO } from '../../../src/model.js';
 import { t } from '../i18n.js';
 
 declare module '@tiptap/core' {
@@ -17,6 +18,7 @@ declare module '@tiptap/core' {
       insertarRuby: (base: string, lectura: string) => ReturnType;
       insertarNota: (id: string) => ReturnType;
       insertarImagen: (attrs: { recurso: string; alt: string }) => ReturnType;
+      insertarRecuadro: (variante: string) => ReturnType;
     };
   }
 }
@@ -165,6 +167,199 @@ export const Crudo = Node.create({
   },
 });
 
+// ---------------------------------------------------------------------------
+// Recuadros de novela ligera. La cabecera (tipo, título, quitar) y las etiquetas de cada línea
+// son controles fuera del texto editable; el texto de cada línea se edita como un párrafo.
+
+function variante(id: string) {
+  return VARIANTES_RECUADRO.find((v) => v.id === id) ?? VARIANTES_RECUADRO[0];
+}
+
+export const RecuadroObi = Node.create({
+  name: 'recuadro',
+  group: 'block',
+  content: 'lineaRecuadro+',
+  defining: true,
+  isolating: true,
+  draggable: true,
+  addAttributes: () => ({ variante: { default: 'sistema' }, titulo: { default: '' } }),
+  parseHTML: () => [
+    { tag: 'div[data-recuadro]', getAttrs: (el) => ({ variante: (el as HTMLElement).dataset.recuadro, titulo: (el as HTMLElement).dataset.titulo ?? '' }) },
+  ],
+  renderHTML: ({ node }) => ['div', { 'data-recuadro': node.attrs.variante, 'data-titulo': node.attrs.titulo, class: `recuadro-editor recuadro-${node.attrs.variante}` }, 0],
+  addNodeView() {
+    return ({ node, getPos, editor }) => {
+      let actual = node;
+      const dom = document.createElement('div');
+      const cabecera = document.createElement('div');
+      cabecera.className = 'cabecera-recuadro';
+      cabecera.contentEditable = 'false';
+      const tipo = document.createElement('select');
+      tipo.setAttribute('aria-label', t('Tipo de recuadro'));
+      for (const v of VARIANTES_RECUADRO) {
+        const o = document.createElement('option');
+        o.value = v.id;
+        o.textContent = t(v.nombre);
+        tipo.append(o);
+      }
+      const titulo = document.createElement('input');
+      titulo.className = 'titulo-recuadro';
+      const quitar = document.createElement('button');
+      quitar.type = 'button';
+      quitar.textContent = '✕';
+      quitar.title = t('Quitar el recuadro');
+      quitar.setAttribute('aria-label', t('Quitar el recuadro'));
+      cabecera.append(tipo, titulo, quitar);
+      const lineas = document.createElement('div');
+      lineas.className = 'lineas-recuadro';
+      dom.append(cabecera, lineas);
+      const cambiar = (attrs: Record<string, unknown>) => {
+        const pos = typeof getPos === 'function' ? getPos() : undefined;
+        if (pos === undefined || !editor.isEditable) return;
+        editor.view.dispatch(editor.view.state.tr.setNodeMarkup(pos, undefined, { ...actual.attrs, ...attrs }));
+      };
+      tipo.addEventListener('change', () => cambiar({ variante: tipo.value }));
+      titulo.addEventListener('input', () => cambiar({ titulo: titulo.value }));
+      quitar.addEventListener('click', () => {
+        const pos = typeof getPos === 'function' ? getPos() : undefined;
+        if (pos !== undefined) editor.view.dispatch(editor.view.state.tr.delete(pos, pos + actual.nodeSize));
+      });
+      const pintar = () => {
+        const v = variante(String(actual.attrs.variante));
+        dom.className = `recuadro-editor recuadro-${v.id}`;
+        dom.dataset.recuadro = v.id;
+        tipo.value = v.id;
+        if (titulo.value !== actual.attrs.titulo) titulo.value = String(actual.attrs.titulo ?? '');
+        titulo.placeholder = v.titulo ? t(v.titulo) : t('Sin título');
+        titulo.hidden = !v.titulo;
+        titulo.setAttribute('aria-label', v.titulo ? t(v.titulo) : t('Título'));
+        tipo.disabled = quitar.disabled = titulo.disabled = !editor.isEditable;
+      };
+      pintar();
+      return {
+        dom,
+        contentDOM: lineas,
+        update: (n) => {
+          if (n.type !== actual.type) return false;
+          actual = n;
+          pintar();
+          return true;
+        },
+        stopEvent: (e) => cabecera.contains(e.target as globalThis.Node),
+        ignoreMutation: (m) => cabecera.contains(m.target as globalThis.Node),
+      };
+    };
+  },
+  addCommands() {
+    return {
+      insertarRecuadro:
+        (v: string) =>
+        ({ commands }: any) =>
+          commands.insertContent({ type: this.name, attrs: { variante: v, titulo: '' }, content: [{ type: 'lineaRecuadro', attrs: { etiqueta: '', lado: 'izq' } }] }),
+    } as any;
+  },
+  addProseMirrorPlugins() {
+    // Al volver al texto desde un campo del recuadro (título, etiqueta), el navegador pone el cursor al
+    // principio del documento: se coloca donde se hizo clic.
+    return [
+      new Plugin({
+        props: {
+          handleDOMEvents: {
+            mousedown: (view, e) => {
+              const activo = document.activeElement;
+              if (!(activo instanceof HTMLInputElement || activo instanceof HTMLSelectElement) || !view.dom.contains(activo)) return false;
+              if ((e.target as HTMLElement).closest('.cabecera-recuadro, .controles-linea')) return false;
+              const pos = view.posAtCoords({ left: e.clientX, top: e.clientY });
+              if (!pos) return false;
+              e.preventDefault();
+              view.focus();
+              view.dispatch(view.state.tr.setSelection(TextSelection.near(view.state.doc.resolve(pos.pos))));
+              return true;
+            },
+          },
+        },
+      }),
+    ];
+  },
+  addKeyboardShortcuts() {
+    return {
+      // Intro en una línea vacía al final del recuadro: salir a un párrafo nuevo.
+      Enter: () => {
+        const { state } = this.editor;
+        const { $from, empty } = state.selection;
+        if (!empty || $from.parent.type.name !== 'lineaRecuadro' || $from.parent.content.size) return false;
+        const recuadro = $from.node(-1);
+        if ($from.index(-1) !== recuadro.childCount - 1 || recuadro.childCount < 2) return false;
+        const ini = $from.before();
+        const finLinea = $from.after();
+        const pos = $from.after(-1) - (finLinea - ini);
+        const tr = state.tr.delete(ini, finLinea);
+        tr.insert(pos, state.schema.nodes.paragraph.create({ estilo: 'cuerpo' }));
+        tr.setSelection(TextSelection.create(tr.doc, pos + 1));
+        this.editor.view.dispatch(tr.scrollIntoView());
+        return true;
+      },
+    };
+  },
+});
+
+export const LineaRecuadroObi = Node.create({
+  name: 'lineaRecuadro',
+  content: 'inline*',
+  addAttributes: () => ({ etiqueta: { default: '' }, lado: { default: 'izq' } }),
+  parseHTML: () => [{ tag: 'p[data-linea]', getAttrs: (el) => ({ etiqueta: (el as HTMLElement).dataset.etiqueta ?? '', lado: (el as HTMLElement).dataset.lado ?? 'izq' }) }],
+  renderHTML: ({ node }) => ['p', { 'data-linea': '1', 'data-etiqueta': node.attrs.etiqueta, 'data-lado': node.attrs.lado }, 0],
+  addNodeView() {
+    return ({ node, getPos, editor }) => {
+      let actual = node;
+      const dom = document.createElement('div');
+      dom.className = 'linea-recuadro';
+      const controles = document.createElement('span');
+      controles.className = 'controles-linea';
+      controles.contentEditable = 'false';
+      const etiqueta = document.createElement('input');
+      etiqueta.className = 'etiqueta-linea';
+      const lado = document.createElement('button');
+      lado.type = 'button';
+      lado.className = 'lado-linea';
+      controles.append(etiqueta, lado);
+      const texto = document.createElement('p');
+      texto.className = 'texto-linea';
+      dom.append(controles, texto);
+      const cambiar = (attrs: Record<string, unknown>) => {
+        const pos = typeof getPos === 'function' ? getPos() : undefined;
+        if (pos === undefined || !editor.isEditable) return;
+        editor.view.dispatch(editor.view.state.tr.setNodeMarkup(pos, undefined, { ...actual.attrs, ...attrs }));
+      };
+      etiqueta.addEventListener('input', () => cambiar({ etiqueta: etiqueta.value }));
+      lado.addEventListener('click', () => cambiar({ lado: actual.attrs.lado === 'der' ? 'izq' : 'der' }));
+      const pintar = () => {
+        if (etiqueta.value !== actual.attrs.etiqueta) etiqueta.value = String(actual.attrs.etiqueta ?? '');
+        dom.dataset.lado = actual.attrs.lado === 'der' ? 'der' : 'izq';
+        lado.textContent = actual.attrs.lado === 'der' ? '→' : '←';
+        lado.title = actual.attrs.lado === 'der' ? t('Mensaje propio (derecha). Clic para cambiar.') : t('Mensaje ajeno (izquierda). Clic para cambiar.');
+        lado.setAttribute('aria-label', lado.title);
+        etiqueta.placeholder = t('Dato o quién');
+        etiqueta.setAttribute('aria-label', t('Dato o quién escribe'));
+        etiqueta.disabled = lado.disabled = !editor.isEditable;
+      };
+      pintar();
+      return {
+        dom,
+        contentDOM: texto,
+        update: (n) => {
+          if (n.type !== actual.type) return false;
+          actual = n;
+          pintar();
+          return true;
+        },
+        stopEvent: (e) => controles.contains(e.target as globalThis.Node),
+        ignoreMutation: (m) => controles.contains(m.target as globalThis.Node),
+      };
+    };
+  },
+});
+
 /** Extensiones del editor. En modo colaborativo el historial lo lleva Yjs (deshacer solo lo propio). */
 export function extensiones(op: { colaborativo?: boolean } = {}) {
   return [
@@ -188,5 +383,7 @@ export function extensiones(op: { colaborativo?: boolean } = {}) {
     NotaRef,
     ImagenObi,
     Crudo,
+    RecuadroObi,
+    LineaRecuadroObi,
   ];
 }

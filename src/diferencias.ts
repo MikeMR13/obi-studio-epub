@@ -63,6 +63,8 @@ export function textoBloques(bloques: Bloque[]): string {
         ? textoPlano(b.contenido)
         : b.tipo === 'lista'
           ? b.elementos.map(textoPlano).join('\n')
+          : b.tipo === 'recuadro'
+            ? [b.titulo ? `[${b.titulo}]` : '', ...b.lineas.map((l) => (l.etiqueta ? `${l.etiqueta}: ` : '') + textoPlano(l.contenido))].filter(Boolean).join('\n')
           : b.tipo === 'separador'
             ? '* * *'
             : b.tipo === 'imagen'

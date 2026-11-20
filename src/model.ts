@@ -104,7 +104,60 @@ export interface Crudo {
   xhtml: string;
 }
 
-export type Bloque = Parrafo | Subtitulo | Separador | Imagen | Lista | Crudo;
+/**
+ * Recuadros de novela ligera: ventanas de sistema, notificaciones y estado (isekai),
+ * chat, diario y notas o mensajes (comedia romántica).
+ */
+export type VarianteRecuadro = 'sistema' | 'notificacion' | 'estado' | 'chat' | 'diario' | 'nota';
+
+export const VARIANTES_RECUADRO: { id: VarianteRecuadro; nombre: string; genero: 'isekai' | 'romcom'; titulo: string; etiqueta?: string }[] = [
+  { id: 'sistema', nombre: 'Ventana de sistema', genero: 'isekai', titulo: 'Título de la ventana' },
+  { id: 'notificacion', nombre: 'Notificación', genero: 'isekai', titulo: '' },
+  { id: 'estado', nombre: 'Ventana de estado', genero: 'isekai', titulo: 'Nombre', etiqueta: 'Dato' },
+  { id: 'chat', nombre: 'Chat', genero: 'romcom', titulo: 'Nombre del chat', etiqueta: 'Quién' },
+  { id: 'diario', nombre: 'Diario', genero: 'romcom', titulo: 'Fecha' },
+  { id: 'nota', nombre: 'Nota o mensaje', genero: 'romcom', titulo: 'De / Para' },
+];
+
+export interface LineaRecuadro {
+  contenido: Inline[];
+  /** Estado: nombre del dato (Nivel, PV…). Chat: quién escribe. */
+  etiqueta?: string;
+  /** Chat: mensaje propio (derecha) o ajeno (izquierda). */
+  lado?: 'izq' | 'der';
+}
+
+export interface Recuadro {
+  tipo: 'recuadro';
+  variante: VarianteRecuadro;
+  /** Título de la ventana, nombre del chat, fecha del diario… */
+  titulo?: string;
+  lineas: LineaRecuadro[];
+}
+
+export type Bloque = Parrafo | Subtitulo | Separador | Imagen | Lista | Crudo | Recuadro;
+
+/**
+ * Listas de inlines editables de un bloque (párrafo, subtítulo, elementos de lista, líneas de recuadro),
+ * por referencia: quien las cambia debe usar `escribirInlines`.
+ */
+export function inlinesBloque(b: Bloque): Inline[][] {
+  if (b.tipo === 'parrafo' || b.tipo === 'subtitulo') return [b.contenido];
+  if (b.tipo === 'lista') return b.elementos;
+  if (b.tipo === 'recuadro') return b.lineas.map((l) => l.contenido);
+  return [];
+}
+
+export function escribirInlines(b: Bloque, k: number, contenido: Inline[]) {
+  if (b.tipo === 'parrafo' || b.tipo === 'subtitulo') b.contenido = contenido;
+  else if (b.tipo === 'lista') b.elementos[k] = contenido;
+  else if (b.tipo === 'recuadro') b.lineas[k].contenido = contenido;
+}
+
+/** Texto plano extra de un recuadro que no está en los inlines (título y etiquetas). */
+export function textoExtraRecuadro(b: Bloque): string {
+  return b.tipo === 'recuadro' ? [b.titulo ?? '', ...b.lineas.map((l) => l.etiqueta ?? '')].filter(Boolean).join(' ') : '';
+}
 
 export type TipoSeccion =
   | 'portada'
@@ -552,6 +605,7 @@ export function contarPalabras(seccion: Seccion): number {
     let t = '';
     if (b.tipo === 'parrafo' || b.tipo === 'subtitulo') t = textoPlano(b.contenido);
     else if (b.tipo === 'lista') t = b.elementos.map(textoPlano).join(' ');
+    else if (b.tipo === 'recuadro') t = textoExtraRecuadro(b) + ' ' + b.lineas.map((l) => textoPlano(l.contenido)).join(' ');
     total += t.split(/\s+/).filter(Boolean).length;
   }
   return total;

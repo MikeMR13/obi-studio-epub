@@ -19,7 +19,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import JSZip from 'jszip';
 import type { Bloque, Inline, Libro, Recurso } from './model.js';
-import { ESTILOS_PARRAFO, MARCAS, TIPOS_SECCION, validarTema } from './model.js';
+import { ESTILOS_PARRAFO, MARCAS, TIPOS_SECCION, VARIANTES_RECUADRO, validarTema } from './model.js';
 import { errorXhtml } from './formatos/dom.js';
 
 export type TipoPlugin = 'revision' | 'transformacion' | 'exportador' | 'importador';
@@ -175,7 +175,7 @@ const PRELUDIO = ${'`'}
     version: 1,
     registrar(h) { if (hooks) throw new Error('obi.registrar solo se puede llamar una vez.'); hooks = h; },
     texto,
-    textoBloque(b) { return b.tipo === 'lista' ? b.elementos.map(texto).join('\\n') : b.tipo === 'parrafo' || b.tipo === 'subtitulo' ? texto(b.contenido) : ''; },
+    textoBloque(b) { return b.tipo === 'lista' ? b.elementos.map(texto).join('\\n') : b.tipo === 'recuadro' ? b.lineas.map((l) => texto(l.contenido)).join('\\n') : b.tipo === 'parrafo' || b.tipo === 'subtitulo' ? texto(b.contenido) : ''; },
   });
   const consola = Object.freeze({
     log: (...a) => { if (registros.length < 200) registros.push(a.map(String).join(' ').slice(0, 2000)); },
@@ -335,6 +335,7 @@ export function validarHallazgos(entrada: unknown, libro: Libro): Hallazgo[] {
 }
 
 const ESTILOS = new Set(ESTILOS_PARRAFO.map((e) => e.id as string));
+const VARIANTES = new Set(VARIANTES_RECUADRO.map((v) => v.id as string));
 const TIPOS = new Set(TIPOS_SECCION.map((t) => t.id as string));
 const MARCAS_VALIDAS = new Set(MARCAS as string[]);
 
@@ -376,6 +377,17 @@ function comprobarBloque(b: Record<string, unknown>, donde: string, notas: Set<s
       if (!Array.isArray(b.elementos)) throw new ErrorPlugin(`${donde}: lista sin elementos.`);
       for (const e of b.elementos) comprobarInlines(e, donde, notas);
       break;
+    case 'recuadro': {
+      if (!VARIANTES.has(b.variante as string)) throw new ErrorPlugin(`${donde}: recuadro de tipo desconocido «${String(b.variante)}».`);
+      if (b.titulo !== undefined && typeof b.titulo !== 'string') throw new ErrorPlugin(`${donde}: el título del recuadro debe ser texto.`);
+      if (!Array.isArray(b.lineas) || !b.lineas.length) throw new ErrorPlugin(`${donde}: recuadro sin líneas.`);
+      for (const l of b.lineas as Record<string, unknown>[]) {
+        if (l.etiqueta !== undefined && typeof l.etiqueta !== 'string') throw new ErrorPlugin(`${donde}: etiqueta de recuadro que no es texto.`);
+        if (l.lado !== undefined && l.lado !== 'izq' && l.lado !== 'der') throw new ErrorPlugin(`${donde}: lado de mensaje desconocido.`);
+        comprobarInlines(l.contenido, donde, notas);
+      }
+      break;
+    }
     case 'crudo': {
       if (typeof b.xhtml !== 'string') throw new ErrorPlugin(`${donde}: bloque XHTML vacío.`);
       const error = errorXhtml(b.xhtml);

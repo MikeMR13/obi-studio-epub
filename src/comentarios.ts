@@ -8,6 +8,7 @@ import { normalizarInlines, nuevoId } from './model.js';
 function listasDe(b: Bloque): Inline[][] {
   if (b.tipo === 'parrafo' || b.tipo === 'subtitulo') return [b.contenido];
   if (b.tipo === 'lista') return b.elementos;
+  if (b.tipo === 'recuadro') return b.lineas.map((l) => l.contenido);
   return [];
 }
 
@@ -58,6 +59,7 @@ export function anclarComentario(bloques: Bloque[], id: string, texto: string): 
       const r = anclarEn(listas[k], id, aguja);
       if (!r) continue;
       if (b.tipo === 'lista') b.elementos[k] = r;
+      else if (b.tipo === 'recuadro') b.lineas[k].contenido = r;
       else (b as { contenido: Inline[] }).contenido = r;
       return true;
     }

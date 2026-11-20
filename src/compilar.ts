@@ -3,9 +3,9 @@
 // y metadatos de EPUB Accessibility 1.1.
 
 import JSZip from 'jszip';
-import type { Bloque, Imagen, Inline, Libro, Marca, Nota, Recurso, Seccion, TipoSeccion } from './model.js';
+import type { Bloque, Imagen, Inline, Libro, Marca, Nota, Recuadro, Recurso, Seccion, TipoSeccion, VarianteRecuadro } from './model.js';
 import { esc, escAttr, limpiarXml } from './xml.js';
-import { temaCompleto, esVertical } from './model.js';
+import { temaCompleto, esVertical, VARIANTES_RECUADRO } from './model.js';
 import { cssTema, separadorXhtml as separadorTema, contenidoTitulo } from './estilo-tema.js';
 import { fuentesTema, caraFuente, familiaCss, datosArchivoFuente, MIME_FUENTE } from './fuentes.js';
 
@@ -148,9 +148,39 @@ export function bloquesXhtml(bloques: Bloque[], ctx: Contexto, seccion?: Seccion
       case 'crudo':
         partes.push(b.xhtml);
         break;
+      case 'recuadro':
+        partes.push(recuadroXhtml(b, ctx));
+        break;
     }
   }
   return partes.join('\n');
+}
+
+const NOMBRE_RECUADRO_EN: Record<VarianteRecuadro, string> = {
+  sistema: 'System window',
+  notificacion: 'Notification',
+  estado: 'Status window',
+  chat: 'Chat',
+  diario: 'Diary',
+  nota: 'Note',
+};
+
+/** Recuadro de novela ligera: un div con párrafos, legible sin CSS y por los lectores de pantalla. */
+export function recuadroXhtml(b: Recuadro, ctx: Contexto): string {
+  const ingles = /^en\b/i.test(ctx.libro.metadatos.idioma || '');
+  const nombre = ingles ? NOMBRE_RECUADRO_EN[b.variante] : VARIANTES_RECUADRO.find((v) => v.id === b.variante)!.nombre;
+  const etiqueta = b.titulo ? `${nombre}: ${b.titulo}` : nombre;
+  const lineas = b.lineas.map((l) => {
+    const c = inlinesXhtml(l.contenido, ctx) || '<br/>';
+    if (b.variante === 'estado') return `<p class="dato"><span class="etiqueta">${esc(l.etiqueta ?? '')}</span> <span class="valor">${c}</span></p>`;
+    if (b.variante === 'chat') {
+      const quien = l.etiqueta ? `<span class="emisor">${esc(l.etiqueta)}</span> ` : '';
+      return `<p class="mensaje ${l.lado === 'der' ? 'der' : 'izq'}">${quien}<span class="globo">${c}</span></p>`;
+    }
+    return `<p>${c}</p>`;
+  });
+  const titulo = b.titulo ? `<p class="recuadro-titulo">${esc(b.titulo)}</p>\n` : '';
+  return `<div class="recuadro recuadro-${b.variante}" role="group" aria-label="${escAttr(etiqueta)}">\n${titulo}${lineas.join('\n')}\n</div>`;
 }
 
 export function numerarNotas(s: Seccion): Map<string, number> {
@@ -161,6 +191,7 @@ export function numerarNotas(s: Seccion): Map<string, number> {
   for (const b of s.bloques) {
     if (b.tipo === 'parrafo' || b.tipo === 'subtitulo') ver(b.contenido);
     if (b.tipo === 'lista') b.elementos.forEach(ver);
+    if (b.tipo === 'recuadro') b.lineas.forEach((l) => ver(l.contenido));
   }
   return mapa;
 }

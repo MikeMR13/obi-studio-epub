@@ -1,8 +1,10 @@
 // Conversión de HTML/XHTML (de un EPUB o de Word) a bloques del modelo.
 // Lo que el editor visual no sabe representar se guarda como bloque «crudo» para no perder nada.
 
-import type { Bloque, EstiloParrafo, Inline, Marca, Nota } from '../model.js';
-import { ESTILOS_PARRAFO, nuevoId, normalizarInlines } from '../model.js';
+import type { Bloque, EstiloParrafo, Inline, LineaRecuadro, Marca, Nota, Recuadro } from '../model.js';
+import { ESTILOS_PARRAFO, VARIANTES_RECUADRO, nuevoId, normalizarInlines } from '../model.js';
+
+const VARIANTES = VARIANTES_RECUADRO.map((v) => v.id);
 import { ELEMENTO, TEXTO, CDATA, attr, clases, hijos, nombre, serializar, texto, tiposEpub, type Nodo } from './dom.js';
 
 export interface EstiloCss {
@@ -330,6 +332,36 @@ export function convertirBloques(raiz: Nodo, o: OpcionesConversion, idiomaLibro?
       }
       if (et === 'hr') {
         actual().bloques.push({ tipo: 'separador' });
+        continue;
+      }
+      // Recuadros de novela ligera de Obi Studio (div.recuadro.recuadro-<variante>).
+      const variante = et === 'div' && clases(h).includes('recuadro') ? VARIANTES.find((v) => clases(h).includes(`recuadro-${v}`)) : undefined;
+      if (variante) {
+        let titulo: string | undefined;
+        const lineas: LineaRecuadro[] = [];
+        for (const p of hijos(h)) {
+          if (p.nodeType !== ELEMENTO) continue;
+          const cp = clases(p);
+          if (cp.includes('recuadro-titulo')) {
+            titulo = texto(p).replace(/\s+/g, ' ').trim();
+            continue;
+          }
+          const span = (clase: string) => hijos(p).find((x) => nombre(x) === 'span' && clases(x).includes(clase));
+          const linea = {} as LineaRecuadro;
+          const et2 = variante === 'estado' ? span('etiqueta') : variante === 'chat' ? span('emisor') : undefined;
+          if (et2) {
+            const t = texto(et2).replace(/\s+/g, ' ').trim();
+            if (t) linea.etiqueta = t;
+          }
+          if (variante === 'chat') linea.lado = cp.includes('der') ? 'der' : 'izq';
+          const cuerpo = variante === 'estado' ? span('valor') : variante === 'chat' ? span('globo') : undefined;
+          // Sin las marcas que pone el CSS del recuadro (negrita de la notificación, cursiva del diario).
+          const contenido = inlinesLimpios(cuerpo ? hijos(cuerpo) : hijos(p), o, base, idiomaLibro);
+          lineas.push({ ...linea, contenido: contenido.every((i) => i.tipo === 'salto') ? [] : contenido });
+        }
+        if (!lineas.length) lineas.push({ contenido: [] });
+        const r: Recuadro = { tipo: 'recuadro', variante, ...(titulo ? { titulo } : {}), lineas };
+        actual().bloques.push(r);
         continue;
       }
       if (clases(h).includes('cabecera-capitulo')) {

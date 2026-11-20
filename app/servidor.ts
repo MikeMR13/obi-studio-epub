@@ -160,6 +160,10 @@ export async function iniciarServidor(op: OpcionesServidor = {}) {
       await backend.editarImagen(m[1], await json(q));
       enviar(r, 200, backend.estado());
     }],
+    ['POST', /^\/api\/secciones\/([\w-]+)\/dividir$/, async (_q, r, m) => {
+      const nueva = await backend.dividirIlustracion(m[1]);
+      enviar(r, 200, { seccion: nueva, estado: backend.estado() });
+    }],
     ['PUT', /^\/api\/optimizar-imagenes$/, async (q, r) => {
       backend.optimizarImagenes(!!(await json(q)).activo);
       enviar(r, 200, backend.estado());

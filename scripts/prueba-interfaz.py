@@ -71,7 +71,7 @@ with sync_playwright() as p:
     # Estilo de párrafo pensamiento con atajo (Ctrl+Alt+4).
     pagina.keyboard.press("Enter")
     pagina.keyboard.type("No puede ser verdad.")
-    pagina.locator(".barra-editor select").select_option("pensamiento")
+    pagina.get_by_label("Estilo de párrafo").select_option("pensamiento")
     expect(editor.locator("p.pensamiento")).to_have_count(1)
     pagina.wait_for_timeout(1200)
     estado = pagina.evaluate("fetch('/api/estado').then(r => r.json())")
@@ -87,6 +87,32 @@ with sync_playwright() as p:
     pagina.wait_for_timeout(600)
     expect(editor).to_contain_text("Obi Studio… ")
     paso("Tipografía española (puntos suspensivos)", True)
+
+    # Recuadro de novela ligera (ventana de estado) escrito en el editor.
+    editor.locator("p.pensamiento").click()
+    pagina.keyboard.press("End")
+    pagina.keyboard.press("Enter")
+    pagina.get_by_label("Insertar recuadro").select_option("estado")
+    caja = editor.locator(".recuadro-editor.recuadro-estado")
+    expect(caja).to_have_count(1)
+    caja.get_by_label("Nombre").fill("Kaito Aizawa")
+    caja.get_by_label("Dato o quién escribe").first.fill("Nivel")
+    caja.locator(".texto-linea").first.click()
+    pagina.keyboard.type("1")
+    pagina.keyboard.press("Enter")
+    caja.get_by_label("Dato o quién escribe").nth(1).fill("PV")
+    caja.locator(".texto-linea").nth(1).click()
+    pagina.keyboard.type("120/120")
+    pagina.keyboard.press("Enter")
+    pagina.keyboard.press("Enter")
+    pagina.keyboard.type("Después del recuadro.")
+    pagina.wait_for_timeout(1500)
+    pagina.screenshot(path=f"{CAPTURAS}/35-recuadro-editor.png")
+    estado = pagina.evaluate("fetch('/api/estado').then(r => r.json())")
+    cap = [s for s in estado["libro"]["secciones"] if s["titulo"].startswith("Capítulo 1")][0]
+    rec = [b for b in cap["bloques"] if b["tipo"] == "recuadro"]
+    sig = cap["bloques"][cap["bloques"].index(rec[0]) + 1] if rec else {}
+    paso("Ventana de estado escrita en el editor", bool(rec) and rec[0].get("titulo") == "Kaito Aizawa" and [l.get("etiqueta") for l in rec[0]["lineas"]] == ["Nivel", "PV"] and "120/120" in json.dumps(rec[0]) and "Después del recuadro" in json.dumps(sig, ensure_ascii=False), json.dumps(rec[0] if rec else cap["bloques"][-2:], ensure_ascii=False)[:200])
 
     # Página de ilustración: añadir y describir.
     pagina.get_by_role("button", name="+ Sección").click()

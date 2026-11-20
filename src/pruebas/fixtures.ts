@@ -1,3 +1,4 @@
+import type { Bloque } from '../model.js';
 // Documentos de prueba generados al vuelo.
 
 import { deflateSync } from 'node:zlib';
@@ -187,4 +188,16 @@ span.negr { font-weight: bold; }
 </body></html>`,
   );
   return zip.generateAsync({ type: 'uint8array' });
+}
+
+/** Un recuadro de cada tipo (isekai y comedia romántica); `nota` = id de una nota llamada desde la ventana de sistema. */
+export function recuadrosDePrueba(nota?: string): Bloque[] {
+  return [
+    { tipo: 'recuadro', variante: 'sistema', titulo: 'Bienvenido a Eldoria', lineas: [{ contenido: [{ tipo: 'texto', texto: 'Has sido invocado como ' }, { tipo: 'texto', texto: 'héroe', marcas: ['negrita'] }, ...(nota ? [{ tipo: 'nota' as const, id: nota }] : [])] }, { contenido: [{ tipo: 'texto', texto: '¿Aceptas la misión?' }] }] },
+    { tipo: 'recuadro', variante: 'notificacion', lineas: [{ contenido: [{ tipo: 'texto', texto: '[Has obtenido la habilidad «Tasación»]' }] }] },
+    { tipo: 'recuadro', variante: 'estado', titulo: 'Kaito Aizawa', lineas: [{ etiqueta: 'Nivel', contenido: [{ tipo: 'texto', texto: '1' }] }, { etiqueta: 'PV', contenido: [{ tipo: 'texto', texto: '120/120' }] }, { etiqueta: 'Habilidad', contenido: [{ tipo: 'ruby', base: '鑑定', lectura: 'かんてい' }] }] },
+    { tipo: 'recuadro', variante: 'chat', titulo: 'Club de literatura', lineas: [{ etiqueta: 'Hina', lado: 'izq', contenido: [{ tipo: 'texto', texto: '¿Mañana a las cinco?' }] }, { etiqueta: 'Yo', lado: 'der', contenido: [{ tipo: 'texto', texto: 'Ahí estaré 😊' }] }] },
+    { tipo: 'recuadro', variante: 'diario', titulo: '14 de febrero', lineas: [{ contenido: [{ tipo: 'texto', texto: 'Hoy por fin le di el chocolate.' }] }] },
+    { tipo: 'recuadro', variante: 'nota', titulo: 'Para: Senpai', lineas: [{ contenido: [{ tipo: 'texto', texto: 'Te espero en la azotea.' }] }] },
+  ];
 }

@@ -358,6 +358,7 @@ export async function importarEpub(datos: Uint8Array): Promise<ResultadoImportac
       for (const b of s.bloques) {
         if (b.tipo === 'parrafo' || b.tipo === 'subtitulo') ver(b.contenido);
         if (b.tipo === 'lista') b.elementos.forEach(ver);
+        if (b.tipo === 'recuadro') b.lineas.forEach((x) => ver(x.contenido));
       }
       claveASeccion.set(s, claves);
       if (rutasConNotas.has(d.ruta)) deDocConNotas.add(s);
@@ -385,6 +386,7 @@ export async function importarEpub(datos: Uint8Array): Promise<ResultadoImportac
     for (const b of s.bloques) {
       if (b.tipo === 'parrafo' || b.tipo === 'subtitulo') b.contenido = cambiar(b.contenido);
       if (b.tipo === 'lista') b.elementos = b.elementos.map(cambiar);
+      if (b.tipo === 'recuadro') b.lineas.forEach((x) => (x.contenido = cambiar(x.contenido)));
     }
     s.notas = notas;
   }

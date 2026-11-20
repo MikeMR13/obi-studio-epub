@@ -61,6 +61,7 @@ export const api = {
       archivo,
     ),
   editarImagen: (id: string, op: { girar?: number; recorte?: { x: number; y: number; ancho: number; alto: number } }) => pedir<Estado>('POST', `/api/recursos/${id}/editar`, op),
+  dividirIlustracion: (id: string) => pedir<{ seccion: string; estado: Estado }>('POST', `/api/secciones/${id}/dividir`),
   optimizarImagenes: (activo: boolean) => pedir<Estado>('PUT', '/api/optimizar-imagenes', { activo }),
   fuentesSistema: () => pedir<FamiliaSistemaPublica[]>('GET', '/api/fuentes-sistema'),
   anadirFuente: (archivo: File) => pedir<ResultadoFuente>('POST', `/api/fuentes-propias?nombre=${encodeURIComponent(archivo.name)}`, undefined, archivo),

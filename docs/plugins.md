@@ -59,7 +59,7 @@ El libro sigue el modelo de `src/model.ts`: `metadatos`, `secciones` (cada una c
 Ayudas disponibles:
 
 - `obi.texto(inlines)`: texto plano de un contenido.
-- `obi.textoBloque(bloque)`: texto plano de un párrafo, subtítulo o lista.
+- `obi.textoBloque(bloque)`: texto plano de un párrafo, subtítulo, lista o recuadro.
 - `console.log(...)`: los mensajes se muestran al terminar.
 - `fetch(url)`: solo con el permiso `red`; devuelve `{ ok, status, text(), json() }`.
 

@@ -52,6 +52,7 @@ function corregirBloques(bloques: Bloque[], t: Tipografia, cuenta: Cambios): voi
   for (const b of bloques) {
     if (b.tipo === 'parrafo' || b.tipo === 'subtitulo') corregirParrafo(b.contenido, t, cuenta);
     if (b.tipo === 'lista') b.elementos.forEach((e) => corregirParrafo(e, t, cuenta));
+    if (b.tipo === 'recuadro') b.lineas.forEach((l) => corregirParrafo(l.contenido, t, cuenta));
   }
 }
 

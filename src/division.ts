@@ -46,6 +46,7 @@ export async function dividirLibro(libro: Libro): Promise<Libro> {
     for (const b of s.bloques) {
       if (b.tipo === 'parrafo') dividirInlines(b.contenido, f, idioma);
       if (b.tipo === 'lista') b.elementos.forEach((e) => dividirInlines(e, f, idioma));
+      if (b.tipo === 'recuadro') b.lineas.forEach((l) => dividirInlines(l.contenido, f, idioma));
     }
     for (const n of s.notas) dividirInlines(n.contenido, f, idioma);
   }

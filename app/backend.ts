@@ -4,7 +4,7 @@ import JSZip from 'jszip';
 import { mkdir, readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { basename, join } from 'node:path';
-import type { Bloque, CaraFuentePropia, Comentario, FuentePropia, Impresion, Libro, Nota, Metadatos, Recurso, Seccion, Tema, TipoSeccion, Tipografia } from '../src/model.js';
+import type { Bloque, CaraFuentePropia, Comentario, FuentePropia, Imagen, Impresion, Libro, Nota, Metadatos, Recurso, Seccion, Tema, TipoSeccion, Tipografia } from '../src/model.js';
 import { ajustesImpresion, TAMANOS_IMPRESION, temaCompleto, validarTema } from '../src/model.js';
 import { TEMAS } from '../src/temas.js';
 import { libroMuestra, sitioMuestra as crearSitioMuestra, type OpcionesMuestra } from '../src/muestra.js';
@@ -13,6 +13,7 @@ import { buscarGhostscript } from '../src/pdfx.js';
 import { ErrorFuente, PREFIJO, leerFuentePropia, permisoFuente, type PermisoFuente } from '../src/fuentes-propias.js';
 import { buscarFuentesSistema, type FamiliaSistema } from '../src/fuentes-sistema.js';
 import { ErrorImagen, girar, libroConImagenesOptimizadas, recortar } from '../src/procesar-imagen.js';
+import { esVertical } from '../src/model.js';
 import { ArchivoConfiguracion } from '../src/configuracion.js';
 import { CATALOGO_INTEGRADO, ListaCatalogos, archivoCatalogos, leerCatalogo, normalizarUrlCatalogo, paqueteDeCatalogo, versionMayor, type EntradaCatalogo } from '../src/catalogo.js';
 import { ErrorCambio, aceptarCambio, aceptarTodos, rechazarCambio } from '../src/cambios.js';
@@ -554,6 +555,41 @@ export class Backend {
     }
     Object.assign(r, nuevo);
     this.marcar();
+  }
+
+  /**
+   * Divide una ilustración horizontal en dos páginas (mitad izquierda y derecha), para lectores que
+   * no muestran dobles páginas. En los libros verticales (de derecha a izquierda) va primero la derecha.
+   */
+  async dividirIlustracion(id: string): Promise<string> {
+    const s = this.seccion(id);
+    const b = s.bloques.find((x): x is Imagen => x.tipo === 'imagen');
+    const r = b && this.libro.recursos.find((x) => x.id === b.recurso);
+    if (s.tipo !== 'ilustracion' || !b || !r) throw new ErrorUsuario('Solo se pueden dividir páginas de ilustración con imagen.');
+    if (!r.ancho || !r.alto || r.ancho <= r.alto) throw new ErrorUsuario('La imagen no es horizontal.');
+    let izq: Recurso;
+    let der: Recurso;
+    try {
+      izq = await recortar(r, 0, 0, 0.5, 1);
+      der = await recortar(r, 0.5, 0, 0.5, 1);
+    } catch (e) {
+      throw e instanceof ErrorImagen ? new ErrorUsuario(e.message) : e;
+    }
+    this.conVersion(() => crearVersion(this.libro, `Antes de dividir «${r.nombre}»`));
+    const base = r.nombre.replace(/\.[^.]+$/, '');
+    const nuevo = (x: Recurso, lado: string): Recurso => ({ ...x, id: nuevoId('i'), nombre: `${base}-${lado}.${x.nombre.split('.').pop()}` });
+    const [primera, segunda] = esVertical(this.libro) ? [nuevo(der, 'der'), nuevo(izq, 'izq')] : [nuevo(izq, 'izq'), nuevo(der, 'der')];
+    this.libro.recursos.push(primera, segunda);
+    const alt = b.decorativa ? '' : b.alt;
+    s.bloques = s.bloques.map((x) => (x === b ? { ...b, recurso: primera.id, alt: alt ? `${alt} (1 de 2)` : '' } : x));
+    delete s.doblePagina;
+    const otra: Seccion = { ...structuredClone(s), id: nuevoId('s'), bloques: [{ ...b, recurso: segunda.id, alt: alt ? `${alt} (2 de 2)` : '' }], notas: [], comentarios: undefined, cambios: undefined };
+    this.libro.secciones.splice(this.libro.secciones.indexOf(s) + 1, 0, otra);
+    // La imagen original se quita si ya nadie la usa (queda en la versión guardada).
+    const enUso = JSON.stringify(this.libro.secciones).includes(`"${r.id}"`) || this.libro.metadatos.portada === r.id || this.libro.tema.separadorImagen === r.id;
+    if (!enUso) this.libro.recursos = this.libro.recursos.filter((x) => x !== r);
+    this.marcar();
+    return otra.id;
   }
 
   async exportar(): Promise<{ nombre: string; datos: Uint8Array }> {

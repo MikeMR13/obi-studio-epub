@@ -134,6 +134,7 @@ class Sala {
     for (const b of bloques) {
       if (b.tipo === 'parrafo' || b.tipo === 'subtitulo') ver(b.contenido);
       if (b.tipo === 'lista') b.elementos.forEach(ver);
+      if (b.tipo === 'recuadro') b.lineas.forEach((l) => ver(l.contenido));
     }
     const notas: Nota[] = ids.map((id) => {
       let contenido: Nota['contenido'] = [];

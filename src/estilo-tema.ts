@@ -68,6 +68,34 @@ export function cssTema(tema: Tema, familiaTexto: string, familiaTitulos: string
     `.cabecera-capitulo { text-align: center; margin: 0 0 1em; text-indent: 0; }`,
     `.cabecera-capitulo img { max-width: 100%; max-height: 30vh; }`,
   );
+  reglas.push(cssRecuadros(tema));
   void familiaTexto;
   return reglas.join('\n');
+}
+
+/** Recuadros de novela ligera (ventanas de sistema, estado, chat, diario…). Medidas relativas para el EPUB. */
+export function cssRecuadros(tema: Tema): string {
+  const a = tema.colorAcento;
+  return [
+    `div.recuadro { margin: 1em 0; padding: 0.6em 0.9em; border: 1px solid ${a}; border-radius: 0.35em; page-break-inside: avoid; break-inside: avoid; }`,
+    `div.recuadro p { text-indent: 0; margin: 0.25em 0 0; text-align: left; }`,
+    `div.recuadro p:first-child { margin-top: 0; }`,
+    `div.recuadro p.recuadro-titulo { font-weight: bold; text-align: center; margin: 0 0 0.4em; padding-bottom: 0.3em; border-bottom: 1px solid ${a}; }`,
+    `div.recuadro-sistema { border: 3px double ${a}; font-family: sans-serif; font-size: 0.95em; }`,
+    `div.recuadro-notificacion { border-width: 1px 0; border-radius: 0; padding: 0.4em 0; text-align: center; font-weight: bold; }`,
+    `div.recuadro-notificacion p { text-align: center; }`,
+    `div.recuadro-estado { font-family: sans-serif; font-size: 0.95em; }`,
+    `div.recuadro-estado span.etiqueta { display: inline-block; min-width: 7em; font-weight: bold; }`,
+    `div.recuadro-chat { border-style: none; padding: 0.3em 0; }`,
+    `div.recuadro-chat p.recuadro-titulo { font-size: 0.85em; font-weight: normal; border-bottom-style: dotted; }`,
+    `div.recuadro-chat p.mensaje { margin: 0.45em 0 0; }`,
+    `div.recuadro-chat p.der { text-align: right; }`,
+    `div.recuadro-chat span.emisor { display: block; font-size: 0.75em; font-weight: bold; }`,
+    `div.recuadro-chat span.globo { display: inline-block; text-align: left; max-width: 80%; padding: 0.3em 0.75em; border: 1px solid ${a}; border-radius: 0.9em; }`,
+    `div.recuadro-chat p.der span.globo { border-width: 2px; }`,
+    `div.recuadro-diario { border-width: 0 0 0 3px; border-radius: 0; font-style: italic; padding: 0.2em 0 0.2em 1em; }`,
+    `div.recuadro-diario p.recuadro-titulo { text-align: right; border-bottom: 0; font-style: normal; font-size: 0.9em; }`,
+    `div.recuadro-nota { border-style: dashed; margin-left: 1.5em; margin-right: 1.5em; }`,
+    `div.recuadro-nota p.recuadro-titulo { text-align: left; font-size: 0.9em; border-bottom-style: dashed; }`,
+  ].join('\n');
 }

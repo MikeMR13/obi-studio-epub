@@ -7,10 +7,10 @@ import {
   type IRunOptions, type ParagraphChild,
 } from 'docx';
 import JSZip from 'jszip';
-import type { Bloque, Inline, Libro, Nota, Recurso, Seccion } from '../model.js';
+import type { Bloque, Inline, Libro, Nota, Recuadro, Recurso, Seccion } from '../model.js';
 import { proponerCambios } from '../cambios.js';
 import { anclarComentario, fundirComentarios, leerComentariosWord, textosComentados } from '../comentarios.js';
-import { TIPOS_SECCION, normalizarInlines, nuevoId } from '../model.js';
+import { TIPOS_SECCION, VARIANTES_RECUADRO, normalizarInlines, nuevoId } from '../model.js';
 import { importarDocx } from './docx.js';
 export { rubiesDeTexto } from './docx.js';
 
@@ -21,6 +21,30 @@ export function seccionesDeTexto(libro: Libro): Seccion[] {
 
 const MARCADOR_XHTML = /^⟦XHTML (\d+)[^⟧]*⟧$/;
 const MARCADOR_IMAGEN = /^⟦Imagen (\d+)[^⟧]*⟧$/;
+const MARCADOR_RECUADRO = /^⟦Recuadro (\d+)[^⟧]*⟧$/;
+const MARCADOR_FIN_RECUADRO = /^⟦Fin del recuadro (\d+)[^⟧]*⟧$/;
+
+/** Quita «Etiqueta: » del principio de una línea de recuadro que vuelve de Word y devuelve la etiqueta. */
+function separarEtiqueta(l: Inline[]): { etiqueta?: string; contenido: Inline[] } {
+  const plano = l.map((i) => (i.tipo === 'texto' ? i.texto : i.tipo === 'ruby' ? i.base : '\u0000')).join('');
+  const m = plano.match(/^([^\u0000:]{1,40}):\s/);
+  if (!m) return { contenido: l };
+  let quitar = m[0].length;
+  const contenido: Inline[] = [];
+  for (const i of l) {
+    if (quitar > 0 && i.tipo === 'texto') {
+      if (i.texto.length <= quitar) {
+        quitar -= i.texto.length;
+        continue;
+      }
+      contenido.push({ ...i, texto: i.texto.slice(quitar) });
+      quitar = 0;
+      continue;
+    }
+    contenido.push(i);
+  }
+  return { etiqueta: m[1].trim(), contenido: normalizarInlines(contenido) };
+}
 
 function encabezadoSeccion(s: Seccion): string {
   if (s.titulo) return s.titulo;
@@ -125,9 +149,11 @@ export async function exportarWord(libro: Libro): Promise<Uint8Array> {
     };
     let crudos = 0;
     let imagenes = 0;
+    let recuadros = 0;
     for (const b of s.bloques) {
       if (b.tipo === 'parrafo' || b.tipo === 'subtitulo') registrar(b.contenido);
       if (b.tipo === 'lista') b.elementos.forEach(registrar);
+      if (b.tipo === 'recuadro') b.lineas.forEach((l) => registrar(l.contenido));
       switch (b.tipo) {
         case 'parrafo': {
           const estilo = ESTILO_WORD[b.estilo];
@@ -180,6 +206,18 @@ export async function exportarWord(libro: Libro): Promise<Uint8Array> {
           }
           break;
         }
+        case 'recuadro': {
+          recuadros++;
+          const nombre = VARIANTES_RECUADRO.find((v) => v.id === b.variante)?.nombre ?? 'Recuadro';
+          const gris = { color: '808080' };
+          hijos.push(new Paragraph({ children: [new TextRun({ text: `⟦Recuadro ${recuadros}: ${nombre}${b.titulo ? ` · ${b.titulo}` : ''} — no editar esta línea⟧`, ...gris })] }));
+          for (const l of b.lineas) {
+            const prefijo = (b.variante === 'estado' || b.variante === 'chat') && l.etiqueta ? [new TextRun({ text: `${l.etiqueta}: `, bold: true })] : [];
+            hijos.push(new Paragraph({ style: 'Recuadro', children: [...prefijo, ...runs(l.contenido, numeros, cc)] }));
+          }
+          hijos.push(new Paragraph({ children: [new TextRun({ text: `⟦Fin del recuadro ${recuadros} — no editar esta línea⟧`, ...gris })] }));
+          break;
+        }
         case 'crudo': {
           crudos++;
           const resumen = b.xhtml.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 60);
@@ -202,6 +240,7 @@ export async function exportarWord(libro: Libro): Promise<Uint8Array> {
         { id: 'Carta', name: 'Carta', basedOn: 'Normal', run: { italics: true }, paragraph: { indent: { left: 720, right: 720, firstLine: 0 } } },
         { id: 'Cita', name: 'Cita', basedOn: 'Normal', paragraph: { indent: { left: 720, right: 720, firstLine: 0 } } },
         { id: 'SinSangria', name: 'Sin sangría', basedOn: 'Normal', paragraph: { indent: { firstLine: 0 } } },
+        { id: 'Recuadro', name: 'Recuadro', basedOn: 'Normal', run: { font: 'Arial', size: 22 }, paragraph: { indent: { left: 567, right: 567, firstLine: 0 }, shading: { fill: 'EEF2F7' } } },
       ],
       characterStyles: [{ id: 'Enfasis', name: 'Énfasis', run: { emphasisMark: { type: 'dot' } } }],
     },
@@ -228,7 +267,13 @@ export interface ResumenCorrecciones {
 function sinComentarios(bloques: Bloque[]): Bloque[] {
   const limpiar = (l: Inline[]) => normalizarInlines(l.map((i) => (i.tipo === 'texto' && i.comentarios ? (({ comentarios: _c, ...r }) => r)(i) : i)));
   return bloques.map((b) =>
-    b.tipo === 'parrafo' || b.tipo === 'subtitulo' ? { ...b, contenido: limpiar(b.contenido) } : b.tipo === 'lista' ? { ...b, elementos: b.elementos.map(limpiar) } : b,
+    b.tipo === 'parrafo' || b.tipo === 'subtitulo'
+      ? { ...b, contenido: limpiar(b.contenido) }
+      : b.tipo === 'lista'
+        ? { ...b, elementos: b.elementos.map(limpiar) }
+        : b.tipo === 'recuadro'
+          ? { ...b, lineas: b.lineas.map((l) => ({ ...l, contenido: limpiar(l.contenido) })) }
+          : b,
   );
 }
 
@@ -291,10 +336,46 @@ export async function importarCorrecciones(libro: Libro, datos: Uint8Array, opci
     // Restaurar bloques XHTML e imágenes que viajaron como marcadores.
     const crudos = s.bloques.filter((b) => b.tipo === 'crudo');
     const imagenes = s.bloques.filter((b) => b.tipo === 'imagen');
+    const recuadrosOriginales = s.bloques.filter((b): b is Recuadro => b.tipo === 'recuadro');
     let indiceImagen = 0;
     const bloques: Bloque[] = [];
+    let recuadro: { original: Recuadro; lineas: Inline[][] } | null = null;
+    const cerrarRecuadro = () => {
+      if (!recuadro) return;
+      const { original, lineas } = recuadro;
+      const conEtiqueta = original.variante === 'estado' || original.variante === 'chat';
+      bloques.push({
+        ...original,
+        lineas: (lineas.length ? lineas : [[]]).map((c, j) => {
+          const previa = original.lineas[j] ?? original.lineas[original.lineas.length - 1];
+          const sep = conEtiqueta ? separarEtiqueta(c) : { contenido: c };
+          const etiqueta = sep.etiqueta ?? previa?.etiqueta;
+          return { ...(etiqueta && conEtiqueta ? { etiqueta } : {}), ...(previa?.lado ? { lado: previa.lado } : {}), contenido: sep.contenido };
+        }),
+      });
+      recuadro = null;
+    };
     for (const b of nueva.bloques) {
       const t = textoDe(b);
+      const mr = t.match(MARCADOR_RECUADRO);
+      if (mr) {
+        cerrarRecuadro();
+        const original = recuadrosOriginales[Number(mr[1]) - 1];
+        if (original) recuadro = { original, lineas: [] };
+        else resumen.avisos.push(`«${s.titulo}»: no se encontró el recuadro ${mr[1]}.`);
+        continue;
+      }
+      if (MARCADOR_FIN_RECUADRO.test(t)) {
+        cerrarRecuadro();
+        continue;
+      }
+      if (recuadro) {
+        if (b.tipo === 'parrafo') {
+          if (b.contenido.length) recuadro.lineas.push(b.contenido);
+          continue;
+        }
+        cerrarRecuadro();
+      }
       const mx = t.match(MARCADOR_XHTML);
       const mi = t.match(MARCADOR_IMAGEN);
       if (mx) {
@@ -317,6 +398,7 @@ export async function importarCorrecciones(libro: Libro, datos: Uint8Array, opci
       }
       bloques.push(b);
     }
+    cerrarRecuadro();
     const notas: Nota[] = nueva.notas;
     // Los párrafos vacíos no viajan por Word: no cuentan como cambio.
     const sinVacios = (l: Bloque[]) => l.filter((b) => !(b.tipo === 'parrafo' && !b.contenido.length));

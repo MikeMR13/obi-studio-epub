@@ -76,6 +76,18 @@ export function Ilustracion({ estado, seccion, version, onBloques, onEstado, onP
       setOcupado(false);
     }
   };
+  const dividir = async () => {
+    setOcupado(true);
+    try {
+      const r = await api.dividirIlustracion(seccion.id);
+      onEstado(r.estado);
+      aviso(t('Ilustración dividida en dos páginas. La original queda en Versiones.'));
+    } catch (e) {
+      aviso((e as Error).message, 'error');
+    } finally {
+      setOcupado(false);
+    }
+  };
   const selValida = !!sel && sel.ancho > 0.02 && sel.alto > 0.02;
   const pxSel = sel && recurso?.ancho && recurso.alto ? `${Math.round(sel.ancho * recurso.ancho)}×${Math.round(sel.alto * recurso.alto)} px` : '';
 
@@ -146,7 +158,10 @@ export function Ilustracion({ estado, seccion, version, onBloques, onEstado, onP
         {recurso && !procesable && <p className="ayuda">{t('Solo se pueden girar y recortar imágenes JPEG, PNG y GIF.')}</p>}
         {baja && <p className="aviso-texto">{t('⚠ Resolución baja: para una página completa se recomiendan al menos 1200 px de lado.')}</p>}
         {orientacion === 'horizontal' && !esPortada && (
-          <p className="aviso-texto">{t('Imagen horizontal: en lectores verticales se verá pequeña. En el PDF de impresión puedes ponerla a doble página (pestaña Sección).')}</p>
+          <>
+            <p className="aviso-texto">{t('Imagen horizontal: en lectores verticales se verá pequeña. En el PDF de impresión puedes ponerla a doble página (pestaña Sección).')}</p>
+            <button disabled={!procesable || ocupado || recortando} onClick={dividir}>{t('Dividir en dos páginas')}</button>
+          </>
         )}
         {bloque && (
           <>

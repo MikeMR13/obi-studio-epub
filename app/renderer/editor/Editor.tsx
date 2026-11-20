@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { EditorContent, useEditor, useEditorState, type Editor as TEditor } from '@tiptap/react';
 import { NodeSelection } from '@tiptap/pm/state';
 import type { Bloque, Nota, Seccion, Inline } from '../../../src/model';
-import { ESTILOS_PARRAFO, nuevoId, textoPlano } from '../../../src/model';
+import { ESTILOS_PARRAFO, VARIANTES_RECUADRO, nuevoId, textoPlano } from '../../../src/model';
 import { bloquesAPM, pmABloques } from '../../../src/editor-modelo';
 import { extensiones } from './extensiones';
 import { api } from '../api';
@@ -37,6 +37,7 @@ function idsNotas(bloques: Bloque[]): Set<string> {
   for (const b of bloques) {
     if (b.tipo === 'parrafo' || b.tipo === 'subtitulo') ver(b.contenido);
     if (b.tipo === 'lista') b.elementos.forEach(ver);
+    if (b.tipo === 'recuadro') b.lineas.forEach((l) => ver(l.contenido));
   }
   return ids;
 }
@@ -72,7 +73,9 @@ export function Editor({ seccion, onCambio, onEstado, onComentar, vertical, idio
 
   const guardar = (editor: TEditor, inmediato = false) => {
     window.clearTimeout(temporizador.current);
+    pendiente.current = true;
     const hacer = () => {
+      pendiente.current = false;
       const bloques = pmABloques(editor.getJSON() as any);
       const usadas = idsNotas(bloques);
       const vivas = notasRef.current.filter((n) => usadas.has(n.id));
@@ -94,6 +97,7 @@ export function Editor({ seccion, onCambio, onEstado, onComentar, vertical, idio
     else temporizador.current = window.setTimeout(hacer, 500);
   };
 
+  const pendiente = useRef(false);
   const editor = useEditor({
     extensions: colab
       ? [
@@ -153,7 +157,9 @@ export function Editor({ seccion, onCambio, onEstado, onComentar, vertical, idio
   useEffect(() => {
     if (colab || !editor || seccionId.current !== seccion.id) return;
     const actual = JSON.stringify(pmABloques(editor.getJSON() as any));
-    if (actual !== JSON.stringify(seccion.bloques) && !editor.isFocused) {
+    // No se recarga mientras se escribe (también en los campos de los recuadros) ni con un guardado pendiente.
+    const escribiendo = editor.isFocused || editor.view.dom.contains(document.activeElement) || pendiente.current;
+    if (actual !== JSON.stringify(seccion.bloques) && !escribiendo) {
       editor.commands.setContent(bloquesAPM(seccion.bloques) as any, { emitUpdate: false });
       setNotas(seccion.notas);
     }
@@ -431,6 +437,23 @@ export function Editor({ seccion, onCambio, onEstado, onComentar, vertical, idio
         <B titulo={t('Separador de escena')} onClick={() => c().setHorizontalRule().run()}>⁂</B>
         <B titulo={t('Imagen')} onClick={() => entradaImagen.current?.click()}>🖼</B>
         <B titulo={t('Lista')} activo={editor.isActive('bulletList')} onClick={() => c().toggleBulletList().run()}>•≡</B>
+        <select
+          className="insertar-recuadro"
+          value=""
+          aria-label={t('Insertar recuadro')}
+          title={t('Ventanas de sistema, estado, chat, diario…')}
+          onChange={(e) => {
+            if (e.target.value) c().insertarRecuadro(e.target.value).run();
+          }}
+        >
+          <option value="">{t('Recuadro…')}</option>
+          <optgroup label={t('Isekai y fantasía')}>
+            {VARIANTES_RECUADRO.filter((v) => v.genero === 'isekai').map((v) => <option key={v.id} value={v.id}>{t(v.nombre)}</option>)}
+          </optgroup>
+          <optgroup label={t('Comedia romántica')}>
+            {VARIANTES_RECUADRO.filter((v) => v.genero === 'romcom').map((v) => <option key={v.id} value={v.id}>{t(v.nombre)}</option>)}
+          </optgroup>
+        </select>
         <span className="sep" />
         <B titulo={t('Deshacer')} atajo="Ctrl+Z" onClick={() => c().undo().run()}>↶</B>
         <B titulo={t('Rehacer')} atajo="Ctrl+Y" onClick={() => c().redo().run()}>↷</B>

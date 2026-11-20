@@ -1,8 +1,10 @@
 // Conversión entre el JSON de ProseMirror (editor visual) y los bloques del modelo.
 // Es la única puerta entre el editor y el libro: el editor nunca guarda HTML.
 
-import type { Bloque, EstiloParrafo, Inline, Marca } from './model.js';
-import { ESTILOS_PARRAFO, normalizarInlines } from './model.js';
+import type { Bloque, EstiloParrafo, Inline, LineaRecuadro, Marca, VarianteRecuadro } from './model.js';
+import { ESTILOS_PARRAFO, VARIANTES_RECUADRO, normalizarInlines } from './model.js';
+
+const VARIANTES = new Set<string>(VARIANTES_RECUADRO.map((v) => v.id));
 
 export interface PMMark {
   type: string;
@@ -81,6 +83,13 @@ export function bloquesAPM(bloques: Bloque[]): PMNodo {
       case 'crudo':
         content.push({ type: 'crudo', attrs: { xhtml: b.xhtml } });
         break;
+      case 'recuadro':
+        content.push({
+          type: 'recuadro',
+          attrs: { variante: b.variante, titulo: b.titulo ?? '' },
+          content: b.lineas.map((l) => ({ type: 'lineaRecuadro', attrs: { etiqueta: l.etiqueta ?? '', lado: l.lado ?? 'izq' }, content: inlinesAPM(l.contenido) })),
+        });
+        break;
     }
   }
   for (const c of content) if (c.content && !c.content.length) delete c.content;
@@ -153,6 +162,22 @@ export function pmABloques(doc: PMNodo): Bloque[] {
       case 'crudo':
         bloques.push({ tipo: 'crudo', xhtml: String(n.attrs?.xhtml ?? '') });
         break;
+      case 'recuadro': {
+        const variante = String(n.attrs?.variante ?? 'sistema') as VarianteRecuadro;
+        if (!VARIANTES.has(variante)) break;
+        const titulo = String(n.attrs?.titulo ?? '').trim();
+        const conEtiqueta = variante === 'estado' || variante === 'chat';
+        const lineas: LineaRecuadro[] = (n.content ?? []).map((l) => {
+          const etiqueta = String(l.attrs?.etiqueta ?? '').trim();
+          return {
+            ...(conEtiqueta && etiqueta ? { etiqueta } : {}),
+            ...(variante === 'chat' ? { lado: l.attrs?.lado === 'der' ? ('der' as const) : ('izq' as const) } : {}),
+            contenido: pmAInlines(l.content),
+          };
+        });
+        bloques.push({ tipo: 'recuadro', variante, ...(titulo ? { titulo } : {}), lineas: lineas.length ? lineas : [{ contenido: [] }] });
+        break;
+      }
       case 'blockquote':
         for (const p of n.content ?? []) {
           if (p.type === 'paragraph') bloques.push({ tipo: 'parrafo', estilo: 'cita', contenido: pmAInlines(p.content) });
