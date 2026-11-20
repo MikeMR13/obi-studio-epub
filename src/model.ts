@@ -8,9 +8,11 @@ export type Marca =
   | 'tachado'
   | 'versalitas'
   | 'superindice'
-  | 'subindice';
+  | 'subindice'
+  /** Puntos de énfasis (傍点 / bōten) de la tipografía japonesa. */
+  | 'enfasis';
 
-export const MARCAS: Marca[] = ['negrita', 'cursiva', 'subrayado', 'tachado', 'versalitas', 'superindice', 'subindice'];
+export const MARCAS: Marca[] = ['negrita', 'cursiva', 'subrayado', 'tachado', 'versalitas', 'superindice', 'subindice', 'enfasis'];
 
 export interface Texto {
   tipo: 'texto';
@@ -147,8 +149,10 @@ export interface Seccion {
   notas: Nota[];
   /** Imagen decorativa sobre el título del capítulo. */
   imagenCabecera?: string;
-  /** Ilustración horizontal a doble página enfrentada en el PDF de impresión. */
+  /** Ilustración horizontal a doble página enfrentada (PDF y, con página fija, también en el EPUB). */
   doblePagina?: boolean;
+  /** Ilustración o portada como página fija (pre-paginated) dentro de un libro fluido. */
+  paginaFija?: boolean;
 }
 
 export interface Recurso {
@@ -380,6 +384,12 @@ export interface Libro {
   tipografia: Tipografia;
   /** Ajustes del PDF de impresión (opcional en proyectos antiguos). */
   impresion?: Impresion;
+  /** Dirección del texto: horizontal (predeterminada) o vertical japonesa (tategaki), de derecha a izquierda. */
+  escritura?: 'horizontal' | 'vertical';
+}
+
+export function esVertical(libro: Pick<Libro, 'escritura'>): boolean {
+  return libro.escritura === 'vertical';
 }
 
 export function ajustesImpresion(libro: Libro): Impresion {

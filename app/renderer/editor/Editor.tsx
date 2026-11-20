@@ -97,6 +97,7 @@ export function Editor({ seccion, onCambio, onEstado }: Props) {
         subrayado: e.isActive('underline'),
         tachado: e.isActive('strike'),
         versalitas: e.isActive('versalitas'),
+        enfasis: e.isActive('enfasis'),
         sup: e.isActive('superscript'),
         sub: e.isActive('subscript'),
         enlace: e.isActive('link'),
@@ -258,6 +259,7 @@ export function Editor({ seccion, onCambio, onEstado }: Props) {
         <B titulo="Subíndice" activo={estado.sub} onClick={() => c().toggleSubscript().run()}>x₂</B>
         <span className="sep" />
         <B titulo="Furigana" onClick={furigana}>ふ</B>
+        <B titulo="Puntos de énfasis (傍点)" activo={estado.enfasis} onClick={() => c().toggleMark('enfasis').run()}>傍</B>
         <B titulo={estado.idioma ? `Quitar idioma (${estado.idioma})` : 'Texto en otro idioma'} activo={!!estado.idioma} onClick={idioma}>🌐</B>
         <B titulo={estado.enlace ? 'Quitar enlace' : 'Enlace'} activo={estado.enlace} onClick={enlace}>🔗</B>
         <B titulo="Nota al pie" onClick={nota}>✱</B>

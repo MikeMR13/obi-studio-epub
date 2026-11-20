@@ -241,7 +241,7 @@ export async function importarEpub(datos: Uint8Array): Promise<ResultadoImportac
   const etiquetas = etiquetasNavegacion(textos, rutaNav, rutaNcx);
 
   // --- Documentos del orden de lectura ---
-  interface Doc { ruta: string; cuerpo: Nodo; ids: Map<string, Nodo> }
+  interface Doc { ruta: string; cuerpo: Nodo; ids: Map<string, Nodo>; clases: string[] }
   const docs: Doc[] = [];
   for (const ref of hijosElemento(spine).filter((n) => nombre(n) === 'itemref')) {
     const it = items.get(attr(ref, 'idref'));
@@ -254,7 +254,10 @@ export async function importarEpub(datos: Uint8Array): Promise<ResultadoImportac
     for (const st of todos(documento, (n) => nombre(n) === 'style')) analizarCss(texto(st), css);
     const ids = new Map<string, Nodo>();
     for (const e of todos(cuerpo, (n) => !!attr(n, 'id'))) ids.set(attr(e, 'id'), e);
-    docs.push({ ruta: it.ruta, cuerpo, ids });
+    const clasesCuerpo = clases(cuerpo);
+    // Segunda mitad de una doble página fija de Obi Studio: la primera ya la representa.
+    if (clasesCuerpo.includes('doble-2')) continue;
+    docs.push({ ruta: it.ruta, cuerpo, ids, clases: clasesCuerpo });
   }
   const indiceIds = new Map<string, Nodo>();
   for (const d of docs) for (const [id, e] of d.ids) indiceIds.set(`${d.ruta}#${id}`, e);
@@ -344,6 +347,8 @@ export async function importarEpub(datos: Uint8Array): Promise<ResultadoImportac
       s.enIndice = !!titulo && !['portada', 'ilustracion'].includes(tipo);
       s.bloques = tipo === 'indice' ? [] : p.bloques;
       if (p.imagenCabecera) s.imagenCabecera = p.imagenCabecera;
+      if (d.clases.includes('fija') && (tipo === 'ilustracion' || tipo === 'portada')) s.paginaFija = true;
+      if (d.clases.includes('doble') && tipo === 'ilustracion') s.doblePagina = true;
       if (tipo === 'portada' && !portadaId) {
         const img = p.bloques.find((b) => b.tipo === 'imagen');
         if (img && img.tipo === 'imagen') portadaId = img.recurso;
@@ -387,6 +392,10 @@ export async function importarEpub(datos: Uint8Array): Promise<ResultadoImportac
   const finales = secciones.filter((s) => s.bloques.length || (deDocConNotas.has(s) ? false : s.tipo === 'indice' || s.tipo === 'portada' || (s.titulo && s.mostrarTitulo)));
   if (!finales.length) throw new Error('El EPUB no tiene contenido legible.');
 
+  // Escritura vertical: progresión de derecha a izquierda y writing-mode vertical en las hojas de estilo.
+  const cssTexto = [...items.values()].filter((i) => i.tipo === 'text/css').map((i) => textos.get(i.ruta) ?? '').join('\n');
+  const vertical = attr(spine, 'page-progression-direction') === 'rtl' && /writing-mode\s*:\s*vertical-rl/i.test(cssTexto);
+
   const libro: Libro = {
     formato: 'obi-studio',
     version: 1,
@@ -413,6 +422,7 @@ export async function importarEpub(datos: Uint8Array): Promise<ResultadoImportac
     recursos,
     tema: { ...TEMA_PREDETERMINADO },
     tipografia: { ...TIPOGRAFIA_PREDETERMINADA },
+    ...(vertical ? { escritura: 'vertical' as const } : {}),
   };
   for (const k of Object.keys(libro.metadatos) as (keyof Libro['metadatos'])[]) {
     if (libro.metadatos[k] === undefined || libro.metadatos[k] === '') delete libro.metadatos[k];

@@ -25,6 +25,7 @@ const MARCA_A_PM: Record<Marca, string> = {
   versalitas: 'versalitas',
   superindice: 'superscript',
   subindice: 'subscript',
+  enfasis: 'enfasis',
 };
 const PM_A_MARCA: Record<string, Marca> = Object.fromEntries(Object.entries(MARCA_A_PM).map(([k, v]) => [v, k as Marca]));
 

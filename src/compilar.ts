@@ -3,9 +3,9 @@
 // y metadatos de EPUB Accessibility 1.1.
 
 import JSZip from 'jszip';
-import type { Bloque, Imagen, Inline, Libro, Marca, Nota, Seccion, TipoSeccion } from './model.js';
+import type { Bloque, Imagen, Inline, Libro, Marca, Nota, Recurso, Seccion, TipoSeccion } from './model.js';
 import { esc, escAttr, limpiarXml } from './xml.js';
-import { temaCompleto } from './model.js';
+import { temaCompleto, esVertical } from './model.js';
 import { cssTema, separadorXhtml as separadorTema, contenidoTitulo } from './estilo-tema.js';
 import { fuentesTema, caraFuente, familiaCss, leerFuente } from './fuentes.js';
 
@@ -40,8 +40,9 @@ const ETIQUETA_MARCA: Record<Marca, [string, string]> = {
   versalitas: ['<span class="vs">', '</span>'],
   superindice: ['<sup>', '</sup>'],
   subindice: ['<sub>', '</sub>'],
+  enfasis: ['<span class="boten">', '</span>'],
 };
-const ORDEN_MARCAS: Marca[] = ['negrita', 'cursiva', 'subrayado', 'tachado', 'versalitas', 'superindice', 'subindice'];
+const ORDEN_MARCAS: Marca[] = ['negrita', 'cursiva', 'subrayado', 'tachado', 'versalitas', 'enfasis', 'superindice', 'subindice'];
 
 export function archivoSeccion(s: Seccion): string {
   return `${s.id}.xhtml`;
@@ -59,6 +60,13 @@ export interface Contexto {
   renderNota?: (nota: Nota | undefined, numero: number) => string;
   /** Si se da, sustituye la ruta de las imágenes. */
   rutaImg?: (nombre: string) => string;
+  /** Escritura vertical: números de una o dos cifras y «!?» en horizontal dentro de la línea (tate-chū-yoko). */
+  vertical?: boolean;
+}
+
+/** Tate-chū-yoko automático sobre texto ya escapado. */
+export function tateChuYoko(html: string): string {
+  return html.replace(/(?<![0-9])[0-9]{1,2}(?![0-9])|[!?]{2}/g, '<span class="tcy">$&</span>');
 }
 
 function envolverMarcas(html: string, marcas: Marca[] = []): string {
@@ -73,7 +81,8 @@ export function inlinesXhtml(lista: Inline[], ctx?: Contexto): string {
   let salida = '';
   for (const i of lista) {
     if (i.tipo === 'texto') {
-      let h = envolverMarcas(esc(limpiarXml(i.texto)), i.marcas);
+      const escapado = esc(limpiarXml(i.texto));
+      let h = envolverMarcas(ctx?.vertical && !i.idioma ? tateChuYoko(escapado) : escapado, i.marcas);
       if (i.idioma) h = `<span lang="${escAttr(i.idioma)}" xml:lang="${escAttr(i.idioma)}">${h}</span>`;
       if (i.enlace) h = `<a href="${escAttr(i.enlace)}">${h}</a>`;
       salida += h;
@@ -156,14 +165,14 @@ export function numerarNotas(s: Seccion): Map<string, number> {
   return mapa;
 }
 
-function documento(libro: Libro, titulo: string, cuerpo: string, epubTypeBody?: string): string {
+function documento(libro: Libro, titulo: string, cuerpo: string, epubTypeBody?: string, extra: { viewport?: string; clase?: string } = {}): string {
   const lang = escAttr(libro.metadatos.idioma || 'es');
-  const tipoBody = epubTypeBody ? ` epub:type="${epubTypeBody}"` : '';
+  const tipoBody = (epubTypeBody ? ` epub:type="${epubTypeBody}"` : '') + (extra.clase ? ` class="${extra.clase}"` : '');
   return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE html>
 <html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops" xml:lang="${lang}" lang="${lang}">
 <head>
-<meta charset="utf-8"/>
+<meta charset="utf-8"/>${extra.viewport ? `\n<meta name="viewport" content="${extra.viewport}"/>` : ''}
 <title>${esc(titulo)}</title>
 <link rel="stylesheet" type="text/css" href="estilos.css"/>
 </head>
@@ -178,11 +187,49 @@ function tituloDocumento(libro: Libro, s: Seccion): string {
   return s.titulo || libro.metadatos.titulo;
 }
 
+/** ¿Esta sección sale como página fija (pre-paginated)? Solo ilustraciones y portada con una imagen de tamaño conocido. */
+export function imagenFija(libro: Libro, s: Seccion): Recurso | undefined {
+  if (!s.paginaFija || (s.tipo !== 'ilustracion' && s.tipo !== 'portada')) return undefined;
+  const b = s.bloques.find((x): x is Imagen => x.tipo === 'imagen');
+  const id = b?.recurso ?? (s.tipo === 'portada' ? libro.metadatos.portada : undefined);
+  const r = libro.recursos.find((x) => x.id === id);
+  return r?.ancho && r?.alto ? r : undefined;
+}
+
+/** Documentos de una página fija: uno, o dos si es doble página (cada uno con su mitad de la imagen). */
+export function documentosFijos(libro: Libro, s: Seccion, r: Recurso): { archivo: string; id: string; xhtml: string; lado?: 'left' | 'right' }[] {
+  const sem = SEMANTICA[s.tipo];
+  const b = s.bloques.find((x): x is Imagen => x.tipo === 'imagen');
+  const alt = b?.decorativa ? '' : b?.alt || (s.tipo === 'portada' ? `Portada de ${libro.metadatos.titulo}` : '');
+  const role = s.tipo === 'portada' ? ' role="doc-cover"' : b?.decorativa ? ' role="presentation"' : '';
+  const atributos = [sem.epubType ? `epub:type="${sem.epubType}"` : '', `class="${s.tipo}"`, s.titulo ? `aria-label="${escAttr(s.titulo)}"` : ''].filter(Boolean).join(' ');
+  const img = (clase: string, altImg: string) => `<img class="fija${clase}" src="${escAttr(rutaImagen(r.nombre))}" alt="${escAttr(altImg)}"${altImg ? role : ' role="presentation"'}/>`;
+  if (!(s.doblePagina && s.tipo === 'ilustracion')) {
+    const cuerpo = `<section ${atributos}>\n${img('', alt)}\n</section>`;
+    return [{ archivo: archivoSeccion(s), id: s.id, xhtml: documento(libro, tituloDocumento(libro, s), cuerpo, sem.cuerpo, { viewport: `width=${r.ancho}, height=${r.alto}`, clase: 'fija' }) }];
+  }
+  // Doble página: en libros horizontales se lee primero la izquierda; en verticales, la derecha.
+  const ancho = Math.round(r.ancho! / 2);
+  const viewport = `width=${ancho}, height=${r.alto}`;
+  const orden: ('izq' | 'der')[] = esVertical(libro) ? ['der', 'izq'] : ['izq', 'der'];
+  return orden.map((mitad, k) => {
+    const cuerpo = `<section ${atributos}>\n${img(` mitad-${mitad}`, k === 0 ? alt : '')}\n</section>`;
+    return {
+      archivo: k === 0 ? archivoSeccion(s) : `${s.id}-b.xhtml`,
+      id: k === 0 ? s.id : `${s.id}-b`,
+      lado: mitad === 'izq' ? 'left' : 'right',
+      xhtml: documento(libro, tituloDocumento(libro, s), cuerpo, sem.cuerpo, { viewport, clase: `fija doble doble-${k + 1}` }),
+    };
+  });
+}
+
 export function seccionXhtml(libro: Libro, s: Seccion): string {
+  const fija = imagenFija(libro, s);
+  if (fija) return documentosFijos(libro, s, fija)[0].xhtml;
   const sem = SEMANTICA[s.tipo];
   const numeroNota = numerarNotas(s);
   const notasPorId = new Map(s.notas.map((n) => [n.id, n]));
-  const ctx: Contexto = { libro, numeroNota, notasPorId };
+  const ctx: Contexto = { libro, numeroNota, notasPorId, vertical: esVertical(libro) };
   const atributos: string[] = [];
   if (sem.epubType) atributos.push(`epub:type="${sem.epubType}"`);
   if (sem.role) atributos.push(`role="${sem.role}"`);
@@ -302,7 +349,24 @@ aside[epub|type~="footnote"] { font-size: 0.9em; margin-top: 1em; }
 aside p { text-indent: 0; }
 a[epub|type~="noteref"] { text-decoration: none; }
 ruby rt { font-size: 0.5em; }
+.boten { text-emphasis: filled sesame; -webkit-text-emphasis: filled sesame; }
+body.fija { margin: 0; padding: 0; overflow: hidden; }
+body.fija section { margin: 0; padding: 0; }
+body.fija img.fija { display: block; width: 100%; height: 100%; max-width: none; max-height: none; margin: 0; }
+body.fija.doble img.fija { width: 200%; }
+body.fija.doble img.mitad-der { margin-left: -100%; }
 ${cssTema(t, familiaCss(f.texto), familiaCss(f.titulos))}
+${esVertical(libro) ? cssVertical(t.colorAcento) : ''}`;
+}
+
+function cssVertical(acento: string): string {
+  return `/* Escritura vertical (tategaki) */
+html { writing-mode: vertical-rl; -webkit-writing-mode: vertical-rl; -epub-writing-mode: vertical-rl; }
+body { margin: 5% 0; }
+p { text-align: justify; }
+.tcy { text-combine-upright: all; -webkit-text-combine: horizontal; -epub-text-combine: horizontal; }
+hr.escena { border: 0; border-right: 1px solid ${acento}; width: 0; height: 25%; margin: auto 1.5em; }
+figure img { max-height: 95%; max-width: 95vw; }
 `;
 }
 
@@ -343,7 +407,11 @@ function imagenesConTexto(libro: Libro): { hay: boolean; todasDescritas: boolean
   return { hay, todasDescritas: todas };
 }
 
-export function opf(libro: Libro, archivos: { href: string; id: string; tipo: string; props?: string }[]): string {
+export function opf(
+  libro: Libro,
+  archivos: { href: string; id: string; tipo: string; props?: string }[],
+  lectura: { idref: string; props?: string }[] = libro.secciones.map((s) => ({ idref: s.id })),
+): string {
   const m = libro.metadatos;
   const lang = esc(m.idioma || 'es');
   const meta: string[] = [];
@@ -395,7 +463,7 @@ export function opf(libro: Libro, archivos: { href: string; id: string; tipo: st
   const manifiesto = archivos
     .map((a) => `<item id="${a.id}" href="${escAttr(a.href)}" media-type="${a.tipo}"${a.props ? ` properties="${a.props}"` : ''}/>`)
     .join('\n');
-  const spine = libro.secciones.map((s) => `<itemref idref="${s.id}"/>`).join('\n');
+  const spine = lectura.map((x) => `<itemref idref="${x.idref}"${x.props ? ` properties="${x.props}"` : ''}/>`).join('\n');
   return `<?xml version="1.0" encoding="UTF-8"?>
 <package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="pub-id" xml:lang="${lang}">
 <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
@@ -404,7 +472,7 @@ ${meta.join('\n')}
 <manifest>
 ${manifiesto}
 </manifest>
-<spine>
+<spine${esVertical(libro) ? ' page-progression-direction="rtl"' : ''}>
 ${spine}
 </spine>
 </package>
@@ -437,12 +505,24 @@ export function compilarArchivos(libro: Libro): Map<string, string | Uint8Array>
     manifiesto.push({ href: `fuentes/${a.archivo}`, id: `f-${a.archivo.replace(/\.woff2$/, '').replace(/[^\w-]/g, '-')}`, tipo: 'font/woff2' });
   }
 
+  const lectura: { idref: string; props?: string }[] = [];
   const usadas = new Set<string>();
   if (libro.metadatos.portada) usadas.add(libro.metadatos.portada);
   if (tema.separador === 'imagen' && tema.separadorImagen) usadas.add(tema.separadorImagen);
   for (const s of libro.secciones) {
     if (s.imagenCabecera) usadas.add(s.imagenCabecera);
     for (const b of s.bloques) if (b.tipo === 'imagen') usadas.add(b.recurso);
+    const fija = imagenFija(libro, s);
+    if (fija) {
+      usadas.add(fija.id);
+      for (const d of documentosFijos(libro, s, fija)) {
+        archivos.set(d.archivo, d.xhtml);
+        manifiesto.push({ href: d.archivo, id: d.id, tipo: 'application/xhtml+xml' });
+        lectura.push({ idref: d.id, props: `rendition:layout-pre-paginated ${d.lado ? `rendition:page-spread-${d.lado}` : 'rendition:spread-none'}` });
+      }
+      continue;
+    }
+    lectura.push({ idref: s.id });
     const xhtml = seccionXhtml(libro, s);
     archivos.set(archivoSeccion(s), xhtml);
     const props: string[] = [];
@@ -465,7 +545,7 @@ export function compilarArchivos(libro: Libro): Map<string, string | Uint8Array>
       props: r.id === libro.metadatos.portada ? 'cover-image' : undefined,
     });
   }
-  archivos.set('package.opf', opf(libro, manifiesto));
+  archivos.set('package.opf', opf(libro, manifiesto, lectura));
   return archivos;
 }
 

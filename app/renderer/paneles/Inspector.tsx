@@ -23,6 +23,7 @@ interface Props {
   panelImpresion: React.ReactNode;
   panelTema: React.ReactNode;
   onImagenCabecera: (archivo: File | null) => void;
+  onEscritura: (v: 'horizontal' | 'vertical') => void;
   version: number;
 }
 
@@ -103,10 +104,16 @@ export function Inspector(p: Props) {
                 <small>Imagen decorativa sobre el título (una viñeta, un emblema…).</small>
               </div>
             )}
+            {(p.seccion.tipo === 'ilustracion' || p.seccion.tipo === 'portada') && (
+              <label className="casilla">
+                <input type="checkbox" checked={!!p.seccion.paginaFija} onChange={(e) => p.onSeccion({ paginaFija: e.target.checked || undefined })} />
+                Página fija en el EPUB (la imagen ocupa la pantalla entera; Apple Books y Kobo)
+              </label>
+            )}
             {p.seccion.tipo === 'ilustracion' && (
               <label className="casilla">
                 <input type="checkbox" checked={!!p.seccion.doblePagina} onChange={(e) => p.onSeccion({ doblePagina: e.target.checked || undefined })} />
-                Doble página enfrentada en el PDF de impresión
+                Doble página enfrentada (PDF; y en el EPUB si es página fija)
               </label>
             )}
             <p className="dato">{(p.estado.palabras[p.seccion.id] ?? 0).toLocaleString('es')} palabras · {p.seccion.notas.length} notas</p>
@@ -165,6 +172,14 @@ export function Inspector(p: Props) {
                 <option value="pt-BR">Portugués (Brasil)</option>
                 <option value="ja">Japonés</option>
               </select>
+            </label>
+            <label className="campo">
+              <span>Escritura</span>
+              <select value={p.estado.libro.escritura ?? 'horizontal'} onChange={(e) => p.onEscritura(e.target.value as 'horizontal' | 'vertical')}>
+                <option value="horizontal">Horizontal</option>
+                <option value="vertical">Vertical japonesa (tategaki), de derecha a izquierda</option>
+              </select>
+              <small>En vertical, los números de una o dos cifras y «!?» se ponen en horizontal automáticamente. El editor sigue mostrando el texto en horizontal; la vista previa y el PDF, en vertical.</small>
             </label>
             <Texto etiqueta="ISBN o identificador" valor={m.identificador} onGuardar={(v) => p.onMetadatos({ identificador: v })} ayuda="Si no tienes ISBN, deja el UUID que se generó." />
             <div className="fila-dos">

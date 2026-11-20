@@ -162,6 +162,7 @@ textarea { resize: vertical; }
 .pagina-editor hr::after { content: '*\2003*\2003*'; color: var(--tinta-suave); }
 .pagina-editor hr.ProseMirror-selectednode { background: var(--obi-claro); }
 .pagina-editor .vs { font-variant: small-caps; }
+.pagina-editor .boten { text-emphasis: filled sesame; -webkit-text-emphasis: filled sesame; }
 .pagina-editor .idioma { background: #eef3fb; border-bottom: 1px dotted #6a86b8; }
 .pagina-editor ruby { background: #fff4e0; cursor: pointer; }
 .pagina-editor rt { font-size: 0.5em; }
@@ -306,3 +307,10 @@ p.error { font-weight: 600; }
 .campo.color input { width: 48px; height: 28px; padding: 2px; }
 .boton-archivo { display: inline-block; border: 1px solid var(--linea); background: #fff; border-radius: 6px; padding: 5px 12px; cursor: pointer; width: fit-content; }
 .boton-archivo:hover { background: var(--obi-claro); }
+
+/* ---------- Menú de formatos ---------- */
+.menu-mas { position: relative; }
+.menu-mas .desplegable { width: 260px; right: 0; }
+.menu-mas .desplegable button { display: flex; flex-direction: column; align-items: flex-start; gap: 1px; }
+.menu-mas .desplegable small { color: var(--tenue); font-size: 11.5px; }
+.resumen-correcciones ul { margin: 4px 0 0; padding-left: 18px; }

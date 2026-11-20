@@ -69,10 +69,12 @@ async function crearVentana() {
   // Descargas (exportar EPUB, guardar proyecto): diálogo nativo de guardar.
   ventana.webContents.session.on('will-download', (_e, item) => {
     const nombre = item.getFilename();
-    const tipo = nombre.split('.').pop();
+    const tipo = nombre.endsWith('.kepub.epub') ? 'kepub' : nombre.split('.').pop();
     const filtros: Record<string, { titulo: string; filtro: { name: string; extensions: string[] } }> = {
       epub: { titulo: 'Exportar EPUB', filtro: { name: 'Libro EPUB', extensions: ['epub'] } },
+      kepub: { titulo: 'Exportar KEPUB para Kobo', filtro: { name: 'Libro KEPUB', extensions: ['epub'] } },
       pdf: { titulo: 'Exportar PDF', filtro: { name: 'PDF', extensions: ['pdf'] } },
+      docx: { titulo: 'Exportar Word para corrección', filtro: { name: 'Documento de Word', extensions: ['docx'] } },
       obi: { titulo: 'Guardar proyecto', filtro: { name: 'Proyecto de Obi Studio', extensions: ['obi'] } },
     };
     const f = filtros[tipo ?? 'obi'] ?? filtros.obi;

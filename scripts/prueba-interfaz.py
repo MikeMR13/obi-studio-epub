@@ -8,6 +8,7 @@ import json
 import os
 import subprocess
 import sys
+import zipfile
 
 from playwright.sync_api import expect, sync_playwright
 
@@ -226,12 +227,93 @@ with sync_playwright() as p:
     nombres = pagina.locator(".titulo-seccion").all_inner_texts()
     paso("Reabrir el proyecto .obi", "Capítulo 2 – Desde el código" in nombres, ", ".join(nombres))
 
+    # F4: puntos de énfasis (傍点).
+    pagina.locator(".lista-secciones").get_by_role("button", name="Capítulo 1 – La llegada").click()
+    editor = pagina.locator(".pagina-editor")
+    editor.locator("p").first.click()
+    pagina.keyboard.press("Home")
+    pagina.keyboard.press("Shift+Control+ArrowRight")
+    pagina.get_by_role("button", name="Puntos de énfasis (傍点)").click()
+    pagina.wait_for_timeout(700)
+    enfasis = editor.locator(".boten").all_inner_texts()
+    paso("Puntos de énfasis en el editor", any("Desperté" in t for t in enfasis), ", ".join(enfasis))
+
+    # F4: página fija para la ilustración.
+    estado = pagina.evaluate("fetch('/api/estado').then(r => r.json())")
+    i_ilus = [i for i, s in enumerate(estado["libro"]["secciones"]) if s["tipo"] == "ilustracion"][0]
+    pagina.locator(".lista-secciones > li").nth(i_ilus).locator("button").first.click()
+    pagina.get_by_role("tab", name="Sección").click()
+    pagina.get_by_label("Página fija en el EPUB", exact=False).click()
+    pagina.wait_for_timeout(500)
+    estado = pagina.evaluate("fetch('/api/estado').then(r => r.json())")
+    paso("Ilustración como página fija", estado["libro"]["secciones"][i_ilus].get("paginaFija") is True)
+    pagina.screenshot(path=f"{CAPTURAS}/12-pagina-fija.png")
+    pagina.locator(".lista-secciones").get_by_role("button", name="Capítulo 1 – La llegada").click()
+    editor.locator(".boten").first.screenshot(path=f"{CAPTURAS}/12b-enfasis.png")
+
+    # F4: escritura vertical japonesa.
+    pagina.get_by_role("tab", name="Libro").click()
+    pagina.get_by_label("Escritura").select_option("vertical")
+    pagina.wait_for_timeout(500)
+    estado = pagina.evaluate("fetch('/api/estado').then(r => r.json())")
+    pagina.locator(".lista-secciones").get_by_role("button", name="Capítulo 1 – La llegada").click()
+    pagina.get_by_role("tab", name="Vista previa").click()
+    marco = pagina.frame_locator(".dispositivo iframe")
+    expect(marco.locator("h1")).to_have_text("Capítulo 1 – La llegada")
+    modo = marco.locator("body").evaluate("e => getComputedStyle(document.documentElement).writingMode + '/' + getComputedStyle(e).writingMode")
+    paso("Escritura vertical en la vista previa", estado["libro"].get("escritura") == "vertical" and "vertical-rl" in modo, modo)
+    pagina.wait_for_timeout(500)
+    pagina.screenshot(path=f"{CAPTURAS}/13-vertical.png")
+    pagina.get_by_role("tab", name="Escribir").click()
+
+    # F4: KEPUB desde el menú «Más».
+    pagina.get_by_role("button", name="Más ▾").click()
+    pagina.screenshot(path=f"{CAPTURAS}/14-menu-mas.png")
+    with pagina.expect_download(timeout=120000) as d:
+        pagina.get_by_role("menuitem", name="KEPUB para Kobo").click()
+    ruta_kepub = f"{CAPTURAS}/libro.kepub.epub"
+    d.value.save_as(ruta_kepub)
+    r = subprocess.run(["java", "-jar", "recursos/epubcheck/epubcheck.jar", ruta_kepub], capture_output=True, text=True)
+    paso("KEPUB (vertical, con página fija) pasa EPUBCheck", d.value.suggested_filename.endswith(".kepub.epub") and "No errors or warnings detected" in r.stdout, r.stdout.strip().splitlines()[-1] if r.stdout else r.stderr[-200:])
+
+    # F4: Word para corrección y vuelta.
+    pagina.get_by_role("button", name="Más ▾").click()
+    with pagina.expect_download(timeout=60000) as d:
+        pagina.get_by_role("menuitem", name="Word para corrección").click()
+    ruta_word = f"{CAPTURAS}/correccion.docx"
+    d.value.save_as(ruta_word)
+    ruta_corregido = f"{CAPTURAS}/corregido.docx"
+    with zipfile.ZipFile(ruta_word) as zin, zipfile.ZipFile(ruta_corregido, "w", zipfile.ZIP_DEFLATED) as zout:
+        for item in zin.infolist():
+            datos = zin.read(item.filename)
+            if item.filename == "word/document.xml":
+                xml = datos.decode("utf-8")
+                cambiado = xml.replace("Fin de la escena", "Final corregido de la escena", 1)
+                datos = cambiado.encode("utf-8")
+            zout.writestr(item, datos)
+    paso("Word para corrección exportado", cambiado != xml, "texto del capítulo encontrado en el .docx")
+    pagina.locator('input[type=file][accept=".docx"]').set_input_files(ruta_corregido)
+    dialogo = pagina.get_by_role("dialog")
+    expect(dialogo).to_contain_text("Correcciones importadas", timeout=30000)
+    texto_dialogo = dialogo.inner_text()
+    pagina.screenshot(path=f"{CAPTURAS}/15-correcciones.png")
+    dialogo.get_by_role("button", name="Entendido").click()
+    pagina.locator(".lista-secciones").get_by_role("button", name="Capítulo 1 – La llegada").click()
+    expect(pagina.locator(".pagina-editor")).to_contain_text("Final corregido de la escena")
+    estado = pagina.evaluate("fetch('/api/estado').then(r => r.json())")
+    paso("Correcciones de Word fundidas", "Actualizadas (1)" in texto_dialogo and estado["libro"]["secciones"][i_ilus].get("paginaFija") is True and estado["libro"].get("escritura") == "vertical", texto_dialogo.replace("\n", " ")[:200])
+
     # Ventana pequeña (1024 px).
     pagina.set_viewport_size({"width": 1024, "height": 700})
     pagina.wait_for_timeout(300)
     pagina.screenshot(path=f"{CAPTURAS}/09-1024px.png")
     desborda = pagina.evaluate("document.documentElement.scrollWidth > window.innerWidth")
     paso("Cabe en una ventana de 1024 px", not desborda)
+    pagina.get_by_role("button", name="Más ▾").click()
+    pagina.wait_for_timeout(200)
+    pagina.screenshot(path=f"{CAPTURAS}/16-menu-1024px.png")
+    menu = pagina.locator(".menu-mas .desplegable").bounding_box()
+    paso("Menú «Más» visible a 1024 px", menu is not None and menu["x"] >= 0 and menu["x"] + menu["width"] <= 1024)
     navegador.close()
 
 fallos = [r for r in resultados if not r[1]]

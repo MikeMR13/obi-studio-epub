@@ -5,7 +5,7 @@ import type { Impresion, Libro, Nota, Seccion } from './model.js';
 import { ajustesImpresion, textoPlano } from './model.js';
 import { bloquesXhtml, numerarNotas, inlinesXhtml, type Contexto } from './compilar.js';
 import { esc, escAttr } from './xml.js';
-import { temaCompleto } from './model.js';
+import { temaCompleto, esVertical } from './model.js';
 import { fuentesTema, caraFuente, familiaCss } from './fuentes.js';
 import { cssTema, contenidoTitulo } from './estilo-tema.js';
 
@@ -43,6 +43,8 @@ export function cssImpresion(libro: Libro, op: OpcionesImpresion): string {
   const sinMarcas = `@top-center { content: none; } @bottom-center { content: none; }`;
   const interlineado = Math.min(1.6, Math.max(1.2, t.interlineado * 0.92));
   const tema = temaCompleto(libro);
+  // En vertical (de derecha a izquierda) la página impar queda a la izquierda.
+  const vertical = esVertical(libro);
   const fuentes = fuentesTema(tema, true);
   const familiaTexto = familiaCss(fuentes.texto);
   const familiaTitulos = familiaCss(fuentes.titulos);
@@ -91,7 +93,7 @@ table { border-collapse: collapse; margin: 0.8em auto; font-size: 0.9em; }
 td, th { border: 0.4pt solid #000; padding: 0.2em 0.5em; }
 
 section { break-before: page; counter-reset: footnote; }
-section.texto { break-before: ${a.capituloEnImpar ? 'right' : 'page'}; }
+section.texto { break-before: ${a.capituloEnImpar ? (vertical ? 'left' : 'right') : 'page'}; }
 section.texto > h1 { string-set: capitulo content(text), libro "${titulo}"; margin: 0; padding: ${Math.max(6, tema.tituloEspacio * 5)}mm 0 10mm; }
 section.texto > .cabecera-capitulo { margin: 8mm 0 0; }
 section.texto > .cabecera-capitulo img { max-height: 45mm; }
@@ -100,14 +102,14 @@ ${cssTema(tema, familiaTexto, familiaTitulos)}
 .pagina-imagen.doble-izq img, .pagina-imagen.doble-der img { width: ${2 * a.ancho + 2 * b}mm; height: ${alto}mm; max-width: none; max-height: none; object-fit: cover; }
 .pagina-imagen.doble-izq { justify-content: flex-start; }
 .pagina-imagen.doble-der { justify-content: flex-end; }
-section.doble { break-before: left; }
+section.doble { break-before: ${vertical ? 'right' : 'left'}; }
 section.preliminar { page: preliminar; }
 section.creditos p, section.preliminar p { text-indent: 0; text-align: center; }
 section.creditos { font-size: 0.85em; }
 section.dedicatoria p { text-align: center; text-indent: 0; font-style: italic; }
 section.dedicatoria { padding-top: 35%; }
 section.imagen { page: imagen; }
-.pagina-imagen { width: ${ancho}mm; height: ${alto}mm; display: flex; align-items: center; justify-content: center; overflow: hidden; break-after: page; }
+.pagina-imagen { writing-mode: horizontal-tb; width: ${ancho}mm; height: ${alto}mm; display: flex; align-items: center; justify-content: center; overflow: hidden; break-after: page; }
 .pagina-imagen img { display: block; ${a.ilustracionesASangre && b > 0 ? `width: ${ancho}mm; height: ${alto}mm; object-fit: cover;` : `width: ${a.ancho}mm; height: ${a.alto}mm; object-fit: contain;`} }
 .pagina-imagen.contenida img { max-width: ${a.ancho - 2 * a.margenExterior}mm; max-height: ${a.alto - a.margenSuperior - a.margenInferior}mm; }
 
@@ -120,6 +122,13 @@ ol.indice a::after { content: target-counter(attr(href url), page); float: right
 .nota-pie::footnote-call { content: counter(footnote); vertical-align: super; font-size: 0.65em; line-height: 0; }
 .nota-pie::footnote-marker { content: counter(footnote) '. '; }
 a { color: inherit; text-decoration: none; }
+.boten { text-emphasis: filled sesame; }
+${vertical ? `html { writing-mode: vertical-rl; }
+.tcy { text-combine-upright: all; }
+p { text-align: justify; }
+section.texto > h1 { padding: 0 ${Math.max(6, tema.tituloEspacio * 5)}mm 0 10mm; }
+hr.escena { border: 0; border-right: 0.4pt solid ${tema.colorAcento}; width: 0; height: 20%; margin: auto 1.2em; }
+figure img { max-width: 90%; max-height: none; }` : ''}
 `;
 }
 
@@ -149,6 +158,7 @@ export function htmlImpresion(libro: Libro, op: OpcionesImpresion): string {
       numeroNota: numerarNotas(s),
       notasPorId: new Map(s.notas.map((n) => [n.id, n])),
       rutaImg,
+      vertical: esVertical(libro),
     };
     ctx.renderNota = (nota) => renderNota(nota, ctx);
     let contenido = '';
@@ -160,7 +170,12 @@ export function htmlImpresion(libro: Libro, op: OpcionesImpresion): string {
         if (!r) continue;
         const src = escAttr(rutaImg(r.nombre));
         // Doble página: la misma imagen en dos páginas enfrentadas, cada una muestra su mitad.
-        if (s.doblePagina && s.tipo === 'ilustracion') contenido += `<div class="pagina-imagen doble-izq"><img src="${src}" alt=""/></div><div class="pagina-imagen doble-der"><img src="${src}" alt=""/></div>`;
+        if (s.doblePagina && s.tipo === 'ilustracion') {
+          const izq = `<div class="pagina-imagen doble-izq"><img src="${src}" alt=""/></div>`;
+          const der = `<div class="pagina-imagen doble-der"><img src="${src}" alt=""/></div>`;
+          // En vertical se pasa primero por la página derecha.
+          contenido += esVertical(libro) ? der + izq : izq + der;
+        }
         else contenido += `<div class="pagina-imagen"><img src="${src}" alt=""/></div>`;
       }
       const resto = s.bloques.filter((b) => b.tipo !== 'imagen');

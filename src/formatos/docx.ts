@@ -5,7 +5,7 @@
 import JSZip from 'jszip';
 import mammoth from 'mammoth';
 import type { Libro, Nota, Recurso, Seccion, Inline } from '../model.js';
-import { TEMA_PREDETERMINADO, TIPOGRAFIA_PREDETERMINADA, nuevoId, nuevaSeccion, uuid } from '../model.js';
+import { TEMA_PREDETERMINADO, TIPOGRAFIA_PREDETERMINADA, nuevoId, nuevaSeccion, uuid, normalizarInlines } from '../model.js';
 import { tamanoImagen, tipoPorContenido, extension } from '../imagen.js';
 import { analizarHtml, analizarXml, attr, buscar, nombre, texto, todos, type Nodo } from './dom.js';
 import { contenidoNota, convertirBloques, type OpcionesConversion } from './convertir.js';
@@ -24,6 +24,7 @@ const MAPA_ESTILOS = [
   "p[style-name='Intense Quote'] => p.cita:fresh",
   "p[style-name='Cita destacada'] => p.cita:fresh",
   "p[style-name='Sin sangría'] => p.sin-sangria:fresh",
+  "p[style-name='SinSangria'] => p.sin-sangria:fresh",
   "p[style-name='ObiCentrado'] => p.centrado:fresh",
   "p[style-name='ObiDerecha'] => p.derecha:fresh",
   "p[style-name='Title'] => h1.titulo-documento:fresh",
@@ -31,10 +32,34 @@ const MAPA_ESTILOS = [
   "p[style-name='Subtitle'] => p.subtitulo-documento:fresh",
   "p[style-name='Subtítulo'] => p.subtitulo-documento:fresh",
   "r[style-name='Versalitas'] => span.vs",
+  "r[style-name='Énfasis'] => span.boten",
+  "r[style-name='Enfasis'] => span.boten",
   'small-caps => span.vs',
   'u => u',
   'strike => s',
 ];
+
+/** Furigana escrita en Word con la convención de Aozora Bunko: ｜base《lectura》 o kanji《lectura》 → furigana. */
+export function rubiesDeTexto(lista: Inline[]): Inline[] {
+  const salida: Inline[] = [];
+  const re = /｜([^｜《》]+)《([^》]+)》|([\p{Script=Han}々〆ヶ]+)《([^》]+)》/gu;
+  for (const i of lista) {
+    if (i.tipo !== 'texto' || !i.texto.includes('《')) {
+      salida.push(i);
+      continue;
+    }
+    let ultimo = 0;
+    for (const m of i.texto.matchAll(re)) {
+      if (m.index! > ultimo) salida.push({ ...i, texto: i.texto.slice(ultimo, m.index) });
+      const ruby: Inline = { tipo: 'ruby', base: m[1] ?? m[3], lectura: m[2] ?? m[4] };
+      if (i.marcas?.length) ruby.marcas = [...i.marcas];
+      salida.push(ruby);
+      ultimo = m.index! + m[0].length;
+    }
+    if (ultimo < i.texto.length) salida.push({ ...i, texto: i.texto.slice(ultimo) });
+  }
+  return normalizarInlines(salida);
+}
 
 export async function importarDocx(datos: Uint8Array): Promise<ResultadoImportacion> {
   const avisos: ResultadoImportacion['avisos'] = [];
@@ -153,9 +178,10 @@ export async function importarDocx(datos: Uint8Array): Promise<ResultadoImportac
         return { ...i, id: mapa.get(i.id)! };
       });
     for (const b of s.bloques) {
-      if (b.tipo === 'parrafo' || b.tipo === 'subtitulo') b.contenido = cambiar(b.contenido);
-      if (b.tipo === 'lista') b.elementos = b.elementos.map(cambiar);
+      if (b.tipo === 'parrafo' || b.tipo === 'subtitulo') b.contenido = rubiesDeTexto(cambiar(b.contenido));
+      if (b.tipo === 'lista') b.elementos = b.elementos.map((e) => rubiesDeTexto(cambiar(e)));
     }
+    for (const n of notas) n.contenido = rubiesDeTexto(n.contenido);
     s.notas = notas;
     secciones.push(s);
   });

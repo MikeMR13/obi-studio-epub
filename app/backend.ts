@@ -7,6 +7,8 @@ import { join } from 'node:path';
 import type { Impresion, Libro, Metadatos, Recurso, Seccion, Tema, TipoSeccion, Tipografia } from '../src/model.js';
 import { ajustesImpresion, TAMANOS_IMPRESION, temaCompleto, validarTema } from '../src/model.js';
 import { TEMAS } from '../src/temas.js';
+import { compilarKepub } from '../src/kepub.js';
+import { exportarWord, importarCorrecciones, type ResumenCorrecciones } from '../src/formatos/word.js';
 import { archivosImpresion, margenInteriorAutomatico } from '../src/impresion.js';
 import { generarPdf, renderizadorChrome, urlVisor, type Renderizador, type TipoPdf } from '../src/pdf.js';
 import { libroParaImprimir } from '../src/servicio-impresion.js';
@@ -218,7 +220,7 @@ export class Backend {
     const { id: _id, ...resto } = cambios as Partial<Seccion>;
     Object.assign(s, resto);
     // null quita un campo opcional (imagen de cabecera, doble página).
-    for (const k of ['imagenCabecera', 'doblePagina'] as const) if ((s as unknown as Record<string, unknown>)[k] === null || s[k] === undefined) delete s[k];
+    for (const k of ['imagenCabecera', 'doblePagina', 'paginaFija'] as const) if ((s as unknown as Record<string, unknown>)[k] === null || s[k] === undefined) delete s[k];
     if (s.imagenCabecera && !this.libro.recursos.some((r) => r.id === s.imagenCabecera)) delete s.imagenCabecera;
     this.marcar();
   }
@@ -395,6 +397,36 @@ export class Backend {
     if (tipo === 'impresion') this.ultimasPaginas = r.paginas;
     const sufijo = tipo === 'impresion' ? '-impresion' : '-digital';
     return { nombre: nombreDeArchivo(this.libro.metadatos.titulo) + sufijo + '.pdf', datos: r.datos, paginas: r.paginas, avisos: revisarImpresion(this.libro, r.paginas) };
+  }
+
+  escritura(valor: 'horizontal' | 'vertical') {
+    if (valor === 'vertical') this.libro.escritura = 'vertical';
+    else delete this.libro.escritura;
+    this.marcar();
+  }
+
+  /** KEPUB para Kobo: valida igual que el EPUB y bloquea si hay errores. */
+  async exportarKepub(): Promise<{ nombre: string; datos: Uint8Array }> {
+    const datos = await compilarKepub(this.libro);
+    const r = await validarDatos(datos);
+    if (!r.valido) throw new ErrorUsuario('El KEPUB tiene errores. Corrígelos antes de exportar (pestaña Validación).', 409, r);
+    return { nombre: nombreDeArchivo(this.libro.metadatos.titulo) + '.kepub.epub', datos };
+  }
+
+  async exportarWord(): Promise<{ nombre: string; datos: Uint8Array }> {
+    return { nombre: nombreDeArchivo(this.libro.metadatos.titulo) + '-correccion.docx', datos: await exportarWord(this.libro) };
+  }
+
+  async importarCorrecciones(nombre: string, datos: Uint8Array): Promise<ResumenCorrecciones> {
+    if (!nombre.toLowerCase().endsWith('.docx')) throw new ErrorUsuario('Las correcciones se importan desde un archivo .docx.');
+    let r: ResumenCorrecciones;
+    try {
+      r = await importarCorrecciones(this.libro, datos);
+    } catch (e) {
+      throw new ErrorUsuario(`No se pudo leer el Word: ${(e as Error).message}`);
+    }
+    if (r.actualizadas.length || r.nuevas.length) this.marcar();
+    return r;
   }
 
   async proyecto(): Promise<{ nombre: string; datos: Uint8Array }> {

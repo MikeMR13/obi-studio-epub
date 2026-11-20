@@ -16,6 +16,7 @@ interface Peticion {
   aceptar: string;
   peligro?: boolean;
   mensaje?: string;
+  soloAceptar?: boolean;
   resolver: (v: Record<string, string> | null) => void;
 }
 
@@ -29,6 +30,11 @@ export function pedirDatos(titulo: string, campos: Campo[], aceptar = 'Aceptar',
 export async function confirmar(titulo: string, mensaje: string, aceptar = 'Continuar', peligro = false): Promise<boolean> {
   const r = await new Promise<Record<string, string> | null>((resolver) => mostrar?.({ titulo, campos: [], aceptar, mensaje, peligro, resolver }));
   return r !== null;
+}
+
+/** Mensaje informativo con un único botón. */
+export async function informar(titulo: string, mensaje: string, aceptar = 'Entendido'): Promise<void> {
+  await new Promise<Record<string, string> | null>((resolver) => mostrar?.({ titulo, campos: [], aceptar, mensaje, soloAceptar: true, resolver }));
 }
 
 export function aviso(texto: string, tipo: 'ok' | 'error' = 'ok') {
@@ -78,7 +84,7 @@ export function Dialogos() {
             onKeyDown={(e) => e.key === 'Escape' && cerrar(null)}
           >
             <h2>{p.titulo}</h2>
-            {p.mensaje && <p className="mensaje-dialogo">{p.mensaje}</p>}
+            {p.mensaje && <p className="mensaje-dialogo" style={{ whiteSpace: 'pre-line' }}>{p.mensaje}</p>}
             {p.campos.map((c, k) => (
               <label key={c.nombre} className="campo">
                 <span>{c.etiqueta}</span>
@@ -100,9 +106,11 @@ export function Dialogos() {
               </label>
             ))}
             <div className="botones-dialogo">
-              <button type="button" onClick={() => cerrar(null)}>
-                Cancelar
-              </button>
+              {!p.soloAceptar && (
+                <button type="button" onClick={() => cerrar(null)}>
+                  Cancelar
+                </button>
+              )}
               <button ref={botonAceptar} type="submit" className={p.peligro ? 'peligro' : 'principal'}>
                 {p.aceptar}
               </button>

@@ -59,6 +59,12 @@ export const Versalitas = Mark.create({
   },
 });
 
+export const Enfasis = Mark.create({
+  name: 'enfasis',
+  parseHTML: () => [{ tag: 'span.boten' }],
+  renderHTML: () => ['span', { class: 'boten', title: 'Puntos de énfasis (傍点)' }, 0],
+});
+
 export const Idioma = Mark.create({
   name: 'idioma',
   addAttributes: () => ({ lang: { default: null } }),
@@ -162,6 +168,7 @@ export function extensiones() {
     Superscript,
     Subscript,
     Versalitas,
+    Enfasis,
     Idioma,
     Ruby,
     NotaRef,

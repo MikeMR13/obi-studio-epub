@@ -160,6 +160,22 @@ export async function iniciarServidor(op: OpcionesServidor = {}) {
       const { nombre, datos } = await backend.exportar();
       descarga(r, nombre, 'application/epub+zip', datos);
     }],
+    ['PUT', /^\/api\/escritura$/, async (q, r) => {
+      backend.escritura((await json(q)).escritura === 'vertical' ? 'vertical' : 'horizontal');
+      enviar(r, 200, backend.estado());
+    }],
+    ['GET', /^\/api\/exportar-kepub$/, async (_q, r) => {
+      const { nombre, datos } = await backend.exportarKepub();
+      descarga(r, nombre, 'application/epub+zip', datos);
+    }],
+    ['GET', /^\/api\/exportar-word$/, async (_q, r) => {
+      const { nombre, datos } = await backend.exportarWord();
+      descarga(r, nombre, 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', datos);
+    }],
+    ['POST', /^\/api\/correcciones$/, async (q, r, _m, url) => {
+      const resumen = await backend.importarCorrecciones(url.searchParams.get('nombre') ?? '', await cuerpo(q));
+      enviar(r, 200, { resumen, estado: backend.estado() });
+    }],
     ['GET', /^\/api\/proyecto$/, async (_q, r) => {
       const { nombre, datos } = await backend.proyecto();
       descarga(r, nombre, 'application/octet-stream', datos);

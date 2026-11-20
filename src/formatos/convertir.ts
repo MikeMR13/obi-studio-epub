@@ -171,11 +171,13 @@ export function convertirInlines(nodos: Nodo[], o: OpcionesConversion, estado: E
         .map((h) => texto(h))
         .join('')
         .trim();
-      if (base && lectura) salida.push({ tipo: 'ruby', base, lectura, marcas: estado.marcas.length ? [...estado.marcas] : undefined });
+      if (base && lectura) salida.push({ tipo: 'ruby', base, lectura, ...(estado.marcas.length ? { marcas: [...estado.marcas] } : {}) });
       else if (base) salida.push({ tipo: 'texto', texto: base, marcas: [...estado.marcas], enlace: estado.enlace, idioma: estado.idioma });
       continue;
     }
     const nuevo: EstadoInline = { marcas: [...estado.marcas], enlace: estado.enlace, idioma: estado.idioma };
+    if (clases(n).includes('boten') && !nuevo.marcas.includes('enfasis')) nuevo.marcas.push('enfasis');
+    if (clases(n).includes('vs') && !nuevo.marcas.includes('versalitas')) nuevo.marcas.push('versalitas');
     const m = MARCA_ETIQUETA[et];
     if (m && !nuevo.marcas.includes(m)) nuevo.marcas.push(m);
     for (const mm of marcasDeEstilo(est)) if (!nuevo.marcas.includes(mm)) nuevo.marcas.push(mm);

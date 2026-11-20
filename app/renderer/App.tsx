@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Bloque, Metadatos, Nota, Seccion, Tema, Tipografia } from '../../src/model';
 import { TIPOS_SECCION } from '../../src/model';
 import { api, descargar, ErrorApi, type Estado, type Resultado } from './api';
-import { Dialogos, aviso, confirmar, pedirDatos } from './dialogos';
+import { Dialogos, aviso, confirmar, informar, pedirDatos } from './dialogos';
 import { Editor } from './editor/Editor';
 import { Estructura } from './paneles/Estructura';
 import { Inspector } from './paneles/Inspector';
@@ -21,6 +21,8 @@ export function App() {
   const [vista, setVista] = useState<Vista>('editor');
   const [pestana, setPestana] = useState<Pestana>('seccion');
   const [exportandoPdf, setExportandoPdf] = useState(false);
+  const [menuMas, setMenuMas] = useState(false);
+  const entradaCorrecciones = useRef<HTMLInputElement>(null);
   const [validacion, setValidacion] = useState<Resultado | null>(null);
   const [validando, setValidando] = useState(false);
   const [version, setVersion] = useState(0);
@@ -117,6 +119,40 @@ export function App() {
     } finally {
       setOcupado('');
     }
+  };
+
+  const descargarFormato = async (ruta: string, mensaje: string, espera: string) => {
+    setMenuMas(false);
+    setOcupado(espera);
+    try {
+      await descargar(ruta);
+      aviso(mensaje);
+    } catch (e) {
+      if (e instanceof ErrorApi && e.estado === 409) {
+        setValidacion(e.datos as Resultado);
+        setPestana('validacion');
+      }
+      aviso((e as Error).message, 'error');
+    } finally {
+      setOcupado('');
+    }
+  };
+
+  const correcciones = async (archivo: File) => {
+    const r = await llamar(() => api.correcciones(archivo), 'Fundiendo las correcciones…');
+    if (!r) return;
+    aplicar(r.estado);
+    const { actualizadas, nuevas, sinCambios, avisos } = r.resumen;
+    await informar(
+      'Correcciones importadas',
+      [
+        actualizadas.length ? `Actualizadas (${actualizadas.length}): ${actualizadas.join(', ')}.` : 'Ninguna sección cambió.',
+        nuevas.length ? `Nuevas (${nuevas.length}): ${nuevas.join(', ')}.` : '',
+        sinCambios ? `Sin cambios: ${sinCambios}.` : '',
+        avisos.length ? `Avisos: ${avisos.join(' ')}` : '',
+        'Las ilustraciones, el tema y los bloques XHTML se conservaron.',
+      ].filter(Boolean).join('\n'),
+    );
   };
 
   const exportarPdf = async (tipo: 'impresion' | 'digital') => {
@@ -252,6 +288,18 @@ export function App() {
           <button onClick={validar} disabled={validando}>Validar</button>
           <button onClick={() => setPestana('impresion')} title="PDF para imprenta o digital">PDF…</button>
           <button className="principal" onClick={exportar} title="Exportar EPUB (Ctrl+E)">Exportar EPUB</button>
+          <div className="menu-mas">
+            <button onClick={() => setMenuMas(!menuMas)} aria-expanded={menuMas} aria-haspopup="menu" title="Más formatos">Más ▾</button>
+            {menuMas && (
+              <ul className="desplegable" role="menu">
+                <li><button role="menuitem" onClick={() => descargarFormato('/api/exportar-kepub', 'KEPUB para Kobo exportado.', 'Creando el KEPUB…')}>KEPUB para Kobo<small>Estadísticas de lectura y subrayado preciso en Kobo</small></button></li>
+                <li><button role="menuitem" onClick={() => { setMenuMas(false); setPestana('impresion'); }}>PDF…<small>Para imprenta o digital</small></button></li>
+                <li><button role="menuitem" onClick={() => descargarFormato('/api/exportar-word', 'Word para corrección exportado.', 'Creando el Word…')}>Word para corrección<small>Para enviar a correctores; vuelve con «Importar correcciones»</small></button></li>
+                <li><button role="menuitem" onClick={() => { setMenuMas(false); entradaCorrecciones.current?.click(); }}>Importar correcciones de Word…<small>Funde los cambios capítulo a capítulo</small></button></li>
+              </ul>
+            )}
+            <input ref={entradaCorrecciones} type="file" hidden accept=".docx" onChange={(e) => { const f = e.target.files?.[0]; if (f) void correcciones(f); e.target.value = ''; }} />
+          </div>
         </div>
       </header>
       <Estructura
@@ -338,6 +386,7 @@ export function App() {
           setVista('codigo');
         }}
         version={version}
+        onEscritura={(v) => llamar(async () => aplicar(await api.escritura(v)))}
         onImagenCabecera={(archivo) =>
           seccion &&
           llamar(async () => {

@@ -3,6 +3,9 @@
 //   obi compilar <proyecto.obi> <salida.epub>
 //   obi validar <libro.epub>
 //   obi pdf <proyecto.obi> <salida.pdf> [--digital]
+//   obi kepub <proyecto.obi> <salida.kepub.epub>
+//   obi word <proyecto.obi> <salida.docx>
+//   obi correcciones <proyecto.obi> <corregido.docx>   (actualiza el proyecto)
 
 import { readFile, writeFile } from 'node:fs/promises';
 import { importarEpub } from './formatos/epub.js';
@@ -11,6 +14,8 @@ import { compilar } from './compilar.js';
 import { deserializarProyecto, guardarProyecto } from './proyecto.js';
 import { validarArchivo } from './validar.js';
 import { pdfDesdeLibro } from './servicio-impresion.js';
+import { compilarKepub } from './kepub.js';
+import { exportarWord, importarCorrecciones } from './formatos/word.js';
 
 const [orden, entrada, salida] = process.argv.slice(2);
 
@@ -35,8 +40,22 @@ async function principal() {
     const r = await pdfDesdeLibro(libro, process.argv.includes('--digital') ? 'digital' : 'impresion');
     await writeFile(salida, r.datos);
     console.log(`PDF escrito en ${salida}: ${r.paginas} páginas, margen interior ${r.interior} mm`);
+  } else if (orden === 'kepub' && entrada && salida) {
+    const libro = await deserializarProyecto(new Uint8Array(await readFile(entrada)));
+    await writeFile(salida, await compilarKepub(libro));
+    console.log(`KEPUB escrito en ${salida}`);
+  } else if (orden === 'word' && entrada && salida) {
+    const libro = await deserializarProyecto(new Uint8Array(await readFile(entrada)));
+    await writeFile(salida, await exportarWord(libro));
+    console.log(`Word para corrección escrito en ${salida}`);
+  } else if (orden === 'correcciones' && entrada && salida) {
+    const libro = await deserializarProyecto(new Uint8Array(await readFile(entrada)));
+    const r = await importarCorrecciones(libro, new Uint8Array(await readFile(salida)));
+    await guardarProyecto(entrada, libro);
+    console.log(`Actualizadas: ${r.actualizadas.join(', ') || 'ninguna'}. Nuevas: ${r.nuevas.join(', ') || 'ninguna'}. Sin cambios: ${r.sinCambios}.`);
+    for (const a of r.avisos) console.log(`Aviso: ${a}`);
   } else {
-    console.log('Uso:\n  obi importar <entrada.epub|.docx> <salida.obi>\n  obi compilar <proyecto.obi> <salida.epub>\n  obi validar <libro.epub>\n  obi pdf <proyecto.obi> <salida.pdf> [--digital]');
+    console.log('Uso:\n  obi importar <entrada.epub|.docx> <salida.obi>\n  obi compilar <proyecto.obi> <salida.epub>\n  obi validar <libro.epub>\n  obi pdf <proyecto.obi> <salida.pdf> [--digital]\n  obi kepub <proyecto.obi> <salida.kepub.epub>\n  obi word <proyecto.obi> <salida.docx>\n  obi correcciones <proyecto.obi> <corregido.docx>');
     process.exitCode = 2;
   }
 }

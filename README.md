@@ -23,6 +23,15 @@ Maquetador visual de novelas ligeras para Windows, macOS y Linux. Escribes y das
 - **Proyecto `.obi`:** un ZIP con `libro.json` y las imágenes. Copia de recuperación automática cada minuto con cambios.
 - EPUBCheck y un Java mínimo (jlink, 56 MB) van **dentro del instalador**.
 
+## Novela ligera avanzada (F4)
+
+- **Escritura vertical japonesa (tategaki):** en la pestaña Libro. El EPUB sale con `writing-mode: vertical-rl` y avance de páginas de derecha a izquierda; los números de una o dos cifras y «!?» se ponen en horizontal (tate-chū-yoko) solos. El PDF también se compagina en vertical (capítulos en página par, dobles páginas invertidas). El EPUB vertical se reconoce al importarlo.
+- **Puntos de énfasis (傍点)** en el editor (botón 傍), en el EPUB, el PDF y Word.
+- **Página fija selectiva:** una ilustración o la portada puede ir como página fija (`rendition:layout-pre-paginated`) dentro de un libro refluible; una doble página fija se divide en dos páginas enfrentadas (`page-spread-left/right`). Para Apple Books y Kobo; Kindle la muestra como imagen normal.
+- **KEPUB para Kobo** (menú «Más»): el mismo EPUB con `koboSpan` por frase para las estadísticas de lectura y el subrayado. Pasa EPUBCheck y se valida antes de exportar.
+- **Word de ida y vuelta para correctores** (menú «Más»): el Word lleva estilos con nombre (Pensamiento, Onomatopeya, Carta, Cita, SinSangria, Énfasis), notas al pie, furigana en notación Aozora `｜漢字《かんじ》` y marcadores `⟦XHTML n⟧`/`⟦Imagen n⟧` para lo que Word no puede editar. **Importar correcciones** funde los cambios capítulo a capítulo (por título y, si no, por posición) y conserva tema, ilustraciones, imágenes de cabecera, páginas fijas y bloques XHTML; avisa de lo que no pudo casar.
+- Línea de comandos: `obi kepub`, `obi word` y `obi correcciones`.
+
 ## Diseño (F3)
 
 - **Galería de temas:** Clásico, Novela ligera, Fantasía épica, Romance, Ciencia ficción, Misterio, Juvenil, Minimalista y Literario. Cada uno es un conjunto de valores del modelo; al tocar cualquier ajuste el tema pasa a «Personalizado».
@@ -99,12 +108,13 @@ En local: `npm run instaladores` construye el del sistema actual en `instaladore
 | --- | --- |
 | `src/model.ts` | Modelo del libro: secciones, bloques, inlines, notas, recursos, metadatos, tema |
 | `src/compilar.ts` | Compilador a EPUB 3.3 (OPF, navegación, XHTML, CSS, empaquetado OCF) |
-| `src/formatos/` | Importadores: `epub.ts`, `docx.ts`, conversión HTML → bloques (`convertir.ts`) y utilidades DOM |
+| `src/formatos/` | Importadores: `epub.ts`, `docx.ts`, Word de ida y vuelta (`word.ts`), conversión HTML → bloques (`convertir.ts`) y utilidades DOM |
 | `src/editor-modelo.ts` | Puente entre el JSON de ProseMirror y los bloques del modelo |
 | `src/validar.ts` | EPUBCheck con mensajes en español |
 | `src/impresion.ts`, `src/pdf.ts`, `src/servicio-impresion.ts` | HTML y CSS de impresión, generación y posproceso del PDF, servicio del visor |
 | `src/estilo-tema.ts`, `src/temas.ts`, `src/fuentes.ts` | CSS del tema común al EPUB y al PDF, galería de temas, fuentes incrustadas |
 | `src/preflight.ts`, `src/division.ts`, `src/recursos.ts` | Revisión previa, división silábica, ubicación de los recursos |
+| `src/kepub.ts`, `src/formatos/word.ts` | KEPUB para Kobo; Word para corrección e importación de correcciones |
 | `src/proyecto.ts`, `src/tipografia.ts`, `src/imagen.ts`, `src/cli.ts` | Proyecto .obi, tipografía española, tamaño de imágenes, línea de comandos |
 | `src/pruebas/` | Pruebas del motor y documentos de prueba generados al vuelo |
 | `app/backend.ts` | Operaciones sobre el libro abierto |
@@ -113,11 +123,12 @@ En local: `npm run instaladores` construye el del sistema actual en `instaladore
 | `app/renderer/` | Interfaz React: `App.tsx`, `editor/` (esquema y editor), `paneles/` (estructura, inspector, vista previa, código, ilustración) |
 | `scripts/` | Compilación, preparación de recursos y prueba de la interfaz |
 
-## Siguientes pasos (plan F1 en adelante)
+## Siguientes pasos
 
 - Firma de instaladores y prueba en un Windows real.
 - Interfaz en inglés.
-- Fuentes del sistema incrustadas (subconjunto con HarfBuzz), recorte y giro de ilustraciones, dobles páginas.
+- Fuentes del sistema incrustadas (subconjunto con HarfBuzz), recorte y giro de ilustraciones; fuente japonesa incrustada (Noto Serif JP en subconjunto) para el tategaki.
+- Editor en vertical (hoy el editor muestra el texto en horizontal y la vista previa en vertical).
 - Buscar y reemplazar, versiones con nombre, revisión de accesibilidad con axe-core.
 - PDF/X-1a y CMYK con Ghostscript.
-- Novela ligera avanzada (F4): escritura vertical, layout fijo selectivo, KEPUB, DOCX de ida y vuelta.
+- Las fases siguientes del plan técnico (ver el documento del proyecto).
