@@ -536,6 +536,27 @@ with sync_playwright() as p:
     paso("Publicar: cambiar de tienda y descargar la portada", "portada" in d.value.suggested_filename)
     publicar.get_by_role("button", name="Cerrar").click()
 
+    # F6: muestra gratuita.
+    pagina.get_by_role("button", name="Más ▾").click()
+    pagina.get_by_role("menuitem", name="Muestra gratuita…").click()
+    muestra = pagina.locator(".panel-muestra")
+    expect(muestra).to_be_visible()
+    marcadas = muestra.locator(".secciones-muestra input:checked").count()
+    muestra.get_by_label("Enlace de compra").fill("javascript:alert(1)")
+    mal = muestra.get_by_role("button", name="Exportar EPUB de muestra").is_disabled()
+    muestra.get_by_label("Enlace de compra").fill("https://tienda.example/libro")
+    pagina.screenshot(path=f"{CAPTURAS}/30-muestra.png")
+    with pagina.expect_download(timeout=90000) as d:
+        muestra.get_by_role("button", name="Exportar EPUB de muestra").click()
+    paso("Muestra: EPUB validado con las secciones propuestas", marcadas >= 1 and mal and d.value.suggested_filename.endswith("-muestra.epub"), f"{marcadas} secciones")
+    with pagina.expect_download(timeout=30000) as d:
+        muestra.get_by_role("button", name="Exportar página web").click()
+    ruta_html = f"{CAPTURAS}/muestra.html"
+    d.value.save_as(ruta_html)
+    html = open(ruta_html, encoding="utf-8").read()
+    paso("Muestra: página web de una sola pieza", html.startswith("<!DOCTYPE html>") and "tienda.example" in html and 'src="img/' not in html, f"{len(html) // 1024} KB")
+    muestra.get_by_role("button", name="Cerrar").click()
+
     # Ventana pequeña (1024 px).
     pagina.set_viewport_size({"width": 1024, "height": 700})
     pagina.wait_for_timeout(300)

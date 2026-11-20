@@ -19,6 +19,7 @@ import { Versiones } from './paneles/Versiones';
 import { Colaborar } from './paneles/Colaborar';
 import { Configuracion } from './paneles/Configuracion';
 import { Publicar } from './paneles/Publicar';
+import { Muestra } from './paneles/Muestra';
 import type { Pestana } from './paneles/Inspector';
 import { cambiarIdioma, idiomaInterfaz, t } from './i18n';
 
@@ -36,6 +37,7 @@ export function App() {
   const [verColaborar, setVerColaborar] = useState(false);
   const [verConfiguracion, setVerConfiguracion] = useState(false);
   const [verPublicar, setVerPublicar] = useState(false);
+  const [verMuestra, setVerMuestra] = useState(false);
   const [configuracion, setConfiguracion] = useState<{ colaboracion: boolean }>({ colaboracion: false });
   useEffect(() => {
     api.configuracion().then(setConfiguracion).catch(() => undefined);
@@ -348,6 +350,16 @@ export function App() {
           }}
         />
       )}
+      {verMuestra && (
+        <Muestra
+          estado={estado}
+          onCerrar={() => setVerMuestra(false)}
+          onErrores={(d) => {
+            setValidacion(d as Resultado);
+            setPestana('validacion');
+          }}
+        />
+      )}
       {verConfiguracion && <Configuracion onCerrar={() => setVerConfiguracion(false)} onEstado={(e) => aplicar(e)} onConfiguracion={setConfiguracion} />}
       {verColaborar && <Colaborar onCerrar={() => setVerColaborar(false)} onEstado={(e) => aplicar(e)} />}
       {verVersiones && <Versiones estado={estado} onCerrar={() => setVerVersiones(false)} onEstado={(e) => aplicar(e)} />}
@@ -383,6 +395,7 @@ export function App() {
             {menuMas && (
               <ul className="desplegable" role="menu">
                 <li><button role="menuitem" onClick={() => { setMenuMas(false); setVerPublicar(true); }}>{t('Publicar en tiendas…')}<small>{t('Kindle, Apple Books, Kobo, Google Play e IngramSpark')}</small></button></li>
+                <li><button role="menuitem" onClick={() => { setMenuMas(false); setVerMuestra(true); }}>{t('Muestra gratuita…')}<small>{t('EPUB de muestra y página web')}</small></button></li>
                 <li><button role="menuitem" onClick={() => descargarFormato('/api/exportar-kepub', t('KEPUB para Kobo exportado.'), t('Creando el KEPUB…'))}>{t('KEPUB para Kobo')}<small>{t('Estadísticas de lectura y subrayado preciso en Kobo')}</small></button></li>
                 <li><button role="menuitem" onClick={() => { setMenuMas(false); setPestana('impresion'); }}>{t('PDF…')}<small>{t('Para imprenta o digital')}</small></button></li>
                 <li><button role="menuitem" onClick={() => descargarFormato('/api/exportar-word', t('Word para corrección exportado.'), t('Creando el Word…'))}>{t('Word para corrección')}<small>{t('Para enviar a correctores; vuelve con «Importar correcciones»')}</small></button></li>

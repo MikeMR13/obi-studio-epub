@@ -7,6 +7,7 @@ import { join } from 'node:path';
 import type { Bloque, Comentario, Impresion, Libro, Nota, Metadatos, Recurso, Seccion, Tema, TipoSeccion, Tipografia } from '../src/model.js';
 import { ajustesImpresion, TAMANOS_IMPRESION, temaCompleto, validarTema } from '../src/model.js';
 import { TEMAS } from '../src/temas.js';
+import { libroMuestra, sitioMuestra as crearSitioMuestra, type OpcionesMuestra } from '../src/muestra.js';
 import { TIENDAS, compilarParaTienda, revisarTienda, type AvisoTienda, type IdTienda } from '../src/tiendas.js';
 import { buscarGhostscript } from '../src/pdfx.js';
 import { ArchivoConfiguracion } from '../src/configuracion.js';
@@ -765,6 +766,40 @@ export class Backend {
     const r = this.libro.recursos.find((x) => x.id === this.libro.metadatos.portada);
     if (!r) throw new ErrorUsuario('El libro no tiene portada.');
     return { nombre: `${nombreDeArchivo(this.libro.metadatos.titulo)}-portada.${r.nombre.split('.').pop()}`, datos: r.datos, tipoMime: r.tipoMime };
+  }
+
+  // ----- Muestra gratuita -----
+
+  private opcionesMuestra(op: OpcionesMuestra): OpcionesMuestra {
+    const ids = new Set(this.libro.secciones.map((s) => s.id));
+    const secciones = (Array.isArray(op.secciones) ? op.secciones : []).filter((x) => typeof x === 'string' && ids.has(x));
+    if (!secciones.length) throw new ErrorUsuario('Elige al menos una sección para la muestra.');
+    return { secciones, enlace: typeof op.enlace === 'string' ? op.enlace : undefined };
+  }
+
+  /** EPUB de muestra, validado con EPUBCheck. */
+  async exportarMuestra(op: OpcionesMuestra): Promise<{ nombre: string; datos: Uint8Array }> {
+    let libro: Libro;
+    try {
+      libro = libroMuestra(this.libro, this.opcionesMuestra(op));
+    } catch (e) {
+      throw e instanceof ErrorUsuario ? e : new ErrorUsuario((e as Error).message);
+    }
+    const datos = await compilar(libro);
+    const r = await validarDatos(datos);
+    if (!r.valido) throw new ErrorUsuario('El EPUB tiene errores. Corrígelos antes de exportar (pestaña Validación).', 409, r);
+    return { nombre: `${nombreDeArchivo(this.libro.metadatos.titulo)}-muestra.epub`, datos };
+  }
+
+  /** Página web de una sola pieza con la muestra. */
+  sitioMuestra(op: OpcionesMuestra): { nombre: string; datos: Uint8Array } {
+    let html: string;
+    try {
+      html = crearSitioMuestra(this.libro, this.opcionesMuestra(op));
+    } catch (e) {
+      throw e instanceof ErrorUsuario ? e : new ErrorUsuario((e as Error).message);
+    }
+    return { nombre: `${nombreDeArchivo(this.libro.metadatos.titulo)}-muestra.html`, datos: new TextEncoder().encode(html) };
   }
 
   async exportarWord(): Promise<{ nombre: string; datos: Uint8Array }> {

@@ -184,6 +184,16 @@ export async function iniciarServidor(op: OpcionesServidor = {}) {
       const { nombre, datos } = await backend.exportarTienda(m[1]);
       descarga(r, nombre, 'application/epub+zip', datos);
     }],
+    ['GET', /^\/api\/muestra\/(epub|web)$/, async (_q, r, m, url) => {
+      const op = { secciones: (url.searchParams.get('secciones') ?? '').split(',').filter(Boolean), enlace: url.searchParams.get('enlace') ?? undefined };
+      if (m[1] === 'epub') {
+        const { nombre, datos } = await backend.exportarMuestra(op);
+        descarga(r, nombre, 'application/epub+zip', datos);
+      } else {
+        const { nombre, datos } = backend.sitioMuestra(op);
+        descarga(r, nombre, 'text/html; charset=utf-8', datos);
+      }
+    }],
     ['GET', /^\/api\/portada$/, async (_q, r) => {
       const { nombre, datos, tipoMime } = backend.portadaOriginal();
       descarga(r, nombre, tipoMime, datos);
