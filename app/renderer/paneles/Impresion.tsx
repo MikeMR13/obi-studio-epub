@@ -79,6 +79,15 @@ export function PanelImpresion({ estado, version, onCambiar, onExportar, exporta
         <small>Solo hace falta si alguna ilustración llega al borde del papel.</small>
       </label>
       {a.sangrado !== 'ninguno' && casilla('ilustracionesASangre', 'Ilustraciones de página completa a sangre')}
+      <label className="casilla">
+        <input type="checkbox" checked={!!a.pdfx} disabled={!estado.ghostscript && !a.pdfx} onChange={(e) => onCambiar({ pdfx: e.target.checked })} />
+        PDF/X-1a (CMYK) para imprenta offset
+      </label>
+      <small className="ayuda">
+        {estado.ghostscript
+          ? 'Convierte a CMYK con texto en negro puro, aplana transparencias y añade el perfil de salida. KDP e IngramSpark aceptan el PDF normal.'
+          : 'Necesita Ghostscript instalado (gratuito, ghostscript.com). Al instalarlo, reinicia Obi Studio.'}
+      </small>
       <fieldset className="grupo">
         <legend>Márgenes</legend>
         <div className="fila-dos">

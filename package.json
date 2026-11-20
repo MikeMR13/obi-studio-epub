@@ -87,7 +87,10 @@
           ]
         }
       ],
-      "artifactName": "Obi-Studio-EPUB-${version}-Windows.${ext}"
+      "artifactName": "Obi-Studio-EPUB-${version}-Windows.${ext}",
+      "signtoolOptions": {
+        "rfc3161TimeStampServer": "http://timestamp.digicert.com"
+      }
     },
     "nsis": {
       "oneClick": false,
@@ -108,7 +111,10 @@
       ],
       "category": "public.app-category.productivity",
       "artifactName": "Obi-Studio-EPUB-${version}-macOS-${arch}.${ext}",
-      "hardenedRuntime": true
+      "hardenedRuntime": true,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist",
+      "gatekeeperAssess": false
     },
     "linux": {
       "target": [

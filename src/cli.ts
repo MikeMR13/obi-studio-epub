@@ -2,7 +2,7 @@
 //   obi importar <entrada.epub|.docx> <salida.obi>
 //   obi compilar <proyecto.obi> <salida.epub>
 //   obi validar <libro.epub>
-//   obi pdf <proyecto.obi> <salida.pdf> [--digital]
+//   obi pdf <proyecto.obi> <salida.pdf> [--digital | --pdfx]
 //   obi kepub <proyecto.obi> <salida.kepub.epub>
 //   obi word <proyecto.obi> <salida.docx>
 //   obi correcciones <proyecto.obi> <corregido.docx>   (actualiza el proyecto)
@@ -16,6 +16,7 @@ import { deserializarProyecto, guardarProyecto } from './proyecto.js';
 import { validarArchivo } from './validar.js';
 import { pdfDesdeLibro } from './servicio-impresion.js';
 import { compilarKepub } from './kepub.js';
+import { IMPRESION_PREDETERMINADA } from './model.js';
 import { evaluadorChrome, informeHtml, revisarAccesibilidad } from './accesibilidad.js';
 import { exportarWord, importarCorrecciones } from './formatos/word.js';
 
@@ -39,6 +40,7 @@ async function principal() {
     process.exitCode = r.valido ? 0 : 1;
   } else if (orden === 'pdf' && entrada && salida) {
     const libro = await deserializarProyecto(new Uint8Array(await readFile(entrada)));
+    if (process.argv.includes('--pdfx')) libro.impresion = { ...(libro.impresion ?? IMPRESION_PREDETERMINADA), pdfx: true };
     const r = await pdfDesdeLibro(libro, process.argv.includes('--digital') ? 'digital' : 'impresion');
     await writeFile(salida, r.datos);
     console.log(`PDF escrito en ${salida}: ${r.paginas} páginas, margen interior ${r.interior} mm`);
@@ -66,7 +68,7 @@ async function principal() {
     console.log(`Informe escrito en ${salida}`);
     if (!r.conforme) process.exitCode = 1;
   } else {
-    console.log('Uso:\n  obi importar <entrada.epub|.docx> <salida.obi>\n  obi compilar <proyecto.obi> <salida.epub>\n  obi validar <libro.epub>\n  obi pdf <proyecto.obi> <salida.pdf> [--digital]\n  obi kepub <proyecto.obi> <salida.kepub.epub>\n  obi word <proyecto.obi> <salida.docx>\n  obi correcciones <proyecto.obi> <corregido.docx>\n  obi accesibilidad <proyecto.obi> <informe.html>');
+    console.log('Uso:\n  obi importar <entrada.epub|.docx> <salida.obi>\n  obi compilar <proyecto.obi> <salida.epub>\n  obi validar <libro.epub>\n  obi pdf <proyecto.obi> <salida.pdf> [--digital | --pdfx]\n  obi kepub <proyecto.obi> <salida.kepub.epub>\n  obi word <proyecto.obi> <salida.docx>\n  obi correcciones <proyecto.obi> <corregido.docx>\n  obi accesibilidad <proyecto.obi> <informe.html>');
     process.exitCode = 2;
   }
 }

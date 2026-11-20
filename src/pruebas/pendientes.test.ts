@@ -219,3 +219,30 @@ test('Fuente japonesa: solo los subconjuntos que usa el libro, en EPUB válido',
   assert.ok(r.valido, JSON.stringify(r.mensajes.slice(0, 3)));
   assert.equal(r.mensajes.length, 0);
 });
+
+// ---------------------------------------------------------------------------
+// PDF/X-1a.
+
+import { buscarGhostscript } from '../pdfx.js';
+import { buscarNavegador } from '../pdf.js';
+import { pdfDesdeLibro } from '../servicio-impresion.js';
+
+test('PDF/X-1a: CMYK, PDF 1.3, OutputIntent y cajas de corte', { skip: (!buscarGhostscript() || !buscarNavegador()) && 'sin Ghostscript o Chrome' }, async () => {
+  const l = libroBusqueda();
+  l.impresion = { ...(l.impresion ?? {}), sangrado: 'uniforme', pdfx: true } as Libro['impresion'];
+  l.recursos.push({ id: 'roja', nombre: 'roja.png', tipoMime: 'image/png', datos: pngSolido(300, 200, [200, 40, 40]), ancho: 300, alto: 200 });
+  l.secciones.at(-1)!.bloques.push({ tipo: 'imagen', recurso: 'roja', alt: 'Rojo' });
+  const r = await pdfDesdeLibro(l, 'impresion');
+  const texto = Buffer.from(r.datos).toString('latin1');
+  assert.ok(texto.startsWith('%PDF-1.3'));
+  assert.match(texto, /GTS_PDFXVersion \(PDF\/X-1a:2001\)/);
+  assert.match(texto, /\/OutputIntents/);
+  assert.match(texto, /\/S \/GTS_PDFX/);
+  assert.doesNotMatch(texto, /\/DeviceRGB/);
+  assert.match(texto, /\/TrimBox/);
+  assert.match(texto, /\/BleedBox/);
+  const { PDFDocument } = await import('pdf-lib');
+  const doc = await PDFDocument.load(r.datos);
+  const p = doc.getPage(0);
+  assert.ok(p.getTrimBox().width < p.getBleedBox().width, 'el sangrado se conserva');
+});

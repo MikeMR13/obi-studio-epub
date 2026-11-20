@@ -3,6 +3,7 @@
 // Después, pdf-lib añade metadatos y las cajas de corte y sangrado (y recorta el sangrado interior para KDP).
 
 import { existsSync } from 'node:fs';
+import { convertirPdfX } from './pdfx.js';
 import { PDFDocument, PDFName } from 'pdf-lib';
 import type { Libro } from './model.js';
 import { ajustesImpresion } from './model.js';
@@ -144,6 +145,7 @@ export async function generarPdf(
       paginas = await contarPaginas(pdf);
     }
   }
-  const datos = await posprocesar(pdf, libro, tipo);
+  let datos = await posprocesar(pdf, libro, tipo);
+  if (tipo === 'impresion' && a.pdfx) datos = await convertirPdfX(datos, { titulo: libro.metadatos.titulo });
   return { datos, paginas, interior, ancho: a.ancho, alto: a.alto };
 }

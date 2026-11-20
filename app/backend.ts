@@ -7,6 +7,7 @@ import { join } from 'node:path';
 import type { Comentario, Impresion, Libro, Metadatos, Recurso, Seccion, Tema, TipoSeccion, Tipografia } from '../src/model.js';
 import { ajustesImpresion, TAMANOS_IMPRESION, temaCompleto, validarTema } from '../src/model.js';
 import { TEMAS } from '../src/temas.js';
+import { buscarGhostscript } from '../src/pdfx.js';
 import { ErrorCambio, aceptarCambio, aceptarTodos, rechazarCambio } from '../src/cambios.js';
 import { ErrorVersion, compararVersion, crearVersion, eliminarVersion, restaurarVersion, resumenVersiones, type DiferenciaSeccion, type ResumenVersion } from '../src/versiones.js';
 import { ErrorBusqueda, buscar, reemplazar, type Coincidencia, type OpcionesBusqueda } from '../src/buscar.js';
@@ -59,6 +60,11 @@ function limpiarComentarios(v: unknown): Comentario[] {
     }));
 }
 
+let ghostscript: boolean | undefined;
+function hayGhostscript(): boolean {
+  return (ghostscript ??= !!buscarGhostscript());
+}
+
 export class ErrorUsuario extends Error {
   constructor(mensaje: string, public estado = 400, public datos?: unknown) {
     super(mensaje);
@@ -78,6 +84,8 @@ export interface Estado {
   /** Nombre del plugin cuya transformación se puede deshacer. */
   deshacerPlugin?: string;
   versiones: ResumenVersion[];
+  /** Hay Ghostscript para el PDF/X-1a. */
+  ghostscript: boolean;
 }
 
 export class Backend {
@@ -114,6 +122,7 @@ export class Backend {
     return {
       libro: { ...libro, recursos },
       versiones: resumenVersiones(this.libro),
+      ghostscript: hayGhostscript(),
       nombreArchivo: this.nombreArchivo,
       cambiado: this.cambiado,
       palabras,

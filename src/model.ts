@@ -396,6 +396,8 @@ export interface Impresion {
   division: boolean;
   incluirPortada: boolean;
   ilustracionesASangre: boolean;
+  /** Convertir el PDF de imprenta a PDF/X-1a:2001 (CMYK); necesita Ghostscript instalado. */
+  pdfx?: boolean;
 }
 
 export const IMPRESION_PREDETERMINADA: Impresion = {

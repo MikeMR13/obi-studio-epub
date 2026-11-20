@@ -35,6 +35,9 @@ jobs:
       matrix:
         os: ${{ fromJSON((github.event_name == 'workflow_dispatch' && inputs.macos) && '["windows-latest","ubuntu-latest","macos-latest"]' || '["windows-latest","ubuntu-latest"]') }}
     runs-on: ${{ matrix.os }}
+    env:
+      # Los secretos no se pueden usar en «if»: se pasa solo si existe.
+      HAY_FIRMA_WINDOWS: ${{ secrets.WIN_CSC_LINK != '' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -48,15 +51,38 @@ jobs:
       - name: Instaladores
         shell: bash
         env:
-          # Firma opcional: si los secretos no existen, se construye sin firmar.
-          CSC_LINK: ${{ secrets.CSC_LINK }}
-          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          # Firma opcional (ver docs/firma.md): si los secretos no existen, se construye sin firmar.
+          # Windows: certificado de firma de código (.pfx en base64).
+          WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+          WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+          # macOS: certificado «Developer ID Application» (.p12 en base64) y notarización.
+          CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
-          if [ -z "$CSC_LINK" ]; then export CSC_IDENTITY_AUTO_DISCOVERY=false; unset CSC_LINK CSC_KEY_PASSWORD; fi
+          firmar=no
+          case "$RUNNER_OS" in
+            Windows) [ -n "$WIN_CSC_LINK" ] && firmar=si ;;
+            macOS) [ -n "$CSC_LINK" ] && firmar=si ;;
+          esac
+          if [ "$firmar" = no ]; then
+            echo "::notice::Sin certificado para $RUNNER_OS: el instalador se construye sin firmar."
+            export CSC_IDENTITY_AUTO_DISCOVERY=false
+            unset CSC_LINK CSC_KEY_PASSWORD WIN_CSC_LINK WIN_CSC_KEY_PASSWORD
+          fi
+          # Sin credenciales de Apple no se notariza (electron-builder notariza solo si existen).
+          [ -z "$APPLE_ID" ] && unset APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID
           npx electron-builder --publish never
+      - name: Comprobar la firma (Windows)
+        if: runner.os == 'Windows' && env.HAY_FIRMA_WINDOWS == 'true'
+        shell: pwsh
+        run: |
+          $f = Get-ChildItem instaladores/*.exe | Select-Object -First 1
+          $s = Get-AuthenticodeSignature $f.FullName
+          Write-Host "Firma: $($s.Status) — $($s.SignerCertificate.Subject)"
+          if ($s.Status -ne 'Valid') { exit 1 }
       - uses: actions/upload-artifact@v4
         with:
           name: instalador-${{ matrix.os }}
@@ -80,5 +106,6 @@ jobs:
           files: descargas/*
           body: |
             Instaladores de Obi Studio EPUB ${{ github.ref_name }}.
-            - **Windows:** Obi-Studio-EPUB-…-Windows.exe (sin firmar: SmartScreen mostrará un aviso; pulsa «Más información» → «Ejecutar de todas formas»).
+            - **Windows:** Obi-Studio-EPUB-…-Windows.exe. Si se construyó sin certificado, SmartScreen mostrará un aviso: pulsa «Más información» → «Ejecutar de todas formas».
+            - **macOS:** .dmg (Intel y Apple Silicon).
             - **Linux:** .AppImage (dale permiso de ejecución) o .deb.
