@@ -110,6 +110,8 @@ export class Backend {
   evaluador: Evaluador = evaluadorChrome();
   private ultimoInforme?: InformeAccesibilidad;
   ultimasPaginas?: number;
+  /** Páginas a color del último PDF de imprenta. */
+  ultimasPaginasColor?: number[];
   private paquetes = new Map<string, Map<string, string | Uint8Array>>();
   private contadorImpresion = 0;
 
@@ -180,6 +182,7 @@ export class Backend {
     this.nombreArchivo = nombreDeArchivo(this.libro.metadatos.titulo) + '.obi';
     this.cambiado = false;
     this.avisos = [];
+    this.ultimasPaginas = this.ultimasPaginasColor = undefined;
   }
 
   async importar(nombre: string, datos: Uint8Array) {
@@ -217,6 +220,7 @@ export class Backend {
     this.nombreArchivo = ext === 'obi' ? nombre : nombreDeArchivo(libro.metadatos.titulo || nombre.replace(/\.[^.]+$/, '')) + '.obi';
     this.cambiado = ext !== 'obi';
     this.ultimaValidacion = undefined;
+    this.ultimasPaginas = this.ultimasPaginasColor = undefined;
   }
 
   metadatos(cambios: Partial<Metadatos>) {
@@ -462,7 +466,7 @@ export class Backend {
   }
 
   revisionImpresion(): AvisoImpresion[] {
-    return revisarImpresion(this.libro, this.ultimasPaginas);
+    return revisarImpresion(this.libro, this.ultimasPaginas, this.ultimasPaginasColor);
   }
 
   /** Archivos de impresión de una versión ya preparada (los pide el visor). */
@@ -494,9 +498,12 @@ export class Backend {
     } catch (e) {
       throw new ErrorUsuario(`No se pudo crear el PDF: ${(e as Error).message}`);
     }
-    if (tipo === 'impresion') this.ultimasPaginas = r.paginas;
+    if (tipo === 'impresion') {
+      this.ultimasPaginas = r.paginas;
+      this.ultimasPaginasColor = r.paginasColor;
+    }
     const sufijo = tipo === 'impresion' ? '-impresion' : '-digital';
-    return { nombre: nombreDeArchivo(this.libro.metadatos.titulo) + sufijo + '.pdf', datos: r.datos, paginas: r.paginas, avisos: revisarImpresion(this.libro, r.paginas) };
+    return { nombre: nombreDeArchivo(this.libro.metadatos.titulo) + sufijo + '.pdf', datos: r.datos, paginas: r.paginas, avisos: revisarImpresion(this.libro, r.paginas, this.ultimasPaginasColor) };
   }
 
   // ----- Control de cambios -----

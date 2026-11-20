@@ -398,6 +398,8 @@ export interface Impresion {
   ilustracionesASangre: boolean;
   /** Convertir el PDF de imprenta a PDF/X-1a:2001 (CMYK); necesita Ghostscript instalado. */
   pdfx?: boolean;
+  /** Marcas de corte para imprentas tradicionales (KDP e IngramSpark las rechazan). */
+  marcasCorte?: boolean;
 }
 
 export const IMPRESION_PREDETERMINADA: Impresion = {

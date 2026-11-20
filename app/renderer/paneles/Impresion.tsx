@@ -89,6 +89,7 @@ export function PanelImpresion({ estado, version, onCambiar, onExportar, exporta
           ? t('Convierte a CMYK con texto en negro puro, aplana transparencias y añade el perfil de salida. KDP e IngramSpark aceptan el PDF normal.')
           : t('Necesita Ghostscript instalado (gratuito, ghostscript.com). Al instalarlo, reinicia Obi Studio.')}
       </small>
+      {casilla('marcasCorte', t('Marcas de corte (solo imprentas tradicionales)'))}
       <fieldset className="grupo">
         <legend>{t('Márgenes')}</legend>
         <div className="fila-dos">

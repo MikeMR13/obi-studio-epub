@@ -1,7 +1,7 @@
 // Revisión previa del PDF de impresión: lo que suele hacer que una imprenta rechace el archivo.
 
 import type { Libro, Recurso } from './model.js';
-import { ajustesImpresion } from './model.js';
+import { ajustesImpresion, temaCompleto } from './model.js';
 import { MM_POR_PULGADA, sangradoMm, margenInteriorAutomatico } from './impresion.js';
 
 export interface AvisoImpresion {
@@ -11,6 +11,18 @@ export interface AvisoImpresion {
   /** Plantilla del mensaje (en español, con {0}, {1}…) y sus valores, para traducirlo en la interfaz. */
   plantilla?: string;
   valores?: Record<string, string | number>;
+}
+
+/** «1, 3–5, 9» */
+export function rangosPaginas(paginas: number[]): string {
+  const partes: string[] = [];
+  for (let i = 0; i < paginas.length; ) {
+    let j = i;
+    while (j + 1 < paginas.length && paginas[j + 1] === paginas[j] + 1) j++;
+    partes.push(j > i ? `${paginas[i]}–${paginas[j]}` : String(paginas[i]));
+    i = j + 1;
+  }
+  return partes.join(', ');
 }
 
 function aviso(gravedad: AvisoImpresion['gravedad'], plantilla: string, valores: (string | number)[] = [], seccion?: string): AvisoImpresion {
@@ -28,7 +40,7 @@ export function resolucionEfectiva(r: Recurso, anchoMm: number, altoMm: number, 
   return Math.round(MM_POR_PULGADA / mmPorPixel);
 }
 
-export function revisarImpresion(libro: Libro, paginas?: number): AvisoImpresion[] {
+export function revisarImpresion(libro: Libro, paginas?: number, paginasColor?: number[]): AvisoImpresion[] {
   const a = ajustesImpresion(libro);
   const avisos: AvisoImpresion[] = [];
   const b = sangradoMm(a);
@@ -55,6 +67,26 @@ export function revisarImpresion(libro: Libro, paginas?: number): AvisoImpresion
     if (paginas > 828) avisos.push(aviso('aviso', 'El libro tiene {0} páginas; KDP Print admite como máximo 828 en este formato.', [paginas]));
   }
   if (a.cuerpo < 9) avisos.push(aviso('aviso', 'Letra de {0} pt: por debajo de 9 pt cuesta leer en papel.', [a.cuerpo]));
+  if (a.marcasCorte) avisos.push(aviso('info', 'Las marcas de corte son para imprentas tradicionales: KDP Print e IngramSpark rechazan los PDF que las llevan.'));
+  if (paginasColor?.length) {
+    avisos.push(
+      aviso('info', 'Páginas a color en el último PDF: {0} ({1} de {2}). La imprenta cobra el color aparte; si el libro va en blanco y negro, pasa esas imágenes a escala de grises.', [
+        rangosPaginas(paginasColor),
+        paginasColor.length,
+        paginas ?? '?',
+      ]),
+    );
+    const t = temaCompleto(libro);
+    const gris = (c: string) => {
+      const m = /^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(c.trim());
+      if (!m) return true;
+      const v = m.slice(1).map((x) => parseInt(x, 16));
+      return Math.max(...v) - Math.min(...v) <= 20;
+    };
+    if (!gris(t.colorTitulos) || !gris(t.colorAcento)) {
+      avisos.push(aviso('info', 'El tema usa color en los títulos o los adornos, así que esas páginas también cuentan como de color. Para blanco y negro, elige colores grises en Tema.'));
+    }
+  }
   if (a.ilustracionesASangre && !b) avisos.push(aviso('info', 'Las ilustraciones a sangre solo se aplican si eliges un sangrado.'));
 
   for (const s of libro.secciones) {

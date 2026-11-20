@@ -4,7 +4,8 @@
 
 import { existsSync } from 'node:fs';
 import { convertirPdfX } from './pdfx.js';
-import { PDFDocument, PDFName } from 'pdf-lib';
+import { paginasColor } from './color-pdf.js';
+import { PDFDocument, PDFName, cmyk, type PDFPage } from 'pdf-lib';
 import type { Libro } from './model.js';
 import { ajustesImpresion } from './model.js';
 import { margenInteriorAutomatico, sangradoMm, MM_POR_PULGADA } from './impresion.js';
@@ -69,6 +70,8 @@ export interface ResultadoPdf {
   interior: number;
   ancho: number;
   alto: number;
+  /** Páginas con color (antes de pasar a PDF/X, que lo convierte todo a CMYK). Solo en el PDF de imprenta. */
+  paginasColor?: number[];
 }
 
 /** Metadatos y cajas de impresión. */
@@ -98,7 +101,7 @@ export async function posprocesar(pdf: Uint8Array, libro: Libro, tipo: TipoPdf):
     const y0 = dy > 0 && dy < 4 ? dy : 0;
     const W = dx > 0 && dx < 4 ? anchoExacto : w;
     const H = dy > 0 && dy < 4 ? altoExacto : h;
-    if (tipo === 'impresion' && a.sangrado === 'kdp' && b > 0) {
+    if (tipo === 'impresion' && a.sangrado === 'kdp' && b > 0 && !a.marcasCorte) {
       // KDP: sangrado solo arriba, abajo y en el borde exterior. Página impar (derecha): el interior es la izquierda.
       const derecha = k % 2 === 0;
       const x = derecha ? b : 0;
@@ -116,11 +119,37 @@ export async function posprocesar(pdf: Uint8Array, libro: Libro, tipo: TipoPdf):
       }
     }
   });
+  if (tipo === 'impresion' && a.marcasCorte) doc.getPages().forEach((p) => marcasCorte(p, b));
   if (tipo === 'digital') {
     doc.catalog.set(PDFName.of('PageLayout'), PDFName.of('OneColumn'));
     doc.catalog.set(PDFName.of('ViewerPreferences'), doc.context.obj({ DisplayDocTitle: true }));
   }
   return doc.save({ useObjectStreams: true });
+}
+
+/**
+ * Marcas de corte en las cuatro esquinas, fuera del sangrado. Se agranda la página (MediaBox)
+ * alrededor de la caja de corte; las cajas de corte y sangrado no cambian.
+ */
+function marcasCorte(p: PDFPage, sangrado: number) {
+  const corte = p.getTrimBox();
+  const separacion = Math.max(sangrado, 3 * PT_POR_MM) + 0.5 * PT_POR_MM;
+  const largo = 5 * PT_POR_MM;
+  const margen = separacion + largo + 2 * PT_POR_MM;
+  const caja = [corte.x - margen, corte.y - margen, corte.width + 2 * margen, corte.height + 2 * margen] as const;
+  p.setMediaBox(...caja);
+  p.setCropBox(...caja);
+  // Color de registro (100 % de las cuatro tintas): sale en todas las planchas.
+  const estilo = { thickness: 0.25, color: cmyk(1, 1, 1, 1) };
+  const x0 = corte.x;
+  const x1 = corte.x + corte.width;
+  const y0 = corte.y;
+  const y1 = corte.y + corte.height;
+  for (const [x, sx] of [[x0, -1], [x1, 1]] as const)
+    for (const [y, sy] of [[y0, -1], [y1, 1]] as const) {
+      p.drawLine({ start: { x: x + sx * separacion, y }, end: { x: x + sx * (separacion + largo), y }, ...estilo });
+      p.drawLine({ start: { x, y: y + sy * separacion }, end: { x, y: y + sy * (separacion + largo) }, ...estilo });
+    }
 }
 
 /**
@@ -146,6 +175,7 @@ export async function generarPdf(
     }
   }
   let datos = await posprocesar(pdf, libro, tipo);
+  const color = tipo === 'impresion' ? await paginasColor(datos).catch(() => undefined) : undefined;
   if (tipo === 'impresion' && a.pdfx) datos = await convertirPdfX(datos, { titulo: libro.metadatos.titulo });
-  return { datos, paginas, interior, ancho: a.ancho, alto: a.alto };
+  return { datos, paginas, interior, ancho: a.ancho, alto: a.alto, paginasColor: color };
 }

@@ -203,6 +203,13 @@ with sync_playwright() as p:
     paso("PDF para imprenta 6 × 9 in", bool(tam) and "432 x 648" in tam[0], tam[0] if tam else info[:200])
     expect(pagina.locator(".revision-impresion h3")).to_contain_text("páginas")
     paso("Revisión previa con número de páginas", True, pagina.locator(".revision-impresion h3").inner_text())
+    color = pagina.locator(".revision-impresion li", has_text="Páginas a color")
+    expect(color).to_be_visible(timeout=15000)
+    pagina.locator(".inspector").get_by_label("Marcas de corte (solo imprentas tradicionales)").click()
+    expect(pagina.locator(".revision-impresion li", has_text="marcas de corte")).to_be_visible(timeout=15000)
+    pagina.screenshot(path=f"{CAPTURAS}/32-color-marcas.png")
+    paso("Páginas a color y marcas de corte en la revisión previa", True, color.inner_text()[:90])
+    pagina.locator(".inspector").get_by_label("Marcas de corte (solo imprentas tradicionales)").click()
 
     # Guardar el proyecto.
     with pagina.expect_download() as d:

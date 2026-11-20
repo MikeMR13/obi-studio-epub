@@ -116,3 +116,27 @@ test('PDF digital: sin sangrado y con el tamaño de corte', { skip: !hayNavegado
   assert.ok(Math.abs(p.getWidth() - 139.7 * PT) < 0.05);
   assert.ok(Math.abs(p.getHeight() - 215.9 * PT) < 0.05);
 });
+
+test('PDF para imprenta: marcas de corte y páginas a color', { skip: !hayNavegador, timeout: 300_000 }, async () => {
+  const { rangosPaginas } = await import('../preflight.js');
+  const l = libroDePrueba();
+  // Una segunda ilustración en gris: no cuenta como color.
+  const gris = { id: nuevoId('i'), nombre: 'gris.png', tipoMime: 'image/png', datos: pngSolido(600, 900, [120, 120, 120]), ancho: 600, alto: 900 };
+  l.recursos.push(gris);
+  l.secciones.push({ id: nuevoId('s'), tipo: 'ilustracion', titulo: '', mostrarTitulo: false, enIndice: false, bloques: [{ tipo: 'imagen', recurso: gris.id, alt: 'Gris' }], notas: [] });
+  l.impresion = { ...(l.impresion ?? ({} as never)), sangrado: 'uniforme', marcasCorte: true } as Libro['impresion'];
+  const r = await pdfDesdeLibro(l, 'impresion');
+  assert.equal(r.paginasColor?.length, 1, `páginas a color: ${r.paginasColor}`);
+  const doc = await PDFDocument.load(r.datos);
+  const p = doc.getPage(r.paginasColor![0] - 1);
+  const media = p.getMediaBox();
+  const corte = p.getTrimBox();
+  const sangre = p.getBleedBox();
+  assert.ok(Math.abs(corte.width - 139.7 * PT) < 1 && Math.abs(corte.height - 215.9 * PT) < 1, 'el corte no cambia');
+  assert.ok(Math.abs(sangre.width - (139.7 + 6) * PT) < 1, 'el sangrado no cambia');
+  assert.ok(media.width > sangre.width + 14 * PT && media.x < sangre.x, 'la página crece para las marcas');
+  assert.equal(rangosPaginas([1, 3, 4, 5, 9]), '1, 3–5, 9');
+  const avisos = revisarImpresion(l, r.paginas, r.paginasColor);
+  assert.ok(avisos.some((a) => a.plantilla?.startsWith('Páginas a color')));
+  assert.ok(avisos.some((a) => a.plantilla?.startsWith('Las marcas de corte')));
+});

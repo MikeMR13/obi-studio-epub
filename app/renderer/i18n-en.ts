@@ -595,4 +595,8 @@ export const EN: Record<string, string> = {
   "Creando la página web…": "Creating the web page…",
   "EPUB de muestra exportado y validado.": "Sample EPUB exported and validated.",
   "Página web de la muestra exportada.": "Sample web page exported.",
+  "Marcas de corte (solo imprentas tradicionales)": "Crop marks (traditional printers only)",
+  "Las marcas de corte son para imprentas tradicionales: KDP Print e IngramSpark rechazan los PDF que las llevan.": "Crop marks are for traditional printers: KDP Print and IngramSpark reject PDFs that include them.",
+  "Páginas a color en el último PDF: {0} ({1} de {2}). La imprenta cobra el color aparte; si el libro va en blanco y negro, pasa esas imágenes a escala de grises.": "Color pages in the last PDF: {0} ({1} of {2}). Printers charge extra for color; if the book is black and white, convert those images to grayscale.",
+  "El tema usa color en los títulos o los adornos, así que esas páginas también cuentan como de color. Para blanco y negro, elige colores grises en Tema.": "The theme uses color in titles or ornaments, so those pages count as color too. For black and white, choose gray colors in Theme.",
 };
