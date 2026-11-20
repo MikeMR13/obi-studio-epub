@@ -15,6 +15,10 @@ interface Props {
   onEstado: (e: { recargar?: boolean }) => void;
   /** Se creó un comentario sobre el texto seleccionado. */
   onComentar: (c: { id: string; texto: string; autor: string; cita: string }) => void;
+  /** Escritura vertical japonesa (tategaki). */
+  vertical?: boolean;
+  /** Idioma del libro, para la ortografía y la tipografía. */
+  idioma?: string;
 }
 
 function idsNotas(bloques: Bloque[]): Set<string> {
@@ -27,7 +31,7 @@ function idsNotas(bloques: Bloque[]): Set<string> {
   return ids;
 }
 
-export function Editor({ seccion, onCambio, onEstado, onComentar }: Props) {
+export function Editor({ seccion, onCambio, onEstado, onComentar, vertical, idioma: idiomaLibro }: Props) {
   const [notas, setNotas] = useState<Nota[]>(seccion.notas);
   const notasRef = useRef(notas);
   notasRef.current = notas;
@@ -52,7 +56,7 @@ export function Editor({ seccion, onCambio, onEstado, onComentar }: Props) {
     extensions: extensiones(),
     content: bloquesAPM(seccion.bloques) as any,
     editorProps: {
-      attributes: { class: 'pagina-editor', spellcheck: 'true', lang: 'es', 'aria-label': 'Texto de la sección' },
+      attributes: { class: 'pagina-editor', spellcheck: 'true', lang: idiomaLibro || 'es', 'aria-label': 'Texto de la sección' },
       handleDoubleClickOn: (_view, _pos, node, nodePos) => {
         if (node.type.name === 'ruby') {
           void editarRuby(nodePos, node.attrs.base, node.attrs.lectura);
@@ -395,7 +399,7 @@ export function Editor({ seccion, onCambio, onEstado, onComentar }: Props) {
         </div>
       )}
 
-      <div className="hoja">
+      <div className={vertical ? 'hoja hoja-vertical' : 'hoja'}>
         <div className="pagina-marco">
           {seccion.mostrarTitulo && seccion.titulo && (
             <h1 className="titulo-pagina" title="El título se cambia en el inspector (pestaña Sección)">

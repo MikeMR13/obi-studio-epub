@@ -48,6 +48,18 @@ for (const familia of ['literata', 'noto-sans', 'eb-garamond', 'cinzel']) {
   }
   await cp(`node_modules/@fontsource/${familia}/LICENSE`, `recursos/fuentes/LICENCIA-${familia}-OFL.txt`).catch(() => undefined);
 }
+// Noto Serif JP (OFL): los ~120 subconjuntos por rango Unicode de 400 y 700. Al compilar solo se
+// incrustan los que cubren los caracteres japoneses del libro.
+{
+  const { readFile: leer, writeFile: escribir, readdir } = await import('node:fs/promises');
+  const base = 'node_modules/@fontsource/noto-serif-jp';
+  const css = await leer(`${base}/400.css`, 'utf8');
+  const indice = [...css.matchAll(/noto-serif-jp-\[(\d+)\]-400-normal[\s\S]*?unicode-range: ([^;]+);/g)].map((m) => ({ n: Number(m[1]), rango: m[2].trim() }));
+  for (const f of await readdir(`${base}/files`)) if (/^noto-serif-jp-\d+-(400|700)-normal\.woff2$/.test(f)) await cp(`${base}/files/${f}`, `recursos/fuentes/${f}`);
+  await escribir('recursos/fuentes/noto-serif-jp-indice.json', JSON.stringify(indice));
+  await cp(`${base}/LICENSE`, 'recursos/fuentes/LICENCIA-noto-serif-jp-OFL.txt').catch(() => undefined);
+}
+
 // axe-core para el informe de accesibilidad (licencia MPL-2.0).
 await mkdir('recursos/axe', { recursive: true });
 await cp('node_modules/axe-core/axe.min.js', 'recursos/axe/axe.min.js');

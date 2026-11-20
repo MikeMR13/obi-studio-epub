@@ -312,13 +312,13 @@ ${marcas.join('\n')}
 
 export function cssLibro(libro: Libro): string {
   const t = temaCompleto(libro);
-  const f = fuentesTema(t);
+  const f = fuentesTema(t, false, libro);
   const caras = f.archivos.map((a) => caraFuente(a, 'fuentes/')).join('\n');
   return `@charset "UTF-8";
 /* Generado por Obi Studio (tema «${(t.nombre ?? 'personalizado').replace(/\*\//g, '')}»). Medidas relativas para que el lector pueda cambiar letra y tamaño. */
 ${caras}
 html { margin: 0; padding: 0; }
-body { margin: 0 5%; font-family: ${familiaCss(f.texto)}; line-height: ${t.interlineado}; orphans: 2; widows: 2; }
+body { margin: 0 5%; font-family: ${f.familiaTexto}; line-height: ${t.interlineado}; orphans: 2; widows: 2; }
 h1, h2, h3 { font-weight: bold; line-height: 1.3; page-break-after: avoid; break-after: avoid; }
 h1 { margin: ${t.tituloEspacio}em 0 1.5em; }
 h2 { font-size: 1.25em; margin: 1.5em 0 1em; }
@@ -355,7 +355,7 @@ body.fija section { margin: 0; padding: 0; }
 body.fija img.fija { display: block; width: 100%; height: 100%; max-width: none; max-height: none; margin: 0; }
 body.fija.doble img.fija { width: 200%; }
 body.fija.doble img.mitad-der { margin-left: -100%; }
-${cssTema(t, familiaCss(f.texto), familiaCss(f.titulos))}
+${cssTema(t, f.familiaTexto, f.familiaTitulos)}
 ${esVertical(libro) ? cssVertical(t.colorAcento) : ''}`;
 }
 
@@ -498,7 +498,7 @@ export function compilarArchivos(libro: Libro): Map<string, string | Uint8Array>
   archivos.set('estilos.css', cssLibro(libro));
 
   const tema = temaCompleto(libro);
-  for (const a of fuentesTema(tema).archivos) {
+  for (const a of fuentesTema(tema, false, libro).archivos) {
     const datos = leerFuente(a.archivo);
     if (!datos) continue;
     archivos.set(`fuentes/${a.archivo}`, datos);

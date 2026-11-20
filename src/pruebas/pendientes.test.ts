@@ -187,3 +187,35 @@ test('Control de cambios: las correcciones de Word quedan propuestas y se acepta
   assert.match(JSON.stringify(s2.notas), /Nota corregida/);
   assert.ok((await compilar(l2)).length > 1000);
 });
+
+// ---------------------------------------------------------------------------
+// Fuente japonesa.
+
+import { archivosJaponeses } from '../fuentes.js';
+import { compilarArchivos, cssLibro } from '../compilar.js';
+import { validarDatos } from '../validar.js';
+
+test('Fuente japonesa: solo los subconjuntos que usa el libro, en EPUB válido', async () => {
+  const sinJapones = libroBusqueda();
+  sinJapones.secciones.at(-1)!.bloques = [parrafo('Solo texto en español.')];
+  assert.deepEqual(archivosJaponeses(sinJapones), []);
+  assert.doesNotMatch(cssLibro(sinJapones), /Noto Serif JP/);
+
+  const l = libroBusqueda();
+  const jp = archivosJaponeses(l);
+  assert.ok(jp.length >= 2 && jp.length <= 12, `${jp.length} archivos para 勇者 y ゆうしゃ`);
+  assert.ok(jp.every((a) => /^noto-serif-jp-\d+-(400|700)-normal\.woff2$/.test(a.archivo)));
+  assert.match(cssLibro(l), /font-family: 'Noto Serif JP', serif|font-family: serif/);
+  assert.match(cssLibro(l), /body \{ margin: 0 5%; font-family: 'Noto Serif JP', serif;/);
+  const archivos = compilarArchivos(l);
+  assert.ok([...archivos.keys()].some((k) => k.startsWith('fuentes/noto-serif-jp-')));
+
+  l.escritura = 'vertical';
+  l.tema = { ...l.tema, fuenteTexto: 'literata' };
+  assert.match(cssLibro(l), /body \{ margin: 0 5%; font-family: 'Noto Serif JP', 'Literata', serif;/);
+  l.escritura = undefined;
+  assert.match(cssLibro(l), /body \{ margin: 0 5%; font-family: 'Literata', 'Noto Serif JP', serif;/);
+  const r = await validarDatos(await compilar(l));
+  assert.ok(r.valido, JSON.stringify(r.mensajes.slice(0, 3)));
+  assert.equal(r.mensajes.length, 0);
+});

@@ -422,8 +422,10 @@ export function App() {
           />
         ) : (
           <Editor
-            key={seccion.id}
+            key={seccion.id + (estado.libro.escritura === 'vertical' ? '-v' : '')}
             seccion={seccion}
+            vertical={estado.libro.escritura === 'vertical'}
+            idioma={estado.libro.metadatos.idioma}
             onCambio={(b, n) => guardarTexto(seccion.id, b, n)}
             onEstado={() => api.estado().then((e) => aplicar(e))}
             onComentar={(c) => {

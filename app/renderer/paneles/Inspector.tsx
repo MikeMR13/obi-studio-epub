@@ -184,7 +184,7 @@ export function Inspector(p: Props) {
                 <option value="horizontal">Horizontal</option>
                 <option value="vertical">Vertical japonesa (tategaki), de derecha a izquierda</option>
               </select>
-              <small>En vertical, los números de una o dos cifras y «!?» se ponen en horizontal automáticamente. El editor sigue mostrando el texto en horizontal; la vista previa y el PDF, en vertical.</small>
+              <small>En vertical, los números de una o dos cifras y «!?» se ponen en horizontal automáticamente, y se incrusta Noto Serif JP con solo los caracteres que usa el libro. El editor, la vista previa y el PDF se ven en vertical.</small>
             </label>
             <Texto etiqueta="ISBN o identificador" valor={m.identificador} onGuardar={(v) => p.onMetadatos({ identificador: v })} ayuda="Si no tienes ISBN, deja el UUID que se generó." />
             <div className="fila-dos">

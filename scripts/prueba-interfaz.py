@@ -265,6 +265,12 @@ with sync_playwright() as p:
     pagina.wait_for_timeout(500)
     pagina.screenshot(path=f"{CAPTURAS}/13-vertical.png")
     pagina.get_by_role("tab", name="Escribir").click()
+    marco = pagina.locator(".hoja-vertical .pagina-marco")
+    expect(marco).to_be_visible()
+    modo_editor = marco.evaluate("e => getComputedStyle(e).writingMode")
+    pagina.wait_for_timeout(400)
+    pagina.screenshot(path=f"{CAPTURAS}/13b-editor-vertical.png")
+    paso("Editor en vertical", modo_editor == "vertical-rl", modo_editor)
 
     # F4: KEPUB desde el menú «Más».
     pagina.get_by_role("button", name="Más ▾").click()

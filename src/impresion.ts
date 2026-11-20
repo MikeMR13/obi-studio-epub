@@ -45,9 +45,9 @@ export function cssImpresion(libro: Libro, op: OpcionesImpresion): string {
   const tema = temaCompleto(libro);
   // En vertical (de derecha a izquierda) la página impar queda a la izquierda.
   const vertical = esVertical(libro);
-  const fuentes = fuentesTema(tema, true);
-  const familiaTexto = familiaCss(fuentes.texto);
-  const familiaTitulos = familiaCss(fuentes.titulos);
+  const fuentes = fuentesTema(tema, true, libro);
+  const familiaTexto = fuentes.familiaTexto;
+  const familiaTitulos = fuentes.familiaTitulos;
   const caras = fuentes.archivos.map((x) => caraFuente(x, 'fuentes/')).join('\n');
   const cabecera = (lado: 'izq' | 'der') =>
     a.cabeceras ? `@top-center { content: ${lado === 'izq' ? 'string(libro, first-except)' : 'string(capitulo, first-except)'}; font-variant: small-caps; letter-spacing: 0.05em; font-size: 8.5pt; vertical-align: bottom; padding-bottom: 4mm; }` : '';

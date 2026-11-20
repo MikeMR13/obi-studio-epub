@@ -1,8 +1,8 @@
 // Archivos de fuente (woff2, licencia OFL) que se incrustan en el EPUB y el PDF.
 
 import { readFileSync } from 'node:fs';
-import type { Fuente, Tema } from './model.js';
-import { fuente } from './model.js';
+import type { Fuente, Inline, Libro, Tema } from './model.js';
+import { esVertical, fuente } from './model.js';
 import { rutaRecurso } from './recursos.js';
 
 export const SUBCONJUNTOS = [
@@ -37,13 +37,99 @@ export function archivosFuente(f: Fuente, soloRedonda = false): ArchivoFuente[] 
     );
 }
 
-/** Fuentes que usa un tema. Con `impresion`, las «del lector» se sustituyen por una incrustada. */
-export function fuentesTema(tema: Tema, impresion = false): { texto: Fuente; titulos: Fuente; archivos: ArchivoFuente[] } {
+// ---------------------------------------------------------------------------
+// Japonés: Noto Serif JP en ~120 subconjuntos por rango Unicode. Solo se incrustan los que cubren
+// los caracteres japoneses que usa el libro (kana, kanji, signos de ancho completo).
+
+export const FAMILIA_JAPONESA = 'Noto Serif JP';
+
+let indiceJapones: { n: number; rango: string; tramos: [number, number][] }[] | null | undefined;
+
+function subconjuntosJaponeses() {
+  if (indiceJapones !== undefined) return indiceJapones;
+  const ruta = rutaRecurso('fuentes', 'noto-serif-jp-indice.json');
+  if (!ruta) return (indiceJapones = null);
+  const crudo = JSON.parse(readFileSync(ruta, 'utf8')) as { n: number; rango: string }[];
+  indiceJapones = crudo.map((x) => ({
+    ...x,
+    tramos: x.rango.split(',').map((t) => {
+      const [a, b] = t.trim().replace(/^U\+/i, '').split('-');
+      return [parseInt(a, 16), parseInt(b ?? a, 16)] as [number, number];
+    }),
+  }));
+  return indiceJapones;
+}
+
+/** Caracteres de escritura japonesa (y signos CJK) que aparecen en el libro. */
+export function caracteresJaponeses(libro: Libro): Set<number> {
+  const cps = new Set<number>();
+  const ver = (t: string) => {
+    for (const c of t) {
+      const cp = c.codePointAt(0)!;
+      if (cp >= 0x2e80) cps.add(cp);
+    }
+  };
+  const inl = (l: Inline[]) => l.forEach((i) => (i.tipo === 'texto' ? ver(i.texto) : i.tipo === 'ruby' && (ver(i.base), ver(i.lectura))));
+  ver(libro.metadatos.titulo);
+  for (const s of libro.secciones) {
+    ver(s.titulo);
+    for (const b of s.bloques) {
+      if (b.tipo === 'parrafo' || b.tipo === 'subtitulo') inl(b.contenido);
+      else if (b.tipo === 'lista') b.elementos.forEach(inl);
+      else if (b.tipo === 'crudo') ver(b.xhtml);
+      else if (b.tipo === 'imagen') ver(b.alt);
+    }
+    for (const n of s.notas) inl(n.contenido);
+  }
+  return cps;
+}
+
+/** Archivos de Noto Serif JP (400 y 700) que necesita el libro. Vacío si no hay japonés. */
+export function archivosJaponeses(libro: Libro): ArchivoFuente[] {
+  const cps = caracteresJaponeses(libro);
+  const indice = cps.size ? subconjuntosJaponeses() : null;
+  if (!indice) return [];
+  const usados = indice.filter((x) => x.tramos.some(([a, b]) => [...cps].some((c) => c >= a && c <= b)));
+  return usados.flatMap((x) =>
+    ['400', '700'].map((peso) => ({ archivo: `noto-serif-jp-${x.n}-${peso}-normal.woff2`, familia: FAMILIA_JAPONESA, peso, estilo: 'normal', rango: x.rango })),
+  );
+}
+
+/** Familia CSS con la fuente japonesa: delante en vertical, como respaldo en horizontal. */
+function conJapones(familia: string, f: Fuente, vertical: boolean): string {
+  const jp = `'${FAMILIA_JAPONESA}'`;
+  if (vertical) return `${jp}, ${familia}`;
+  return f.archivo ? `'${f.familia}', ${jp}, ${f.generica}` : `${jp}, ${f.generica}`;
+}
+
+export interface FuentesLibro {
+  texto: Fuente;
+  titulos: Fuente;
+  archivos: ArchivoFuente[];
+  /** Valores de font-family listos para el CSS. */
+  familiaTexto: string;
+  familiaTitulos: string;
+}
+
+/**
+ * Fuentes que usa un tema. Con `impresion`, las «del lector» se sustituyen por una incrustada.
+ * Con `libro`, se añade Noto Serif JP si el libro tiene texto japonés.
+ */
+export function fuentesTema(tema: Tema, impresion = false, libro?: Libro): FuentesLibro {
   const elegir = (id: string) => (impresion ? fuente(fuente(id).impresion) : fuente(id));
   const texto = elegir(tema.fuenteTexto);
   const titulos = elegir(tema.fuenteTitulos);
   const archivos = [...archivosFuente(texto), ...(titulos.id === texto.id ? [] : archivosFuente(titulos, true))];
-  return { texto, titulos, archivos };
+  const jp = libro ? archivosJaponeses(libro) : [];
+  if (!jp.length) return { texto, titulos, archivos, familiaTexto: familiaCss(texto), familiaTitulos: familiaCss(titulos) };
+  const vertical = !!libro && esVertical(libro);
+  return {
+    texto,
+    titulos,
+    archivos: [...archivos, ...jp],
+    familiaTexto: conJapones(familiaCss(texto), texto, vertical),
+    familiaTitulos: conJapones(familiaCss(titulos), titulos, vertical),
+  };
 }
 
 export function caraFuente(a: ArchivoFuente, carpeta: string): string {
