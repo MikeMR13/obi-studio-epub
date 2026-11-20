@@ -85,6 +85,12 @@ export function Editor({ seccion, onCambio, onEstado, onComentar }: Props) {
     }
   }, [seccion.bloques]);
 
+  // Notas cambiadas desde fuera (buscar y reemplazar, plugins), salvo si se está escribiendo en una.
+  useEffect(() => {
+    if (seccionId.current !== seccion.id || document.activeElement?.tagName === 'TEXTAREA') return;
+    setNotas(seccion.notas);
+  }, [seccion.notas]);
+
   useEffect(() => () => window.clearTimeout(temporizador.current), []);
 
   // Comentarios: el panel pide ir al texto comentado o quitar la marca.
@@ -117,10 +123,31 @@ export function Editor({ seccion, onCambio, onEstado, onComentar }: Props) {
         guardar(editor, true);
       }
     };
+    const seleccionar = (e: Event) => {
+      const { bloque, texto } = (e as CustomEvent).detail as { bloque: number; texto: string };
+      const doc = editor.state.doc;
+      if (bloque >= doc.childCount) return;
+      let inicio = 0;
+      for (let k = 0; k < bloque; k++) inicio += doc.child(k).nodeSize;
+      // Texto del bloque con la posición de cada carácter en el documento.
+      const posiciones: number[] = [];
+      let plano = '';
+      doc.child(bloque).descendants((n, pos) => {
+        if (n.isText) for (let k = 0; k < n.text!.length; k++) {
+          plano += n.text![k];
+          posiciones.push(inicio + 1 + pos + k);
+        }
+      });
+      const i = plano.toLowerCase().indexOf(texto.toLowerCase());
+      if (i < 0) return;
+      editor.chain().focus().setTextSelection({ from: posiciones[i], to: posiciones[i + texto.length - 1] + 1 }).scrollIntoView().run();
+    };
+    window.addEventListener('obi:seleccionar', seleccionar);
     window.addEventListener('obi:ir-comentario', ir);
     window.addEventListener('obi:quitar-comentario', quitar);
     return () => {
       window.removeEventListener('obi:ir-comentario', ir);
+      window.removeEventListener('obi:seleccionar', seleccionar);
       window.removeEventListener('obi:quitar-comentario', quitar);
     };
   }, [editor]);

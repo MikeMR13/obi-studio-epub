@@ -7,6 +7,7 @@ import { join } from 'node:path';
 import type { Comentario, Impresion, Libro, Metadatos, Recurso, Seccion, Tema, TipoSeccion, Tipografia } from '../src/model.js';
 import { ajustesImpresion, TAMANOS_IMPRESION, temaCompleto, validarTema } from '../src/model.js';
 import { TEMAS } from '../src/temas.js';
+import { ErrorBusqueda, buscar, reemplazar, type Coincidencia, type OpcionesBusqueda } from '../src/buscar.js';
 import { evaluadorChrome, informeHtml, revisarAccesibilidad, type Evaluador, type InformeAccesibilidad } from '../src/accesibilidad.js';
 import {
   AlmacenPlugins,
@@ -460,6 +461,28 @@ export class Backend {
     if (tipo === 'impresion') this.ultimasPaginas = r.paginas;
     const sufijo = tipo === 'impresion' ? '-impresion' : '-digital';
     return { nombre: nombreDeArchivo(this.libro.metadatos.titulo) + sufijo + '.pdf', datos: r.datos, paginas: r.paginas, avisos: revisarImpresion(this.libro, r.paginas) };
+  }
+
+  // ----- Buscar y reemplazar -----
+
+  buscar(o: OpcionesBusqueda): { coincidencias: Coincidencia[]; total: number } {
+    try {
+      return buscar(this.libro, o);
+    } catch (e) {
+      if (e instanceof ErrorBusqueda) throw new ErrorUsuario(e.message);
+      throw e;
+    }
+  }
+
+  reemplazar(o: OpcionesBusqueda, reemplazo: string, solo?: { seccion: string; lugar: string; orden: number }): { n: number } {
+    try {
+      const r = reemplazar(this.libro, o, reemplazo, solo);
+      if (r.n) this.marcar();
+      return { n: r.n };
+    } catch (e) {
+      if (e instanceof ErrorBusqueda) throw new ErrorUsuario(e.message);
+      throw e;
+    }
   }
 
   // ----- Accesibilidad -----

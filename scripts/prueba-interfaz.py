@@ -371,6 +371,28 @@ with sync_playwright() as p:
         pagina.get_by_role("button", name="Guardar informe").click()
     paso("Informe de accesibilidad", "páginas revisadas con axe-core" in texto_a11y and d.value.suggested_filename.endswith("-accesibilidad.html"), texto_a11y.splitlines()[0])
 
+    # Buscar y reemplazar.
+    pagina.get_by_role("tab", name="Escribir").click()
+    pagina.locator(".lista-secciones").get_by_role("button", name="Capítulo 1 – La llegada").click()
+    pagina.keyboard.press("Control+h")
+    buscar = pagina.locator(".panel-buscar")
+    buscar.get_by_label("Buscar", exact=True).fill("bosque")
+    expect(buscar.locator(".cuenta")).to_contain_text("resultado", timeout=5000)
+    total_antes = buscar.locator(".resultados-buscar li").count()
+    pagina.screenshot(path=f"{CAPTURAS}/20-buscar.png")
+    buscar.locator(".resultados-buscar .resultado").first.click()
+    pagina.wait_for_timeout(500)
+    seleccion = pagina.evaluate("window.getSelection().toString()")
+    paso("Buscar en todo el libro e ir al resultado", total_antes >= 2 and seleccion.lower() == "bosque", f"{total_antes} resultados, selección «{seleccion}»")
+    buscar.get_by_label("Reemplazar con").fill("arboleda")
+    buscar.get_by_role("button", name="Reemplazar todo").click()
+    expect(buscar.locator(".cuenta")).to_contain_text("0 resultados", timeout=5000)
+    expect(pagina.locator(".pagina-editor")).to_contain_text("arboleda")
+    estado = pagina.evaluate("fetch('/api/estado').then(r => r.json())")
+    texto_libro = str(estado["libro"]["secciones"])
+    paso("Reemplazar todo, también en notas", "arboleda de los elfos" in texto_libro and "osque" not in texto_libro)
+    buscar.get_by_role("button", name="Cerrar búsqueda").click()
+
     # Ventana pequeña (1024 px).
     pagina.set_viewport_size({"width": 1024, "height": 700})
     pagina.wait_for_timeout(300)

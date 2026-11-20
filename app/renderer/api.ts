@@ -3,8 +3,10 @@ import type { Resultado } from '../../src/validar';
 
 import type { AvisoImpresion } from '../../src/preflight';
 import type { InformeAccesibilidad } from '../../src/accesibilidad';
+import type { Coincidencia, OpcionesBusqueda } from '../../src/buscar';
 import type { Hallazgo, Manifiesto, PluginInstalado } from '../../src/plugins';
 
+export type { Coincidencia, OpcionesBusqueda };
 export type { Estado, Resultado, AvisoImpresion, InformeAccesibilidad, Hallazgo, Manifiesto, PluginInstalado };
 
 export class ErrorApi extends Error {
@@ -52,6 +54,9 @@ export const api = {
   codigo: (id: string) => pedir<{ xhtml: string }>('GET', `/api/codigo/${id}`),
   aplicarCodigo: (id: string, xhtml: string) => pedir<{ secciones: string[]; estado: Estado }>('PUT', `/api/codigo/${id}`, { xhtml }),
   validar: () => pedir<Resultado>('POST', '/api/validar'),
+  buscar: (o: OpcionesBusqueda) => pedir<{ coincidencias: Coincidencia[]; total: number }>('POST', '/api/buscar', o),
+  reemplazar: (opciones: OpcionesBusqueda, reemplazo: string, solo?: { seccion: string; lugar: string; orden: number }) =>
+    pedir<{ n: number; estado: Estado }>('POST', '/api/reemplazar', { opciones, reemplazo, solo }),
   accesibilidad: () => pedir<InformeAccesibilidad>('POST', '/api/accesibilidad'),
   plugins: () => pedir<PluginInstalado[]>('GET', '/api/plugins'),
   inspeccionarPlugin: (archivo: Blob) => pedir<Manifiesto>('POST', '/api/plugins/inspeccionar', undefined, archivo),

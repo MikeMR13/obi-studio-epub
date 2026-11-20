@@ -13,6 +13,7 @@ import { PanelImpresion, VistaImpresion } from './paneles/Impresion';
 import { PanelTema } from './paneles/Tema';
 import { Comentarios } from './paneles/Comentarios';
 import { Plugins } from './paneles/Plugins';
+import { Buscar } from './paneles/Buscar';
 import type { Pestana } from './paneles/Inspector';
 
 type Vista = 'editor' | 'codigo' | 'vista' | 'impresion';
@@ -25,6 +26,7 @@ export function App() {
   const [exportandoPdf, setExportandoPdf] = useState(false);
   const [menuMas, setMenuMas] = useState(false);
   const [verPlugins, setVerPlugins] = useState(false);
+  const [busqueda, setBusqueda] = useState<{ reemplazo: boolean } | null>(null);
   const entradaCorrecciones = useRef<HTMLInputElement>(null);
   const [validacion, setValidacion] = useState<Resultado | null>(null);
   const [validando, setValidando] = useState(false);
@@ -189,6 +191,10 @@ export function App() {
         e.preventDefault();
         entradaArchivo.current?.click();
       }
+      if ((e.key === 'f' || e.key === 'h') && !e.shiftKey && !(e.target as HTMLElement).closest('.area-codigo')) {
+        e.preventDefault();
+        setBusqueda((b) => ({ reemplazo: e.key === 'h' || !!b?.reemplazo }));
+      }
     };
     window.addEventListener('keydown', teclas);
     return () => window.removeEventListener('keydown', teclas);
@@ -352,7 +358,28 @@ export function App() {
             </button>
           ))}
           <span className="tipo-actual">{tipoSeccion}</span>
+          <button className="boton-buscar" title="Buscar y reemplazar (Ctrl+F, Ctrl+H)" aria-label="Buscar y reemplazar" onClick={() => setBusqueda(busqueda ? null : { reemplazo: false })}>
+            🔍
+          </button>
         </div>
+        {busqueda && (
+          <Buscar
+            estado={estado}
+            seccionActual={seccion?.id}
+            conReemplazo={busqueda.reemplazo}
+            onCerrar={() => setBusqueda(null)}
+            onEstado={(e) => aplicar(e, true)}
+            onIr={(c) => {
+              setActual(c.seccion);
+              setVista('editor');
+              if (c.lugar.startsWith('b'))
+                window.setTimeout(
+                  () => window.dispatchEvent(new CustomEvent('obi:seleccionar', { detail: { bloque: Number(c.lugar.slice(1).split('.')[0]), texto: c.texto } })),
+                  120,
+                );
+            }}
+          />
+        )}
         {seccion && vista === 'editor' && (esImagen ? (
           <Ilustracion
             estado={estado}
