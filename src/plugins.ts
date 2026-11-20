@@ -317,7 +317,8 @@ export async function ejecutarPlugin<T = unknown>(
 
 /** Copia del libro que se entrega al plugin: sin los bytes de las imágenes salvo con el permiso «recursos». */
 export function libroParaPlugin(libro: Libro, permisos: Permiso[]): Libro {
-  const copia = structuredClone(libro);
+  const { versiones: _v, recursosVersiones: _rv, ...sinVersiones } = libro;
+  const copia = structuredClone(sinVersiones) as Libro;
   if (!permisos.includes('recursos')) copia.recursos = copia.recursos.map((r) => ({ ...r, datos: new Uint8Array(0) }));
   return copia;
 }

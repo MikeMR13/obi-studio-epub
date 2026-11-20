@@ -410,6 +410,21 @@ export interface Libro {
   impresion?: Impresion;
   /** Dirección del texto: horizontal (predeterminada) o vertical japonesa (tategaki), de derecha a izquierda. */
   escritura?: 'horizontal' | 'vertical';
+  /** Versiones guardadas con nombre (ver src/versiones.ts). No salen en el EPUB. */
+  versiones?: Version[];
+  /** Imágenes que solo usan las versiones guardadas, por huella. */
+  recursosVersiones?: (Recurso & { huella: string })[];
+}
+
+/** Instantánea con nombre del libro. */
+export interface Version {
+  id: string;
+  nombre: string;
+  /** Fecha ISO 8601. */
+  fecha: string;
+  palabras: number;
+  /** JSON del libro sin versiones; las imágenes van sin bytes y con su huella. */
+  libro: string;
 }
 
 export function esVertical(libro: Pick<Libro, 'escritura'>): boolean {

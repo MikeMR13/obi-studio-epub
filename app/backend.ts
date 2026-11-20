@@ -7,6 +7,7 @@ import { join } from 'node:path';
 import type { Comentario, Impresion, Libro, Metadatos, Recurso, Seccion, Tema, TipoSeccion, Tipografia } from '../src/model.js';
 import { ajustesImpresion, TAMANOS_IMPRESION, temaCompleto, validarTema } from '../src/model.js';
 import { TEMAS } from '../src/temas.js';
+import { ErrorVersion, compararVersion, crearVersion, eliminarVersion, restaurarVersion, resumenVersiones, type DiferenciaSeccion, type ResumenVersion } from '../src/versiones.js';
 import { ErrorBusqueda, buscar, reemplazar, type Coincidencia, type OpcionesBusqueda } from '../src/buscar.js';
 import { evaluadorChrome, informeHtml, revisarAccesibilidad, type Evaluador, type InformeAccesibilidad } from '../src/accesibilidad.js';
 import {
@@ -75,6 +76,7 @@ export interface Estado {
   avisos: string[];
   /** Nombre del plugin cuya transformación se puede deshacer. */
   deshacerPlugin?: string;
+  versiones: ResumenVersion[];
 }
 
 export class Backend {
@@ -107,8 +109,10 @@ export class Backend {
     const recursos = this.libro.recursos.map(({ datos, ...r }) => ({ ...r, bytes: datos.length }));
     const palabras: Record<string, number> = {};
     for (const s of this.libro.secciones) palabras[s.id] = contarPalabras(s);
+    const { versiones: _v, recursosVersiones: _rv, ...libro } = this.libro;
     return {
-      libro: { ...this.libro, recursos },
+      libro: { ...libro, recursos },
+      versiones: resumenVersiones(this.libro),
       nombreArchivo: this.nombreArchivo,
       cambiado: this.cambiado,
       palabras,
@@ -463,6 +467,39 @@ export class Backend {
     return { nombre: nombreDeArchivo(this.libro.metadatos.titulo) + sufijo + '.pdf', datos: r.datos, paginas: r.paginas, avisos: revisarImpresion(this.libro, r.paginas) };
   }
 
+  // ----- Versiones -----
+
+  private conVersion<T>(f: () => T): T {
+    try {
+      return f();
+    } catch (e) {
+      if (e instanceof ErrorVersion) throw new ErrorUsuario(e.message);
+      throw e;
+    }
+  }
+
+  crearVersion(nombre: string): ResumenVersion {
+    const v = this.conVersion(() => crearVersion(this.libro, nombre));
+    this.cambiado = true;
+    return v;
+  }
+
+  compararVersion(id: string): DiferenciaSeccion[] {
+    return this.conVersion(() => compararVersion(this.libro, id));
+  }
+
+  restaurarVersion(id: string): string[] {
+    const r = this.conVersion(() => restaurarVersion(this.libro, id));
+    this.libro = r.libro;
+    this.marcar();
+    return r.avisos;
+  }
+
+  eliminarVersion(id: string) {
+    this.conVersion(() => eliminarVersion(this.libro, id));
+    this.cambiado = true;
+  }
+
   // ----- Buscar y reemplazar -----
 
   buscar(o: OpcionesBusqueda): { coincidencias: Coincidencia[]; total: number } {
@@ -590,6 +627,8 @@ export class Backend {
   async importarCorrecciones(nombre: string, datos: Uint8Array): Promise<ResumenCorrecciones> {
     if (!nombre.toLowerCase().endsWith('.docx')) throw new ErrorUsuario('Las correcciones se importan desde un archivo .docx.');
     let r: ResumenCorrecciones;
+    // Versión automática para poder volver atrás si las correcciones no convencen.
+    crearVersion(this.libro, `Antes de importar «${nombre}»`);
     try {
       r = await importarCorrecciones(this.libro, datos);
     } catch (e) {

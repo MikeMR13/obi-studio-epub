@@ -58,3 +58,52 @@ test('Reemplazar: conserva formato, furigana y notas; uno o todos', () => {
   assert.ok(p.tipo === 'parrafo');
   assert.deepEqual(p.contenido, [{ tipo: 'texto', texto: 'Aria vio la ' }, { tipo: 'texto', texto: 'mansión y', marcas: ['negrita'] }, { tipo: 'texto', texto: ' la Casa vieja.' }]);
 });
+
+// ---------------------------------------------------------------------------
+// Versiones.
+
+import { compararVersion, crearVersion, eliminarVersion, restaurarVersion } from '../versiones.js';
+import { deserializarProyecto, serializarProyecto } from '../proyecto.js';
+import { compilar } from '../compilar.js';
+import { pngSolido } from './fixtures.js';
+
+test('Versiones: guardar, comparar, restaurar con imágenes borradas y guardar en el .obi', async () => {
+  const l = libroBusqueda();
+  l.recursos.push({ id: 'img', nombre: 'img.png', tipoMime: 'image/png', datos: pngSolido(30, 30), ancho: 30, alto: 30 });
+  const cap = l.secciones.at(-1)!;
+  cap.bloques.push({ tipo: 'imagen', recurso: 'img', alt: 'Un cuadro' });
+  assert.throws(() => crearVersion(l, '  '), /nombre/);
+  const v1 = crearVersion(l, 'Primer borrador');
+  assert.equal(v1.nombre, 'Primer borrador');
+  // Cambios: se edita el capítulo, se borra la imagen y se añade una sección.
+  reemplazar(l, { consulta: 'casa' }, 'hogar');
+  cap.bloques = cap.bloques.filter((b) => b.tipo !== 'imagen');
+  l.recursos = [];
+  l.secciones.push(nuevaSeccion('epilogo', 'Epílogo'));
+  const dif = compararVersion(l, v1.id);
+  assert.deepEqual(dif.filter((d) => d.estado !== 'igual').map((d) => [d.titulo, d.estado]), [['Capítulo 1', 'cambiada'], ['Epílogo', 'nueva']]);
+
+  // Se guarda el proyecto: la imagen borrada viaja para la versión.
+  const recargado = await deserializarProyecto(await serializarProyecto(l));
+  assert.equal(recargado.versiones!.length, 1);
+  assert.equal(recargado.recursosVersiones!.length, 1);
+  const r = restaurarVersion(recargado, v1.id);
+  assert.deepEqual(r.avisos, []);
+  assert.equal(r.libro.recursos.length, 1);
+  assert.match(JSON.stringify(r.libro.secciones), /casa/);
+  assert.ok(!r.libro.secciones.some((s) => s.titulo === 'Epílogo'));
+  assert.deepEqual(r.libro.versiones!.map((v) => v.nombre), ['Primer borrador', 'Antes de restaurar «Primer borrador»']);
+  assert.ok((await compilar(r.libro)).length > 1000);
+  // La versión «Antes de restaurar» devuelve el estado con el epílogo.
+  const atras = restaurarVersion(r.libro, r.libro.versiones![1].id);
+  assert.ok(atras.libro.secciones.some((s) => s.titulo === 'Epílogo'));
+
+  // Borrar versiones poda las imágenes que ya nadie usa.
+  const l2 = r.libro;
+  for (const v of [...l2.versiones!]) eliminarVersion(l2, v.id);
+  assert.equal(l2.versiones, undefined);
+  assert.equal(l2.recursosVersiones, undefined);
+  // Sin versiones, el .obi no duplica imágenes.
+  const zip = await (await import('jszip')).default.loadAsync(await serializarProyecto(l2));
+  assert.deepEqual(Object.keys(zip.files).filter((f) => f.endsWith('.png')), ['recursos/img-img.png']);
+});

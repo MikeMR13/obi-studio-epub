@@ -374,3 +374,10 @@ p.error { font-weight: 600; }
 .resultados-buscar .contexto { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .resultados-buscar mark { background: #ffe58a; border-radius: 2px; }
 .resultados-buscar .reemplazar-uno { font-size: 11px; padding: 2px 6px; flex: none; }
+.tabla-comparacion { width: 100%; border-collapse: collapse; font-size: 12.5px; margin-top: 4px; }
+.tabla-comparacion th, .tabla-comparacion td { text-align: left; padding: 3px 6px; border-bottom: 1px solid var(--fondo); }
+.tabla-comparacion th { color: var(--tenue); font-weight: 500; }
+.tabla-comparacion tr.igual { color: var(--tenue); }
+.tabla-comparacion tr.cambiada td:nth-child(2) { color: var(--obi-oscuro); font-weight: 600; }
+.tabla-comparacion tr.nueva td:nth-child(2) { color: var(--ok); }
+.tabla-comparacion tr.borrada td:nth-child(2) { color: var(--error); }

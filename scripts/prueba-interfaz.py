@@ -393,6 +393,26 @@ with sync_playwright() as p:
     paso("Reemplazar todo, también en notas", "arboleda de los elfos" in texto_libro and "osque" not in texto_libro)
     buscar.get_by_role("button", name="Cerrar búsqueda").click()
 
+    # Versiones.
+    pagina.get_by_role("button", name="Más ▾").click()
+    pagina.get_by_role("menuitem", name="Versiones…").click()
+    versiones = pagina.locator(".panel-plugins")
+    expect(versiones).to_contain_text("Antes de importar «corregido.docx»")
+    versiones.get_by_label("Nombre de la versión").fill("Después de buscar")
+    versiones.get_by_role("button", name="Guardar versión").click()
+    expect(versiones.locator(".lista-plugins > li")).to_have_count(2)
+    auto = versiones.locator(".lista-plugins > li").filter(has_text="Antes de importar")
+    auto.get_by_role("button", name="Comparar con ahora").click()
+    expect(auto.locator(".tabla-comparacion")).to_contain_text("Cambiada")
+    pagina.screenshot(path=f"{CAPTURAS}/21-versiones.png")
+    auto.get_by_role("button", name="Restaurar").click()
+    pagina.get_by_role("dialog").filter(has_text="Restaurar versión").get_by_role("button", name="Restaurar").click()
+    expect(versiones.locator(".lista-plugins > li")).to_have_count(3)
+    estado = pagina.evaluate("fetch('/api/estado').then(r => r.json())")
+    texto_libro = str(estado["libro"]["secciones"])
+    paso("Versiones: guardar, comparar y restaurar", "bosque" in texto_libro and "Final corregido" not in texto_libro, ", ".join(v["nombre"] for v in estado["versiones"]))
+    versiones.get_by_role("button", name="Cerrar").click()
+
     # Ventana pequeña (1024 px).
     pagina.set_viewport_size({"width": 1024, "height": 700})
     pagina.wait_for_timeout(300)

@@ -14,6 +14,7 @@ import { PanelTema } from './paneles/Tema';
 import { Comentarios } from './paneles/Comentarios';
 import { Plugins } from './paneles/Plugins';
 import { Buscar } from './paneles/Buscar';
+import { Versiones } from './paneles/Versiones';
 import type { Pestana } from './paneles/Inspector';
 
 type Vista = 'editor' | 'codigo' | 'vista' | 'impresion';
@@ -26,6 +27,7 @@ export function App() {
   const [exportandoPdf, setExportandoPdf] = useState(false);
   const [menuMas, setMenuMas] = useState(false);
   const [verPlugins, setVerPlugins] = useState(false);
+  const [verVersiones, setVerVersiones] = useState(false);
   const [busqueda, setBusqueda] = useState<{ reemplazo: boolean } | null>(null);
   const entradaCorrecciones = useRef<HTMLInputElement>(null);
   const [validacion, setValidacion] = useState<Resultado | null>(null);
@@ -282,6 +284,7 @@ export function App() {
 
   return (
     <div className="app">
+      {verVersiones && <Versiones estado={estado} onCerrar={() => setVerVersiones(false)} onEstado={(e) => aplicar(e)} />}
       {verPlugins && (
         <Plugins
           estado={estado}
@@ -317,6 +320,7 @@ export function App() {
                 <li><button role="menuitem" onClick={() => { setMenuMas(false); setPestana('impresion'); }}>PDF…<small>Para imprenta o digital</small></button></li>
                 <li><button role="menuitem" onClick={() => descargarFormato('/api/exportar-word', 'Word para corrección exportado.', 'Creando el Word…')}>Word para corrección<small>Para enviar a correctores; vuelve con «Importar correcciones»</small></button></li>
                 <li><button role="menuitem" onClick={() => { setMenuMas(false); entradaCorrecciones.current?.click(); }}>Importar correcciones de Word…<small>Funde los cambios y los comentarios capítulo a capítulo</small></button></li>
+                <li><button role="menuitem" onClick={() => { setMenuMas(false); setVerVersiones(true); }}>Versiones…<small>Guardar, comparar y restaurar versiones del libro</small></button></li>
                 <li><button role="menuitem" onClick={() => { setMenuMas(false); setVerPlugins(true); }}>Plugins…<small>Revisiones, transformaciones y otros formatos</small></button></li>
               </ul>
             )}

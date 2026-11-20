@@ -172,6 +172,19 @@ export async function iniciarServidor(op: OpcionesServidor = {}) {
       const { nombre, datos } = await backend.exportarWord();
       descarga(r, nombre, 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', datos);
     }],
+    ['POST', /^\/api\/versiones$/, async (q, r) => {
+      backend.crearVersion(String((await json(q)).nombre ?? ''));
+      enviar(r, 200, backend.estado());
+    }],
+    ['GET', /^\/api\/versiones\/([\w-]+)\/comparar$/, async (_q, r, m) => enviar(r, 200, backend.compararVersion(m[1]))],
+    ['POST', /^\/api\/versiones\/([\w-]+)\/restaurar$/, async (_q, r, m) => {
+      const avisos = backend.restaurarVersion(m[1]);
+      enviar(r, 200, { avisos, estado: backend.estado() });
+    }],
+    ['DELETE', /^\/api\/versiones\/([\w-]+)$/, async (_q, r, m) => {
+      backend.eliminarVersion(m[1]);
+      enviar(r, 200, backend.estado());
+    }],
     ['POST', /^\/api\/buscar$/, async (q, r) => enviar(r, 200, backend.buscar(await json(q)))],
     ['POST', /^\/api\/reemplazar$/, async (q, r) => {
       const d = await json(q);

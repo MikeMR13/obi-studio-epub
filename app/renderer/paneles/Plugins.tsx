@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { TIPOS_SECCION } from '../../../src/model';
 import { api, descargar, type Estado, type Hallazgo, type PluginInstalado } from '../api';
 import { aviso, confirmar } from '../dialogos';
 
@@ -139,7 +140,7 @@ export function Plugins({ estado, onCerrar, onEstado, onIrA }: Props) {
                     {h.mensaje}
                     {s && (
                       <button className="enlace" onClick={() => { onIrA(s.id); onCerrar(); }}>
-                        Ir a «{s.titulo || s.tipo}»
+                        Ir a «{s.titulo || TIPOS_SECCION.find((t) => t.id === s.tipo)?.nombre}»
                       </button>
                     )}
                   </li>

@@ -4,9 +4,10 @@ import type { Resultado } from '../../src/validar';
 import type { AvisoImpresion } from '../../src/preflight';
 import type { InformeAccesibilidad } from '../../src/accesibilidad';
 import type { Coincidencia, OpcionesBusqueda } from '../../src/buscar';
+import type { DiferenciaSeccion } from '../../src/versiones';
 import type { Hallazgo, Manifiesto, PluginInstalado } from '../../src/plugins';
 
-export type { Coincidencia, OpcionesBusqueda };
+export type { Coincidencia, OpcionesBusqueda, DiferenciaSeccion };
 export type { Estado, Resultado, AvisoImpresion, InformeAccesibilidad, Hallazgo, Manifiesto, PluginInstalado };
 
 export class ErrorApi extends Error {
@@ -54,6 +55,10 @@ export const api = {
   codigo: (id: string) => pedir<{ xhtml: string }>('GET', `/api/codigo/${id}`),
   aplicarCodigo: (id: string, xhtml: string) => pedir<{ secciones: string[]; estado: Estado }>('PUT', `/api/codigo/${id}`, { xhtml }),
   validar: () => pedir<Resultado>('POST', '/api/validar'),
+  crearVersion: (nombre: string) => pedir<Estado>('POST', '/api/versiones', { nombre }),
+  compararVersion: (id: string) => pedir<DiferenciaSeccion[]>('GET', `/api/versiones/${id}/comparar`),
+  restaurarVersion: (id: string) => pedir<{ avisos: string[]; estado: Estado }>('POST', `/api/versiones/${id}/restaurar`),
+  eliminarVersion: (id: string) => pedir<Estado>('DELETE', `/api/versiones/${id}`),
   buscar: (o: OpcionesBusqueda) => pedir<{ coincidencias: Coincidencia[]; total: number }>('POST', '/api/buscar', o),
   reemplazar: (opciones: OpcionesBusqueda, reemplazo: string, solo?: { seccion: string; lugar: string; orden: number }) =>
     pedir<{ n: number; estado: Estado }>('POST', '/api/reemplazar', { opciones, reemplazo, solo }),
