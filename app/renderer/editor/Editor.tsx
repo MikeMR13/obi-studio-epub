@@ -8,6 +8,10 @@ import { extensiones } from './extensiones';
 import { api } from '../api';
 import { aviso, pedirDatos } from '../dialogos';
 import { guardarRevisor, nombreRevisor } from '../paneles/Comentarios';
+import { idiomaInterfaz, t } from '../i18n';
+
+/** Letras de los botones de formato, como en los procesadores de texto de cada idioma. */
+const LETRAS = idiomaInterfaz() === 'en' ? { negrita: 'B', cursiva: 'I', subrayado: 'U', tachado: 'S' } : { negrita: 'N', cursiva: 'C', subrayado: 'S', tachado: 'T' };
 
 interface Props {
   seccion: Seccion;
@@ -56,7 +60,7 @@ export function Editor({ seccion, onCambio, onEstado, onComentar, vertical, idio
     extensions: extensiones(),
     content: bloquesAPM(seccion.bloques) as any,
     editorProps: {
-      attributes: { class: 'pagina-editor', spellcheck: 'true', lang: idiomaLibro || 'es', 'aria-label': 'Texto de la sección' },
+      attributes: { class: 'pagina-editor', spellcheck: 'true', lang: idiomaLibro || 'es', 'aria-label': t('Texto de la sección') },
       handleDoubleClickOn: (_view, _pos, node, nodePos) => {
         if (node.type.name === 'ruby') {
           void editarRuby(nodePos, node.attrs.base, node.attrs.lectura);
@@ -182,9 +186,9 @@ export function Editor({ seccion, onCambio, onEstado, onComentar, vertical, idio
 
   const editarRuby = async (pos: number, base: string, lectura: string) => {
     if (!editor) return;
-    const r = await pedirDatos('Editar furigana', [
-      { nombre: 'base', etiqueta: 'Texto base', valor: base },
-      { nombre: 'lectura', etiqueta: 'Lectura (furigana)', valor: lectura, ayuda: 'Déjala vacía para quitar la furigana.' },
+    const r = await pedirDatos(t('Editar furigana'), [
+      { nombre: 'base', etiqueta: t('Texto base'), valor: base },
+      { nombre: 'lectura', etiqueta: t('Lectura (furigana)'), valor: lectura, ayuda: t('Déjala vacía para quitar la furigana.') },
     ]);
     if (!r) return;
     const tr = editor.state.tr;
@@ -199,10 +203,10 @@ export function Editor({ seccion, onCambio, onEstado, onComentar, vertical, idio
   const furigana = async () => {
     if (!editor) return;
     const { from, to, empty } = editor.state.selection;
-    if (empty) return aviso('Selecciona primero el texto al que quieres poner furigana.', 'error');
+    if (empty) return aviso(t('Selecciona primero el texto al que quieres poner furigana.'), 'error');
     const base = editor.state.doc.textBetween(from, to);
-    const r = await pedirDatos('Añadir furigana', [
-      { nombre: 'lectura', etiqueta: `Lectura de «${base}»`, ayuda: 'Por ejemplo: かんじ para 漢字.' },
+    const r = await pedirDatos(t('Añadir furigana'), [
+      { nombre: 'lectura', etiqueta: t('Lectura de «{0}»', { 0: base }), ayuda: t('Por ejemplo: かんじ para 漢字.') },
     ]);
     if (!r?.lectura.trim()) return;
     editor.chain().focus().deleteRange({ from, to }).insertarRuby(base, r.lectura.trim()).run();
@@ -214,9 +218,9 @@ export function Editor({ seccion, onCambio, onEstado, onComentar, vertical, idio
       editor.chain().focus().setIdioma(null).run();
       return;
     }
-    if (editor.state.selection.empty) return aviso('Selecciona el texto en otro idioma.', 'error');
-    const r = await pedirDatos('Texto en otro idioma', [
-      { nombre: 'lang', etiqueta: 'Código de idioma', valor: 'ja', ayuda: 'ja = japonés, en = inglés, ko = coreano, zh = chino, fr = francés…' },
+    if (editor.state.selection.empty) return aviso(t('Selecciona el texto en otro idioma.'), 'error');
+    const r = await pedirDatos(t('Texto en otro idioma'), [
+      { nombre: 'lang', etiqueta: t('Código de idioma'), valor: 'ja', ayuda: t('ja = japonés, en = inglés, ko = coreano, zh = chino, fr = francés…') },
     ]);
     if (r?.lang.trim()) editor.chain().focus().setIdioma(r.lang.trim()).run();
   };
@@ -227,14 +231,14 @@ export function Editor({ seccion, onCambio, onEstado, onComentar, vertical, idio
       editor.chain().focus().unsetLink().run();
       return;
     }
-    if (editor.state.selection.empty) return aviso('Selecciona el texto del enlace.', 'error');
-    const r = await pedirDatos('Añadir enlace', [{ nombre: 'href', etiqueta: 'Dirección', valor: 'https://' }]);
+    if (editor.state.selection.empty) return aviso(t('Selecciona el texto del enlace.'), 'error');
+    const r = await pedirDatos(t('Añadir enlace'), [{ nombre: 'href', etiqueta: t('Dirección'), valor: 'https://' }]);
     if (r?.href && /^(https?:|mailto:)/.test(r.href)) editor.chain().focus().setLink({ href: r.href }).run();
   };
 
   const nota = async () => {
     if (!editor) return;
-    const r = await pedirDatos('Nueva nota al pie', [{ nombre: 'texto', etiqueta: 'Texto de la nota', tipo: 'area' }], 'Añadir nota');
+    const r = await pedirDatos(t('Nueva nota al pie'), [{ nombre: 'texto', etiqueta: t('Texto de la nota'), tipo: 'area' }], t('Añadir nota'));
     if (!r?.texto.trim()) return;
     const id = nuevoId('n');
     const nueva: Nota = { id, contenido: [{ tipo: 'texto', texto: r.texto.trim() }] };
@@ -247,30 +251,30 @@ export function Editor({ seccion, onCambio, onEstado, onComentar, vertical, idio
   const comentar = async () => {
     if (!editor) return;
     const { from, to, empty } = editor.state.selection;
-    if (empty) return aviso('Selecciona primero el texto que quieres comentar.', 'error');
+    if (empty) return aviso(t('Selecciona primero el texto que quieres comentar.'), 'error');
     const cita = editor.state.doc.textBetween(from, to, ' ');
     const r = await pedirDatos(
-      'Nuevo comentario',
+      t('Nuevo comentario'),
       [
-        { nombre: 'texto', etiqueta: `Comentario sobre «${cita.length > 60 ? cita.slice(0, 60) + '…' : cita}»`, tipo: 'area' },
-        { nombre: 'autor', etiqueta: 'Tu nombre', valor: nombreRevisor(), ayuda: 'Se recuerda para los siguientes comentarios.' },
+        { nombre: 'texto', etiqueta: t('Comentario sobre «{0}»', { 0: cita.length > 60 ? cita.slice(0, 60) + '…' : cita }), tipo: 'area' },
+        { nombre: 'autor', etiqueta: t('Tu nombre'), valor: nombreRevisor(), ayuda: t('Se recuerda para los siguientes comentarios.') },
       ],
-      'Comentar',
+      t('Comentar'),
     );
     if (!r?.texto.trim()) return;
     guardarRevisor(r.autor.trim());
     const id = nuevoId('c');
     editor.chain().focus().setTextSelection({ from, to }).setMark('comentario', { id }).run();
     guardar(editor, true);
-    onComentar({ id, texto: r.texto.trim(), autor: r.autor.trim() || 'Anónimo', cita });
+    onComentar({ id, texto: r.texto.trim(), autor: r.autor.trim() || t('Anónimo'), cita });
   };
 
   const imagen = async (archivo: File) => {
     if (!editor) return;
     try {
       const { recurso } = await api.subirImagen(archivo);
-      const r = await pedirDatos('Descripción de la imagen', [
-        { nombre: 'alt', etiqueta: 'Describe lo que se ve', tipo: 'area', ayuda: 'La leen los lectores de pantalla. Es obligatoria para la accesibilidad.' },
+      const r = await pedirDatos(t('Descripción de la imagen'), [
+        { nombre: 'alt', etiqueta: t('Describe lo que se ve'), tipo: 'area', ayuda: t('La leen los lectores de pantalla. Es obligatoria para la accesibilidad.') },
       ]);
       editor.chain().focus().insertarImagen({ recurso: recurso.id, alt: r?.alt.trim() ?? '' }).run();
       onEstado({ recargar: true });
@@ -332,38 +336,38 @@ export function Editor({ seccion, onCambio, onEstado, onComentar, vertical, idio
 
   return (
     <div className="editor">
-      <div className="barra-editor" role="toolbar" aria-label="Formato">
-        <select value={estado.estilo} onChange={(e) => estiloSelect(e.target.value)} aria-label="Estilo de párrafo" title="Estilo de párrafo (Ctrl+Alt+0…7)">
+      <div className="barra-editor" role="toolbar" aria-label={t('Formato')}>
+        <select value={estado.estilo} onChange={(e) => estiloSelect(e.target.value)} aria-label={t('Estilo de párrafo')} title={t('Estilo de párrafo (Ctrl+Alt+0…7)')}>
           {ESTILOS_PARRAFO.map((e) => (
             <option key={e.id} value={e.id}>
-              {e.nombre}
+              {t(e.nombre)}
             </option>
           ))}
-          <option value="h2">Subtítulo</option>
-          <option value="h3">Subtítulo menor</option>
+          <option value="h2">{t('Subtítulo')}</option>
+          <option value="h3">{t('Subtítulo menor')}</option>
         </select>
         <span className="sep" />
-        <B titulo="Negrita" atajo="Ctrl+B" activo={estado.negrita} onClick={() => c().toggleBold().run()}><b>N</b></B>
-        <B titulo="Cursiva" atajo="Ctrl+I" activo={estado.cursiva} onClick={() => c().toggleItalic().run()}><i>C</i></B>
-        <B titulo="Subrayado" atajo="Ctrl+U" activo={estado.subrayado} onClick={() => c().toggleUnderline().run()}><u>S</u></B>
-        <B titulo="Tachado" activo={estado.tachado} onClick={() => c().toggleStrike().run()}><s>T</s></B>
-        <B titulo="Versalitas" activo={estado.versalitas} onClick={() => c().toggleVersalitas().run()}><span style={{ fontVariant: 'small-caps' }}>Vs</span></B>
-        <B titulo="Superíndice" activo={estado.sup} onClick={() => c().toggleSuperscript().run()}>x²</B>
-        <B titulo="Subíndice" activo={estado.sub} onClick={() => c().toggleSubscript().run()}>x₂</B>
+        <B titulo={t('Negrita')} atajo="Ctrl+B" activo={estado.negrita} onClick={() => c().toggleBold().run()}><b>{LETRAS.negrita}</b></B>
+        <B titulo={t('Cursiva')} atajo="Ctrl+I" activo={estado.cursiva} onClick={() => c().toggleItalic().run()}><i>{LETRAS.cursiva}</i></B>
+        <B titulo={t('Subrayado')} atajo="Ctrl+U" activo={estado.subrayado} onClick={() => c().toggleUnderline().run()}><u>{LETRAS.subrayado}</u></B>
+        <B titulo={t('Tachado')} activo={estado.tachado} onClick={() => c().toggleStrike().run()}><s>{LETRAS.tachado}</s></B>
+        <B titulo={t('Versalitas')} activo={estado.versalitas} onClick={() => c().toggleVersalitas().run()}><span style={{ fontVariant: 'small-caps' }}>{t('Vs')}</span></B>
+        <B titulo={t('Superíndice')} activo={estado.sup} onClick={() => c().toggleSuperscript().run()}>x²</B>
+        <B titulo={t('Subíndice')} activo={estado.sub} onClick={() => c().toggleSubscript().run()}>x₂</B>
         <span className="sep" />
-        <B titulo="Furigana" onClick={furigana}>ふ</B>
-        <B titulo="Puntos de énfasis (傍点)" activo={estado.enfasis} onClick={() => c().toggleMark('enfasis').run()}>傍</B>
-        <B titulo={estado.idioma ? `Quitar idioma (${estado.idioma})` : 'Texto en otro idioma'} activo={!!estado.idioma} onClick={idioma}>🌐</B>
-        <B titulo={estado.enlace ? 'Quitar enlace' : 'Enlace'} activo={estado.enlace} onClick={enlace}>🔗</B>
-        <B titulo="Nota al pie" onClick={nota}>✱</B>
-        <B titulo="Comentar" onClick={comentar}>💬</B>
+        <B titulo={t('Furigana')} onClick={furigana}>ふ</B>
+        <B titulo={t('Puntos de énfasis (傍点)')} activo={estado.enfasis} onClick={() => c().toggleMark('enfasis').run()}>傍</B>
+        <B titulo={estado.idioma ? t('Quitar idioma ({0})', { 0: estado.idioma }) : t('Texto en otro idioma')} activo={!!estado.idioma} onClick={idioma}>🌐</B>
+        <B titulo={estado.enlace ? t('Quitar enlace') : t('Enlace')} activo={estado.enlace} onClick={enlace}>🔗</B>
+        <B titulo={t('Nota al pie')} onClick={nota}>✱</B>
+        <B titulo={t('Comentar')} onClick={comentar}>💬</B>
         <span className="sep" />
-        <B titulo="Separador de escena" onClick={() => c().setHorizontalRule().run()}>⁂</B>
-        <B titulo="Imagen" onClick={() => entradaImagen.current?.click()}>🖼</B>
-        <B titulo="Lista" activo={editor.isActive('bulletList')} onClick={() => c().toggleBulletList().run()}>•≡</B>
+        <B titulo={t('Separador de escena')} onClick={() => c().setHorizontalRule().run()}>⁂</B>
+        <B titulo={t('Imagen')} onClick={() => entradaImagen.current?.click()}>🖼</B>
+        <B titulo={t('Lista')} activo={editor.isActive('bulletList')} onClick={() => c().toggleBulletList().run()}>•≡</B>
         <span className="sep" />
-        <B titulo="Deshacer" atajo="Ctrl+Z" onClick={() => c().undo().run()}>↶</B>
-        <B titulo="Rehacer" atajo="Ctrl+Y" onClick={() => c().redo().run()}>↷</B>
+        <B titulo={t('Deshacer')} atajo="Ctrl+Z" onClick={() => c().undo().run()}>↶</B>
+        <B titulo={t('Rehacer')} atajo="Ctrl+Y" onClick={() => c().redo().run()}>↷</B>
         <input
           ref={entradaImagen}
           type="file"
@@ -380,7 +384,7 @@ export function Editor({ seccion, onCambio, onEstado, onComentar, vertical, idio
       {estado.imagen && (
         <div className="panel-imagen-editor">
           <label className="campo">
-            <span>Descripción de la imagen</span>
+            <span>{t('Descripción de la imagen')}</span>
             <textarea
               rows={2}
               value={String(estado.imagen.alt ?? '')}
@@ -389,12 +393,12 @@ export function Editor({ seccion, onCambio, onEstado, onComentar, vertical, idio
             />
           </label>
           <label className="campo">
-            <span>Pie de imagen (opcional)</span>
+            <span>{t('Pie de imagen (opcional)')}</span>
             <input value={String(estado.imagen.pie ?? '')} onChange={(e) => cambiarImagen({ pie: e.target.value })} />
           </label>
           <label className="casilla">
             <input type="checkbox" checked={!!estado.imagen.decorativa} onChange={(e) => cambiarImagen({ decorativa: e.target.checked })} />
-            Imagen decorativa (no transmite información)
+            {t('Imagen decorativa (no transmite información)')}
           </label>
         </div>
       )}
@@ -402,7 +406,7 @@ export function Editor({ seccion, onCambio, onEstado, onComentar, vertical, idio
       <div className={vertical ? 'hoja hoja-vertical' : 'hoja'}>
         <div className="pagina-marco">
           {seccion.mostrarTitulo && seccion.titulo && (
-            <h1 className="titulo-pagina" title="El título se cambia en el inspector (pestaña Sección)">
+            <h1 className="titulo-pagina" title={t('El título se cambia en el inspector (pestaña Sección)')}>
               {seccion.titulo}
             </h1>
           )}
@@ -411,15 +415,15 @@ export function Editor({ seccion, onCambio, onEstado, onComentar, vertical, idio
       </div>
 
       {ordenNotas.length > 0 && (
-        <section className="notas-editor" aria-label="Notas al pie de esta sección">
-          <h3>Notas al pie</h3>
+        <section className="notas-editor" aria-label={t('Notas al pie de esta sección')}>
+          <h3>{t('Notas al pie')}</h3>
           {ordenNotas.map((n, k) => (
             <label key={n.id} className="nota-editor">
               <span className="numero-nota">{k + 1}</span>
-              <textarea rows={2} value={textoPlano(n.contenido)} onChange={(e) => editarNota(n.id, e.target.value)} aria-label={`Texto de la nota ${k + 1}`} />
+              <textarea rows={2} value={textoPlano(n.contenido)} onChange={(e) => editarNota(n.id, e.target.value)} aria-label={t('Texto de la nota {0}', { 0: k + 1 })} />
             </label>
           ))}
-          <p className="ayuda">Para borrar una nota, borra su ✱ en el texto.</p>
+          <p className="ayuda">{t('Para borrar una nota, borra su ✱ en el texto.')}</p>
         </section>
       )}
     </div>

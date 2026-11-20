@@ -3,6 +3,7 @@ import type { Imagen, Seccion } from '../../../src/model';
 import type { Estado } from '../api';
 import { api, urlRecurso } from '../api';
 import { aviso } from '../dialogos';
+import { t } from '../i18n';
 
 interface Props {
   estado: Estado;
@@ -45,16 +46,16 @@ export function Ilustracion({ estado, seccion, version, onBloques, onEstado, onP
     <div className="ilustracion-panel">
       <div className="lienzo-ilustracion">
         {recurso ? (
-          <img src={urlRecurso(recurso.id, version)} alt={alt || 'Ilustración sin descripción'} />
+          <img src={urlRecurso(recurso.id, version)} alt={alt || t('Ilustración sin descripción')} />
         ) : (
           <div className="sin-imagen">
-            <p>{esPortada ? 'Esta portada aún no tiene imagen.' : 'Esta página de ilustración aún no tiene imagen.'}</p>
+            <p>{esPortada ? t('Esta portada aún no tiene imagen.') : t('Esta página de ilustración aún no tiene imagen.')}</p>
           </div>
         )}
       </div>
       <div className="datos-ilustracion">
         <button className="principal" onClick={() => entrada.current?.click()}>
-          {recurso ? 'Cambiar imagen…' : 'Elegir imagen…'}
+          {recurso ? t('Cambiar imagen…') : t('Elegir imagen…')}
         </button>
         <input
           ref={entrada}
@@ -69,18 +70,18 @@ export function Ilustracion({ estado, seccion, version, onBloques, onEstado, onP
         />
         {recurso && (
           <p className="dato">
-            {recurso.nombre} · {recurso.ancho}×{recurso.alto} px · {orientacion} · {(recurso.bytes / 1024).toFixed(0)} KB
+            {recurso.nombre} · {recurso.ancho}×{recurso.alto} px · {orientacion && t(orientacion === 'horizontal' ? 'horizontal' : 'vertical')} · {(recurso.bytes / 1024).toFixed(0)} KB
           </p>
         )}
-        {baja && <p className="aviso-texto">⚠ Resolución baja: para una página completa se recomiendan al menos 1200 px de lado.</p>}
+        {baja && <p className="aviso-texto">{t('⚠ Resolución baja: para una página completa se recomiendan al menos 1200 px de lado.')}</p>}
         {orientacion === 'horizontal' && !esPortada && (
-          <p className="aviso-texto">Imagen horizontal: en lectores verticales se verá pequeña. En el PDF de impresión puedes ponerla a doble página (pestaña Sección).</p>
+          <p className="aviso-texto">{t('Imagen horizontal: en lectores verticales se verá pequeña. En el PDF de impresión puedes ponerla a doble página (pestaña Sección).')}</p>
         )}
         {bloque && (
           <>
             <label className="campo">
-              <span>Descripción de la imagen {esPortada ? '(opcional en la portada)' : ''}</span>
-              <textarea rows={4} value={alt} onChange={(e) => setAlt(e.target.value)} onBlur={guardarAlt} disabled={!!bloque.decorativa} placeholder="Describe lo que se ve: personajes, acción, ambiente…" />
+              <span>{t('Descripción de la imagen')} {esPortada ? t('(opcional en la portada)') : ''}</span>
+              <textarea rows={4} value={alt} onChange={(e) => setAlt(e.target.value)} onBlur={guardarAlt} disabled={!!bloque.decorativa} placeholder={t('Describe lo que se ve: personajes, acción, ambiente…')} />
             </label>
             {!esPortada && (
               <label className="casilla">
@@ -89,10 +90,10 @@ export function Ilustracion({ estado, seccion, version, onBloques, onEstado, onP
                   checked={!!bloque.decorativa}
                   onChange={(e) => onBloques(seccion.bloques.map((b) => (b === bloque ? { ...bloque, decorativa: e.target.checked || undefined } : b)))}
                 />
-                Imagen decorativa
+                {t('Imagen decorativa')}
               </label>
             )}
-            {!alt.trim() && !bloque.decorativa && !esPortada && <p className="aviso-texto">⚠ Falta la descripción: es necesaria para la accesibilidad.</p>}
+            {!alt.trim() && !bloque.decorativa && !esPortada && <p className="aviso-texto">{t('⚠ Falta la descripción: es necesaria para la accesibilidad.')}</p>}
           </>
         )}
       </div>

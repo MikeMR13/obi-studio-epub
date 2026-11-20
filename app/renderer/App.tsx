@@ -17,6 +17,7 @@ import { Plugins } from './paneles/Plugins';
 import { Buscar } from './paneles/Buscar';
 import { Versiones } from './paneles/Versiones';
 import type { Pestana } from './paneles/Inspector';
+import { cambiarIdioma, idiomaInterfaz, t } from './i18n';
 
 type Vista = 'editor' | 'codigo' | 'vista' | 'impresion';
 
@@ -34,7 +35,18 @@ export function App() {
   const [validacion, setValidacion] = useState<Resultado | null>(null);
   const [validando, setValidando] = useState(false);
   const [version, setVersion] = useState(0);
-  const [inicio, setInicio] = useState(true);
+  const [inicio, setInicio] = useState(() => {
+    try {
+      // Tras cambiar el idioma de la interfaz se sigue en el libro abierto.
+      if (sessionStorage.getItem('obi.seguir')) {
+        sessionStorage.removeItem('obi.seguir');
+        return false;
+      }
+    } catch {
+      // Sin almacenamiento de sesión.
+    }
+    return true;
+  });
   const [ocupado, setOcupado] = useState('');
   const entradaArchivo = useRef<HTMLInputElement>(null);
 
@@ -71,25 +83,25 @@ export function App() {
   };
 
   const importar = async (archivo: File) => {
-    if (estado?.cambiado && !(await confirmar('Abrir otro archivo', 'Hay cambios sin guardar en el libro actual. ¿Abrir otro archivo de todos modos?', 'Abrir'))) return;
-    const e = await llamar(() => api.importar(archivo), `Abriendo «${archivo.name}»…`);
+    if (estado?.cambiado && !(await confirmar(t('Abrir otro archivo'), t('Hay cambios sin guardar en el libro actual. ¿Abrir otro archivo de todos modos?'), t('Abrir')))) return;
+    const e = await llamar(() => api.importar(archivo), t('Abriendo «{0}»…', { 0: archivo.name }));
     if (!e) return;
     aplicar(e);
     setActual(e.libro.secciones[0]?.id ?? '');
     setValidacion(null);
     setInicio(false);
     setVista('editor');
-    aviso(`Se abrió «${e.libro.metadatos.titulo}» con ${e.libro.secciones.length} secciones.`);
-    if (e.avisos.length) setTimeout(() => aviso(`${e.avisos.length} avisos al importar: ${e.avisos.slice(0, 2).join(' · ')}`, 'error'), 400);
+    aviso(t('Se abrió «{0}» con {1} secciones.', { 0: e.libro.metadatos.titulo, 1: e.libro.secciones.length }));
+    if (e.avisos.length) setTimeout(() => aviso(t('{0} avisos al importar: {1}', { 0: e.avisos.length, 1: e.avisos.slice(0, 2).join(' · ') }), 'error'), 400);
   };
 
   const libroNuevo = async () => {
-    const r = await pedirDatos('Libro nuevo', [
-      { nombre: 'titulo', etiqueta: 'Título', valor: '' },
-      { nombre: 'autor', etiqueta: 'Autor o autora', valor: '' },
-    ], 'Crear libro', 'Se crea con créditos, prólogo y un primer capítulo. Puedes cambiar todo después.');
+    const r = await pedirDatos(t('Libro nuevo'), [
+      { nombre: 'titulo', etiqueta: t('Título'), valor: '' },
+      { nombre: 'autor', etiqueta: t('Autor o autora'), valor: '' },
+    ], t('Crear libro'), t('Se crea con créditos, prólogo y un primer capítulo. Puedes cambiar todo después.'));
     if (!r) return;
-    const e = await llamar(() => api.nuevo(r.titulo.trim() || 'Libro sin título', r.autor.trim()));
+    const e = await llamar(() => api.nuevo(r.titulo.trim() || t('Libro sin título'), r.autor.trim()));
     if (!e) return;
     aplicar(e);
     setActual(e.libro.secciones.find((s) => s.tipo === 'capitulo')?.id ?? e.libro.secciones[0].id);
@@ -101,7 +113,7 @@ export function App() {
     await descargar('/api/proyecto');
     const e = await api.estado();
     aplicar(e, false);
-    aviso('Proyecto guardado.');
+    aviso(t('Proyecto guardado.'));
   });
 
   const validar = async () => {
@@ -113,16 +125,16 @@ export function App() {
   };
 
   const exportar = async () => {
-    setOcupado('Validando y exportando…');
+    setOcupado(t('Validando y exportando…'));
     try {
       await descargar('/api/exportar');
-      aviso('EPUB exportado y validado sin errores.');
+      aviso(t('EPUB exportado y validado sin errores.'));
       setValidacion(null);
     } catch (e) {
       if (e instanceof ErrorApi && e.estado === 409) {
         setValidacion(e.datos as Resultado);
         setPestana('validacion');
-        aviso('No se exportó: el EPUB tiene errores. Revisa la pestaña Validación.', 'error');
+        aviso(t('No se exportó: el EPUB tiene errores. Revisa la pestaña Validación.'), 'error');
       } else aviso((e as Error).message, 'error');
     } finally {
       setOcupado('');
@@ -148,43 +160,43 @@ export function App() {
 
   const correcciones = async (archivo: File) => {
     const modo = await pedirDatos(
-      'Importar correcciones',
+      t('Importar correcciones'),
       [
         {
           nombre: 'modo',
-          etiqueta: `¿Cómo quieres incorporar «${archivo.name}»?`,
+          etiqueta: t('¿Cómo quieres incorporar «{0}»?', { 0: archivo.name }),
           tipo: 'opciones',
           valor: 'revisar',
           opciones: [
-            { valor: 'revisar', etiqueta: 'Revisar cambio por cambio', ayuda: 'El texto no cambia hasta que aceptes cada corrección en la pestaña Revisión.' },
-            { valor: 'aplicar', etiqueta: 'Aplicar todo', ayuda: 'Sustituye el texto de cada capítulo corregido de una vez.' },
+            { valor: 'revisar', etiqueta: t('Revisar cambio por cambio'), ayuda: t('El texto no cambia hasta que aceptes cada corrección en la pestaña Revisión.') },
+            { valor: 'aplicar', etiqueta: t('Aplicar todo'), ayuda: t('Sustituye el texto de cada capítulo corregido de una vez.') },
           ],
         },
       ],
-      'Importar',
-      'Antes se guarda una versión del libro para poder volver atrás.',
+      t('Importar'),
+      t('Antes se guarda una versión del libro para poder volver atrás.'),
     );
     if (!modo) return;
     const revisar = modo.modo !== 'aplicar';
-    const r = await llamar(() => api.correcciones(archivo, revisar), 'Fundiendo las correcciones…');
+    const r = await llamar(() => api.correcciones(archivo, revisar), t('Fundiendo las correcciones…'));
     if (!r) return;
     aplicar(r.estado);
     const { actualizadas, nuevas, sinCambios, comentarios, cambios, avisos } = r.resumen;
     await informar(
-      'Correcciones importadas',
+      t('Correcciones importadas'),
       [
         revisar
           ? cambios
-            ? `Cambios propuestos: ${cambios}, en ${actualizadas.join(', ')}. Revísalos en la pestaña Revisión.`
-            : 'No hay cambios en el texto.'
+            ? t('Cambios propuestos: {0}, en {1}. Revísalos en la pestaña Revisión.', { 0: cambios, 1: actualizadas.join(', ') })
+            : t('No hay cambios en el texto.')
           : actualizadas.length
-            ? `Actualizadas (${actualizadas.length}): ${actualizadas.join(', ')}.`
-            : 'Ninguna sección cambió.',
-        nuevas.length ? `Nuevas (${nuevas.length}): ${nuevas.join(', ')}.` : '',
-        sinCambios ? `Sin cambios: ${sinCambios}.` : '',
-        comentarios ? `Comentarios y respuestas nuevos: ${comentarios} (pestaña Revisión).` : '',
-        avisos.length ? `Avisos: ${avisos.join(' ')}` : '',
-        'Las ilustraciones, el tema y los bloques XHTML se conservaron.',
+            ? t('Actualizadas ({0}): {1}.', { 0: actualizadas.length, 1: actualizadas.join(', ') })
+            : t('Ninguna sección cambió.'),
+        nuevas.length ? t('Nuevas ({0}): {1}.', { 0: nuevas.length, 1: nuevas.join(', ') }) : '',
+        sinCambios ? t('Sin cambios: {0}.', { 0: sinCambios }) : '',
+        comentarios ? t('Comentarios y respuestas nuevos: {0} (pestaña Revisión).', { 0: comentarios }) : '',
+        avisos.length ? t('Avisos: {0}', { 0: avisos.join(' ') }) : '',
+        t('Las ilustraciones, el tema y los bloques XHTML se conservaron.'),
       ].filter(Boolean).join('\n'),
     );
     if (revisar && cambios) setPestana('comentarios');
@@ -192,10 +204,10 @@ export function App() {
 
   const exportarPdf = async (tipo: 'impresion' | 'digital') => {
     setExportandoPdf(true);
-    setOcupado(tipo === 'impresion' ? 'Compaginando el PDF para imprenta…' : 'Compaginando el PDF digital…');
+    setOcupado(tipo === 'impresion' ? t('Compaginando el PDF para imprenta…') : t('Compaginando el PDF digital…'));
     try {
       await descargar(`/api/exportar-pdf?tipo=${tipo}`);
-      aviso(tipo === 'impresion' ? 'PDF para imprenta creado.' : 'PDF digital creado.');
+      aviso(tipo === 'impresion' ? t('PDF para imprenta creado.') : t('PDF digital creado.'));
       setVersion((v) => v + 1);
     } catch (e) {
       aviso((e as Error).message, 'error');
@@ -250,7 +262,7 @@ export function App() {
     return r;
   }, [validacion, estado]);
 
-  if (!estado) return <div className="cargando">Cargando Obi Studio…</div>;
+  if (!estado) return <div className="cargando">{t('Cargando Obi Studio…')}</div>;
 
   const entrada = (
     <input
@@ -275,38 +287,40 @@ export function App() {
           <div className="marca-grande">
             <span className="obi" aria-hidden>帯</span>
             <div>
-              <h1>Obi Studio</h1>
-              <p>Maquetador de novelas ligeras · EPUB 3 válido y accesible</p>
+              <h1>{t('Obi Studio')}</h1>
+              <p>{t('Maquetador de novelas ligeras · EPUB 3 válido y accesible')}</p>
             </div>
           </div>
           <div className="tarjetas-inicio">
             <button className="tarjeta" onClick={libroNuevo}>
               <span className="icono-tarjeta">✚</span>
-              <strong>Libro nuevo</strong>
-              <span>Empieza con la estructura de una novela ligera.</span>
+              <strong>{t('Libro nuevo')}</strong>
+              <span>{t('Empieza con la estructura de una novela ligera.')}</span>
             </button>
             <button className="tarjeta" onClick={() => entradaArchivo.current?.click()}>
               <span className="icono-tarjeta">⇪</span>
-              <strong>Importar o abrir</strong>
-              <span>EPUB, Word (.docx) o un proyecto de Obi Studio (.obi).</span>
+              <strong>{t('Importar o abrir')}</strong>
+              <span>{t('EPUB, Word (.docx) o un proyecto de Obi Studio (.obi).')}</span>
             </button>
             {estado.cambiado && (
               <button className="tarjeta" onClick={() => setInicio(false)}>
                 <span className="icono-tarjeta">↩</span>
-                <strong>Seguir con «{estado.libro.metadatos.titulo}»</strong>
-                <span>Volver al libro abierto.</span>
+                <strong>{t('Seguir con «{0}»', { 0: estado.libro.metadatos.titulo })}</strong>
+                <span>{t('Volver al libro abierto.')}</span>
               </button>
             )}
           </div>
           {ocupado && <p className="ocupado">{ocupado}</p>}
-          <p className="pie-inicio">También puedes arrastrar un archivo a esta ventana.</p>
+          <p className="pie-inicio">{t('También puedes arrastrar un archivo a esta ventana.')}</p>
+          <SelectorIdioma enInicio />
         </div>
         <ZonaSoltar onArchivo={importar} />
       </div>
     );
   }
 
-  const tipoSeccion = TIPOS_SECCION.find((t) => t.id === seccion?.tipo)?.nombre;
+  const nombreTipo = TIPOS_SECCION.find((x) => x.id === seccion?.tipo)?.nombre;
+  const tipoSeccion = nombreTipo && t(nombreTipo);
   const esImagen = seccion && (seccion.tipo === 'ilustracion' || seccion.tipo === 'portada');
 
   return (
@@ -326,29 +340,30 @@ export function App() {
       <Dialogos />
       {entrada}
       <header className="cabecera">
-        <button className="marca" onClick={() => setInicio(true)} title="Inicio">
-          <span className="obi" aria-hidden>帯</span> Obi Studio
+        <button className="marca" onClick={() => setInicio(true)} title={t('Inicio')}>
+          <span className="obi" aria-hidden>帯</span> {t('Obi Studio')}
         </button>
         <div className="titulo-libro">
           <strong>{estado.libro.metadatos.titulo}</strong>
-          <span className={estado.cambiado ? 'sin-guardar' : 'guardado'}>{estado.cambiado ? '● Cambios sin guardar' : '✓ Guardado'}</span>
+          <span className={estado.cambiado ? 'sin-guardar' : 'guardado'}>{estado.cambiado ? t('● Cambios sin guardar') : t('✓ Guardado')}</span>
         </div>
         <div className="acciones">
-          <button onClick={() => entradaArchivo.current?.click()} title="Abrir o importar (Ctrl+O)">Abrir…</button>
-          <button onClick={guardarProyecto} title="Guardar el proyecto .obi (Ctrl+S)">Guardar</button>
-          <button onClick={validar} disabled={validando}>Validar</button>
-          <button onClick={() => setPestana('impresion')} title="PDF para imprenta o digital">PDF…</button>
-          <button className="principal" onClick={exportar} title="Exportar EPUB (Ctrl+E)">Exportar EPUB</button>
+          <button onClick={() => entradaArchivo.current?.click()} title={t('Abrir o importar (Ctrl+O)')}>{t('Abrir…')}</button>
+          <button onClick={guardarProyecto} title={t('Guardar el proyecto .obi (Ctrl+S)')}>{t('Guardar')}</button>
+          <button onClick={validar} disabled={validando}>{t('Validar')}</button>
+          <button onClick={() => setPestana('impresion')} title={t('PDF para imprenta o digital')}>{t('PDF…')}</button>
+          <button className="principal" onClick={exportar} title={t('Exportar EPUB (Ctrl+E)')}>{t('Exportar EPUB')}</button>
           <div className="menu-mas">
-            <button onClick={() => setMenuMas(!menuMas)} aria-expanded={menuMas} aria-haspopup="menu" title="Más formatos">Más ▾</button>
+            <button onClick={() => setMenuMas(!menuMas)} aria-expanded={menuMas} aria-haspopup="menu" title={t('Más formatos')}>{t('Más ▾')}</button>
             {menuMas && (
               <ul className="desplegable" role="menu">
-                <li><button role="menuitem" onClick={() => descargarFormato('/api/exportar-kepub', 'KEPUB para Kobo exportado.', 'Creando el KEPUB…')}>KEPUB para Kobo<small>Estadísticas de lectura y subrayado preciso en Kobo</small></button></li>
-                <li><button role="menuitem" onClick={() => { setMenuMas(false); setPestana('impresion'); }}>PDF…<small>Para imprenta o digital</small></button></li>
-                <li><button role="menuitem" onClick={() => descargarFormato('/api/exportar-word', 'Word para corrección exportado.', 'Creando el Word…')}>Word para corrección<small>Para enviar a correctores; vuelve con «Importar correcciones»</small></button></li>
-                <li><button role="menuitem" onClick={() => { setMenuMas(false); entradaCorrecciones.current?.click(); }}>Importar correcciones de Word…<small>Funde los cambios y los comentarios capítulo a capítulo</small></button></li>
-                <li><button role="menuitem" onClick={() => { setMenuMas(false); setVerVersiones(true); }}>Versiones…<small>Guardar, comparar y restaurar versiones del libro</small></button></li>
-                <li><button role="menuitem" onClick={() => { setMenuMas(false); setVerPlugins(true); }}>Plugins…<small>Revisiones, transformaciones y otros formatos</small></button></li>
+                <li><button role="menuitem" onClick={() => descargarFormato('/api/exportar-kepub', t('KEPUB para Kobo exportado.'), t('Creando el KEPUB…'))}>{t('KEPUB para Kobo')}<small>{t('Estadísticas de lectura y subrayado preciso en Kobo')}</small></button></li>
+                <li><button role="menuitem" onClick={() => { setMenuMas(false); setPestana('impresion'); }}>{t('PDF…')}<small>{t('Para imprenta o digital')}</small></button></li>
+                <li><button role="menuitem" onClick={() => descargarFormato('/api/exportar-word', t('Word para corrección exportado.'), t('Creando el Word…'))}>{t('Word para corrección')}<small>{t('Para enviar a correctores; vuelve con «Importar correcciones»')}</small></button></li>
+                <li><button role="menuitem" onClick={() => { setMenuMas(false); entradaCorrecciones.current?.click(); }}>{t('Importar correcciones de Word…')}<small>{t('Funde los cambios y los comentarios capítulo a capítulo')}</small></button></li>
+                <li><button role="menuitem" onClick={() => { setMenuMas(false); setVerVersiones(true); }}>{t('Versiones…')}<small>{t('Guardar, comparar y restaurar versiones del libro')}</small></button></li>
+                <li className="idioma-menu"><SelectorIdioma /></li>
+                <li><button role="menuitem" onClick={() => { setMenuMas(false); setVerPlugins(true); }}>{t('Plugins…')}<small>{t('Revisiones, transformaciones y otros formatos')}</small></button></li>
               </ul>
             )}
             <input ref={entradaCorrecciones} type="file" hidden accept=".docx" onChange={(e) => { const f = e.target.files?.[0]; if (f) void correcciones(f); e.target.value = ''; }} />
@@ -367,29 +382,29 @@ export function App() {
         onOrdenar={(ids) => llamar(async () => aplicar(await api.ordenar(ids)))}
         onAnadir={(tipo) =>
           llamar(async () => {
-            const nombre = TIPOS_SECCION.find((t) => t.id === tipo)?.nombre ?? '';
+            const nombre = t(TIPOS_SECCION.find((x) => x.id === tipo)?.nombre ?? '');
             const n = estado.libro.secciones.filter((s) => s.tipo === tipo).length + 1;
-            const titulo = tipo === 'capitulo' ? `Capítulo ${n}` : ['ilustracion', 'portada'].includes(tipo) ? '' : nombre;
+            const titulo = tipo === 'capitulo' ? t('Capítulo {0}', { 0: n }) : ['ilustracion', 'portada'].includes(tipo) ? '' : nombre;
             const r = await api.anadirSeccion(tipo, titulo, actual);
             aplicar(r.estado);
             setActual(r.seccion);
           })
         }
         onEliminar={async (s) => {
-          if (await confirmar('Eliminar sección', `¿Eliminar «${s.titulo || TIPOS_SECCION.find((t) => t.id === s.tipo)?.nombre}»? Se borra su texto.`, 'Eliminar', true)) {
+          if (await confirmar(t('Eliminar sección'), t('¿Eliminar «{0}»? Se borra su texto.', { 0: s.titulo || t(TIPOS_SECCION.find((x) => x.id === s.tipo)?.nombre ?? '') }), t('Eliminar'), true)) {
             await llamar(async () => aplicar(await api.eliminarSeccion(s.id)));
           }
         }}
       />
       <main className="centro">
-        <div className="pestanas-centro" role="tablist" aria-label="Modo">
+        <div className="pestanas-centro" role="tablist" aria-label={t('Modo')}>
           {(['editor', 'codigo', 'vista', 'impresion'] as Vista[]).map((v) => (
             <button key={v} role="tab" aria-selected={vista === v} className={vista === v ? 'activa' : ''} onClick={() => setVista(v)}>
-              {v === 'editor' ? 'Escribir' : v === 'codigo' ? 'Código' : v === 'vista' ? 'Vista previa' : 'Impresión'}
+              {v === 'editor' ? t('Escribir') : v === 'codigo' ? t('Código') : v === 'vista' ? t('Vista previa') : t('Impresión')}
             </button>
           ))}
           <span className="tipo-actual">{tipoSeccion}</span>
-          <button className="boton-buscar" title="Buscar y reemplazar (Ctrl+F, Ctrl+H)" aria-label="Buscar y reemplazar" onClick={() => setBusqueda(busqueda ? null : { reemplazo: false })}>
+          <button className="boton-buscar" title={t('Buscar y reemplazar (Ctrl+F, Ctrl+H)')} aria-label={t('Buscar y reemplazar')} onClick={() => setBusqueda(busqueda ? null : { reemplazo: false })}>
             🔍
           </button>
         </div>
@@ -460,7 +475,7 @@ export function App() {
           llamar(async () => {
             const r = await api.aplicarTipografia(todo ? undefined : seccion?.id);
             aplicar(r.estado);
-            aviso(r.cambios ? `Tipografía aplicada en ${r.cambios} fragmentos.` : 'No había nada que corregir.');
+            aviso(r.cambios ? t('Tipografía aplicada en {0} fragmentos.', { 0: r.cambios }) : t('No había nada que corregir.'));
           })
         }
         validacion={validacion}
@@ -505,7 +520,7 @@ export function App() {
               llamar(async () => {
                 const r = await api.aplicarTipografia();
                 aplicar(r.estado);
-                aviso(r.cambios ? `Tipografía aplicada en ${r.cambios} fragmentos.` : 'No había nada que corregir.');
+                aviso(r.cambios ? t('Tipografía aplicada en {0} fragmentos.', { 0: r.cambios }) : t('No había nada que corregir.'));
               })
             }
             onEstado={(e) => aplicar(e)}
@@ -564,5 +579,18 @@ function ZonaSoltar({ onArchivo }: { onArchivo: (f: File) => void }) {
       window.removeEventListener('drop', suelta);
     };
   }, [onArchivo]);
-  return activa ? <div className="zona-soltar">Suelta aquí el EPUB, Word u .obi</div> : null;
+  return activa ? <div className="zona-soltar">{t('Suelta aquí el EPUB, Word u .obi')}</div> : null;
+}
+
+/** Idioma de la interfaz (el del libro se elige en la pestaña Libro). */
+function SelectorIdioma({ enInicio = false }: { enInicio?: boolean }) {
+  return (
+    <label className="selector-idioma">
+      <span>{t('Idioma de la interfaz')}</span>
+      <select value={idiomaInterfaz()} onChange={(e) => cambiarIdioma(e.target.value as 'es' | 'en', !enInicio)}>
+        <option value="es">Español</option>
+        <option value="en">English</option>
+      </select>
+    </label>
+  );
 }

@@ -6,6 +6,7 @@ import Paragraph from '@tiptap/extension-paragraph';
 import Superscript from '@tiptap/extension-superscript';
 import Subscript from '@tiptap/extension-subscript';
 import { ESTILOS_PARRAFO } from '../../../src/model';
+import { t } from '../i18n';
 
 declare module '@tiptap/core' {
   interface Commands<ReturnType> {
@@ -62,7 +63,7 @@ export const Versalitas = Mark.create({
 export const Enfasis = Mark.create({
   name: 'enfasis',
   parseHTML: () => [{ tag: 'span.boten' }],
-  renderHTML: () => ['span', { class: 'boten', title: 'Puntos de énfasis (傍点)' }, 0],
+  renderHTML: () => ['span', { class: 'boten', title: t('Puntos de énfasis (傍点)') }, 0],
 });
 
 /** Comentario de revisión: una marca por comentario (pueden solaparse). No sale en el EPUB. */
@@ -98,7 +99,7 @@ export const Ruby = Node.create({
   selectable: true,
   addAttributes: () => ({ base: { default: '' }, lectura: { default: '' } }),
   parseHTML: () => [{ tag: 'ruby[data-obi]' }],
-  renderHTML: ({ node }) => ['ruby', { 'data-obi': '1', title: 'Doble clic para editar la furigana' }, node.attrs.base, ['rt', {}, node.attrs.lectura]],
+  renderHTML: ({ node }) => ['ruby', { 'data-obi': '1', title: t('Doble clic para editar la furigana') }, node.attrs.base, ['rt', {}, node.attrs.lectura]],
   addCommands() {
     return {
       insertarRuby:
@@ -117,7 +118,7 @@ export const NotaRef = Node.create({
   selectable: true,
   addAttributes: () => ({ id: { default: '' } }),
   parseHTML: () => [{ tag: 'sup[data-nota]', getAttrs: (el) => ({ id: (el as HTMLElement).dataset.nota }) }],
-  renderHTML: ({ node }) => ['sup', { 'data-nota': node.attrs.id, class: 'llamada-nota', title: 'Nota al pie' }, '✱'],
+  renderHTML: ({ node }) => ['sup', { 'data-nota': node.attrs.id, class: 'llamada-nota', title: t('Nota al pie') }, '✱'],
   addCommands() {
     return {
       insertarNota:
@@ -139,7 +140,7 @@ export const ImagenObi = Node.create({
     'figure',
     { 'data-recurso': node.attrs.recurso, class: 'imagen-editor' },
     ['img', { src: `/api/recursos/${node.attrs.recurso}`, alt: node.attrs.alt }],
-    ['figcaption', {}, node.attrs.decorativa ? 'Imagen decorativa' : node.attrs.alt ? `Descripción: ${node.attrs.alt}` : '⚠ Falta la descripción (clic para añadirla)'],
+    ['figcaption', {}, node.attrs.decorativa ? t('Imagen decorativa') : node.attrs.alt ? t('Descripción: {0}', { 0: node.attrs.alt }) : t('⚠ Falta la descripción (clic para añadirla)')],
   ],
   addCommands() {
     return {
@@ -160,7 +161,7 @@ export const Crudo = Node.create({
   renderHTML: ({ node }) => {
     const resumen = String(node.attrs.xhtml).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 140);
     const tipo = String(node.attrs.xhtml).match(/^<(\w+)/)?.[1] ?? 'XHTML';
-    return ['div', { 'data-crudo': '1', class: 'bloque-crudo', title: 'Este bloque se edita en la pestaña Código' }, `⟨${tipo}⟩ ${resumen || '(sin texto)'}`];
+    return ['div', { 'data-crudo': '1', class: 'bloque-crudo', title: t('Este bloque se edita en la pestaña Código') }, `⟨${tipo}⟩ ${resumen || t('(sin texto)')}`];
   },
 });
 

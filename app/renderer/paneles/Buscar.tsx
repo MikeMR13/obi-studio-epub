@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { api, type Coincidencia, type Estado } from '../api';
 import { aviso } from '../dialogos';
+import { t } from '../i18n';
 
 interface Props {
   estado: Estado;
@@ -66,7 +67,7 @@ export function Buscar({ estado, seccionActual, conReemplazo, onCerrar, onEstado
     try {
       const r = await api.reemplazar(opciones(), reemplazo);
       onEstado(r.estado);
-      aviso(r.n ? `${r.n} reemplazo${r.n === 1 ? '' : 's'}.` : 'No había nada que reemplazar.');
+      aviso(r.n ? t('{0} reemplazo{1}.', { 0: r.n, 1: r.n === 1 ? '' : 's' }) : t('No había nada que reemplazar.'));
     } catch (e) {
       aviso((e as Error).message, 'error');
     }
@@ -80,29 +81,29 @@ export function Buscar({ estado, seccionActual, conReemplazo, onCerrar, onEstado
   return (
     <div className="panel-buscar" role="search" onKeyDown={(e) => e.key === 'Escape' && onCerrar()}>
       <div className="fila-buscar">
-        <button className="alternar" aria-label={verReemplazo ? 'Ocultar reemplazar' : 'Mostrar reemplazar'} aria-expanded={verReemplazo} onClick={() => setVerReemplazo(!verReemplazo)}>
+        <button className="alternar" aria-label={verReemplazo ? t('Ocultar reemplazar') : t('Mostrar reemplazar')} aria-expanded={verReemplazo} onClick={() => setVerReemplazo(!verReemplazo)}>
           {verReemplazo ? '▾' : '▸'}
         </button>
-        <input ref={campo} aria-label="Buscar" placeholder="Buscar en el libro" value={consulta} onChange={(e) => setConsulta(e.target.value)} />
-        <button className={`opcion${mayusculas ? ' activo' : ''}`} aria-pressed={mayusculas} title="Distinguir mayúsculas" onClick={() => setMayusculas(!mayusculas)}>Aa</button>
-        <button className={`opcion${palabra ? ' activo' : ''}`} aria-pressed={palabra} title="Palabra completa" onClick={() => setPalabra(!palabra)}>ab</button>
-        <button className={`opcion${regex ? ' activo' : ''}`} aria-pressed={regex} title="Expresión regular" onClick={() => setRegex(!regex)}>.*</button>
-        <button className="cerrar" aria-label="Cerrar búsqueda" onClick={onCerrar}>✕</button>
+        <input ref={campo} aria-label={t('Buscar')} placeholder={t('Buscar en el libro')} value={consulta} onChange={(e) => setConsulta(e.target.value)} />
+        <button className={`opcion${mayusculas ? ' activo' : ''}`} aria-pressed={mayusculas} title={t('Distinguir mayúsculas')} onClick={() => setMayusculas(!mayusculas)}>{t('Aa')}</button>
+        <button className={`opcion${palabra ? ' activo' : ''}`} aria-pressed={palabra} title={t('Palabra completa')} onClick={() => setPalabra(!palabra)}>ab</button>
+        <button className={`opcion${regex ? ' activo' : ''}`} aria-pressed={regex} title={t('Expresión regular')} onClick={() => setRegex(!regex)}>.*</button>
+        <button className="cerrar" aria-label={t('Cerrar búsqueda')} onClick={onCerrar}>✕</button>
       </div>
       {verReemplazo && (
         <div className="fila-buscar">
           <span className="alternar" />
-          <input aria-label="Reemplazar con" placeholder={regex ? 'Reemplazar con ($1 para grupos)' : 'Reemplazar con'} value={reemplazo} onChange={(e) => setReemplazo(e.target.value)} />
-          <button disabled={!resultado?.total} onClick={reemplazarTodo}>Reemplazar todo</button>
+          <input aria-label={t('Reemplazar con')} placeholder={regex ? t('Reemplazar con ($1 para grupos)') : t('Reemplazar con')} value={reemplazo} onChange={(e) => setReemplazo(e.target.value)} />
+          <button disabled={!resultado?.total} onClick={reemplazarTodo}>{t('Reemplazar todo')}</button>
         </div>
       )}
       <div className="fila-buscar opciones-buscar">
         <label className="casilla">
           <input type="checkbox" checked={soloSeccion} onChange={(e) => setSoloSeccion(e.target.checked)} />
-          Solo esta sección
+          {t('Solo esta sección')}
         </label>
         <span className="cuenta" role="status">
-          {error ? <span className="error">{error}</span> : resultado ? `${resultado.total} resultado${resultado.total === 1 ? '' : 's'}` : ''}
+          {error ? <span className="error">{error}</span> : resultado ? (resultado.total === 1 ? t('1 resultado') : t('{0} resultados', { 0: resultado.total })) : ''}
         </span>
       </div>
       {resultado && resultado.coincidencias.length > 0 && (
@@ -116,8 +117,8 @@ export function Buscar({ estado, seccionActual, conReemplazo, onCerrar, onEstado
                 </span>
               </button>
               {verReemplazo && (
-                <button className="reemplazar-uno" title="Reemplazar este" onClick={() => reemplazarUno(c)}>
-                  Reemplazar
+                <button className="reemplazar-uno" title={t('Reemplazar este')} onClick={() => reemplazarUno(c)}>
+                  {t('Reemplazar')}
                 </button>
               )}
             </li>

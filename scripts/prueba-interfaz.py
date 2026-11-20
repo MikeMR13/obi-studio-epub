@@ -25,7 +25,7 @@ def paso(nombre, ok, detalle=""):
 
 with sync_playwright() as p:
     navegador = p.chromium.launch(executable_path="/usr/bin/google-chrome", args=["--no-sandbox"])
-    pagina = navegador.new_page(viewport={"width": 1366, "height": 860}, accept_downloads=True)
+    pagina = navegador.new_page(viewport={"width": 1366, "height": 860}, accept_downloads=True, locale="es-MX")
     pagina.on("console", lambda m: m.type == "error" and errores_consola.append(m.text))
     pagina.on("pageerror", lambda e: errores_consola.append(str(e)))
     pagina.on("response", lambda r: r.status == 404 and print("404:", r.url, flush=True))
@@ -471,6 +471,19 @@ with sync_playwright() as p:
     pagina.screenshot(path=f"{CAPTURAS}/16-menu-1024px.png")
     menu = pagina.locator(".menu-mas .desplegable").bounding_box()
     paso("Menú «Más» visible a 1024 px", menu is not None and menu["x"] >= 0 and menu["x"] + menu["width"] <= 1024)
+
+    # Interfaz en inglés.
+    pagina.locator(".menu-mas .selector-idioma select").select_option("en")
+    pagina.wait_for_load_state("load")
+    expect(pagina.get_by_role("button", name="Export EPUB")).to_be_visible(timeout=15000)
+    pagina.wait_for_timeout(600)
+    pagina.screenshot(path=f"{CAPTURAS}/25-ingles-1024.png")
+    paso("Cambiar la interfaz a inglés", pagina.get_by_role("tab", name="Write").count() == 1 and pagina.get_by_role("button", name="More ▾").count() == 1)
+    pagina.get_by_role("button", name="More ▾").click()
+    pagina.locator(".menu-mas .selector-idioma select").select_option("es")
+    pagina.wait_for_load_state("load")
+    expect(pagina.get_by_role("button", name="Exportar EPUB")).to_be_visible(timeout=15000)
+    paso("Volver a español", True)
     navegador.close()
 
 fallos = [r for r in resultados if not r[1]]

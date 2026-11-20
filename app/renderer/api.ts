@@ -10,6 +10,7 @@ import type { Hallazgo, Manifiesto, PluginInstalado } from '../../src/plugins';
 
 export type { Coincidencia, OpcionesBusqueda, DiferenciaSeccion };
 export type Catalogo = { catalogos: string[]; plugins: (EntradaCatalogo & { estado: 'nuevo' | 'instalado' | 'actualizable' })[]; errores: string[] };
+import { t } from './i18n';
 export type { Estado, Resultado, AvisoImpresion, InformeAccesibilidad, Hallazgo, Manifiesto, PluginInstalado };
 
 export class ErrorApi extends Error {
@@ -28,7 +29,7 @@ async function pedir<T>(metodo: string, ruta: string, cuerpo?: unknown, binario?
   const tipo = r.headers.get('Content-Type') ?? '';
   if (!r.ok) {
     const d = tipo.includes('json') ? await r.json() : { error: await r.text() };
-    throw new ErrorApi(d.error ?? `Error ${r.status}`, r.status, d.datos);
+    throw new ErrorApi(d.error ? t(d.error) : `Error ${r.status}`, r.status, d.datos);
   }
   return (tipo.includes('json') ? r.json() : r.blob()) as Promise<T>;
 }

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { api } from '../api';
 import { aviso } from '../dialogos';
 import type { Estado } from '../api';
+import { t } from '../i18n';
 
 interface Props {
   seccionId: string;
@@ -33,7 +34,7 @@ export function Codigo({ seccionId, version, onAplicado }: Props) {
     try {
       const r = await api.aplicarCodigo(seccionId, texto);
       setError('');
-      aviso(r.secciones.length > 1 ? `Código aplicado: la sección se dividió en ${r.secciones.length}.` : 'Código aplicado.');
+      aviso(r.secciones.length > 1 ? t('Código aplicado: la sección se dividió en {0}.', { 0: r.secciones.length }) : t('Código aplicado.'));
       onAplicado(r.estado, r.secciones);
     } catch (e) {
       setError((e as Error).message);
@@ -46,9 +47,9 @@ export function Codigo({ seccionId, version, onAplicado }: Props) {
   return (
     <div className="codigo">
       <div className="barra-codigo">
-        <span className="ayuda">XHTML de esta sección. Al aplicar, vuelve al editor visual. Un nuevo &lt;h1&gt; divide la sección.</span>
-        <button onClick={() => setTexto(original)} disabled={!cambiado}>Descartar</button>
-        <button className="principal" onClick={aplicar} disabled={!cambiado || aplicando}>{aplicando ? 'Aplicando…' : 'Aplicar cambios'}</button>
+        <span className="ayuda">{t('XHTML de esta sección. Al aplicar, vuelve al editor visual. Un nuevo <h1> divide la sección.')}</span>
+        <button onClick={() => setTexto(original)} disabled={!cambiado}>{t('Descartar')}</button>
+        <button className="principal" onClick={aplicar} disabled={!cambiado || aplicando}>{aplicando ? t('Aplicando…') : t('Aplicar cambios')}</button>
       </div>
       {error && <p className="error" role="alert">{error}</p>}
       <textarea
@@ -56,7 +57,7 @@ export function Codigo({ seccionId, version, onAplicado }: Props) {
         spellCheck={false}
         value={texto}
         onChange={(e) => setTexto(e.target.value)}
-        aria-label="Código XHTML de la sección"
+        aria-label={t('Código XHTML de la sección')}
         onKeyDown={(e) => {
           if (e.key === 'Tab') {
             e.preventDefault();

@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 import type { Libro } from '../../../src/model';
+import { t } from '../i18n';
 
 const DISPOSITIVOS = {
-  kindle: { nombre: 'Kindle Paperwhite', ancho: 412, alto: 550, tinta: true },
-  kobo: { nombre: 'Kobo Clara', ancho: 380, alto: 506, tinta: true },
-  telefono: { nombre: 'Teléfono', ancho: 360, alto: 740, tinta: false },
-  tableta: { nombre: 'Tableta', ancho: 600, alto: 800, tinta: false },
+  kindle: { nombre: t('Kindle Paperwhite'), ancho: 412, alto: 550, tinta: true },
+  kobo: { nombre: t('Kobo Clara'), ancho: 380, alto: 506, tinta: true },
+  telefono: { nombre: t('Teléfono'), ancho: 360, alto: 740, tinta: false },
+  tableta: { nombre: t('Tableta'), ancho: 600, alto: 800, tinta: false },
 } as const;
 type Dispositivo = keyof typeof DISPOSITIVOS;
 
@@ -98,15 +99,15 @@ export function VistaPrevia({ libro, seccionId, version, onSeccion }: Props) {
   return (
     <div className="vista-previa">
       <div className="barra-vista">
-        <select value={disp} onChange={(e) => setDisp(e.target.value as Dispositivo)} aria-label="Dispositivo">
+        <select value={disp} onChange={(e) => setDisp(e.target.value as Dispositivo)} aria-label={t('Dispositivo')}>
           {Object.entries(DISPOSITIVOS).map(([k, v]) => (
             <option key={k} value={k}>{v.nombre}</option>
           ))}
         </select>
         <button onClick={() => setHorizontal(!horizontal)} aria-pressed={horizontal}>{horizontal ? '▭ Horizontal' : '▯ Vertical'}</button>
         <label className="control-tamano">
-          Letra
-          <input type="range" min={70} max={160} step={10} value={tamano} onChange={(e) => setTamano(Number(e.target.value))} aria-label="Tamaño de letra" />
+          {t('Letra')}
+          <input type="range" min={70} max={160} step={10} value={tamano} onChange={(e) => setTamano(Number(e.target.value))} aria-label={t('Tamaño de letra')} />
         </label>
       </div>
       <div className="escenario">
@@ -114,7 +115,7 @@ export function VistaPrevia({ libro, seccionId, version, onSeccion }: Props) {
           <iframe
             key={`${seccionId}-${version}-${tamano}-${disp}-${horizontal}`}
             ref={marco}
-            title="Vista previa del EPUB"
+            title={t('Vista previa del EPUB')}
             src={`/vista/${seccionId}.xhtml?v=${version}`}
             onLoad={cargar}
             sandbox="allow-same-origin"
@@ -122,13 +123,13 @@ export function VistaPrevia({ libro, seccionId, version, onSeccion }: Props) {
         </div>
       </div>
       <div className="pie-vista">
-        <button onClick={() => avanzar(-1)} disabled={pagina === 0 && indice <= 0} aria-label="Página anterior">◀</button>
+        <button onClick={() => avanzar(-1)} disabled={pagina === 0 && indice <= 0} aria-label={t('Página anterior')}>◀</button>
         <span>
-          Sección {indice + 1} de {libro.secciones.length} · página {pagina + 1} de {paginas}
+          {t('Sección {0} de {1} · página {2} de {3}', { 0: indice + 1, 1: libro.secciones.length, 2: pagina + 1, 3: paginas })}
         </span>
-        <button onClick={() => avanzar(1)} disabled={pagina >= paginas - 1 && indice >= libro.secciones.length - 1} aria-label="Página siguiente">▶</button>
+        <button onClick={() => avanzar(1)} disabled={pagina >= paginas - 1 && indice >= libro.secciones.length - 1} aria-label={t('Página siguiente')}>▶</button>
       </div>
-      <p className="ayuda centrado">Es el EPUB real que se exportará. Cada lector pagina un poco distinto.</p>
+      <p className="ayuda centrado">{t('Es el EPUB real que se exportará. Cada lector pagina un poco distinto.')}</p>
     </div>
   );
 }

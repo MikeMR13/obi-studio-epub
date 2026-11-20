@@ -3,6 +3,7 @@ import type { Seccion } from '../../../src/model';
 import { TIPOS_SECCION } from '../../../src/model';
 import type { Estado } from '../api';
 import { urlRecurso } from '../api';
+import { locale, t } from '../i18n';
 
 interface Props {
   estado: Estado;
@@ -49,25 +50,25 @@ export function Estructura({ estado, actual, avisosPorSeccion, onElegir, onOrden
   };
 
   return (
-    <nav className="estructura" aria-label="Estructura del libro">
+    <nav className="estructura" aria-label={t('Estructura del libro')}>
       <div className="cabecera-panel">
-        <h2>Estructura</h2>
+        <h2>{t('Estructura')}</h2>
         <div className="menu-anadir">
           <button className="principal pequeno" onClick={() => setMenu(!menu)} aria-expanded={menu}>
-            + Sección
+            {t('+ Sección')}
           </button>
           {menu && (
             <ul className="desplegable" role="menu">
-              {TIPOS_SECCION.map((t) => (
-                <li key={t.id}>
+              {TIPOS_SECCION.map((x) => (
+                <li key={x.id}>
                   <button
                     role="menuitem"
                     onClick={() => {
                       setMenu(false);
-                      onAnadir(t.id);
+                      onAnadir(x.id);
                     }}
                   >
-                    {ICONO[t.id]} {t.nombre}
+                    {ICONO[x.id]} {t(x.nombre)}
                   </button>
                 </li>
               ))}
@@ -78,7 +79,7 @@ export function Estructura({ estado, actual, avisosPorSeccion, onElegir, onOrden
       <ol className="lista-secciones">
         {libro.secciones.map((s, k) => {
           const mini = miniatura(s);
-          const nombreTipo = TIPOS_SECCION.find((t) => t.id === s.tipo)?.nombre ?? s.tipo;
+          const nombreTipo = t(TIPOS_SECCION.find((x) => x.id === s.tipo)?.nombre ?? s.tipo);
           return (
             <li
               key={s.id}
@@ -101,7 +102,7 @@ export function Estructura({ estado, actual, avisosPorSeccion, onElegir, onOrden
                   <span className="titulo-seccion">{s.titulo || <em>{nombreTipo}</em>}</span>
                   <span className="detalle-seccion">
                     {nombreTipo}
-                    {estado.palabras[s.id] ? ` · ${estado.palabras[s.id].toLocaleString('es')} palabras` : ''}
+                    {estado.palabras[s.id] ? ' · ' + t('{0} palabras', { 0: estado.palabras[s.id].toLocaleString(locale()) }) : ''}
                   </span>
                 </span>
                 {avisosPorSeccion[s.id] ? (
@@ -111,9 +112,9 @@ export function Estructura({ estado, actual, avisosPorSeccion, onElegir, onOrden
                 ) : null}
               </button>
               <span className="acciones-seccion">
-                <button title="Subir" aria-label={`Subir ${s.titulo || nombreTipo}`} disabled={k === 0} onClick={() => mover(s.id, -1)}>↑</button>
-                <button title="Bajar" aria-label={`Bajar ${s.titulo || nombreTipo}`} disabled={k === libro.secciones.length - 1} onClick={() => mover(s.id, 1)}>↓</button>
-                <button title="Eliminar" aria-label={`Eliminar ${s.titulo || nombreTipo}`} onClick={() => onEliminar(s)}>✕</button>
+                <button title={t('Subir')} aria-label={t('Subir {0}', { 0: s.titulo || nombreTipo })} disabled={k === 0} onClick={() => mover(s.id, -1)}>↑</button>
+                <button title={t('Bajar')} aria-label={t('Bajar {0}', { 0: s.titulo || nombreTipo })} disabled={k === libro.secciones.length - 1} onClick={() => mover(s.id, 1)}>↓</button>
+                <button title={t('Eliminar')} aria-label={t('Eliminar {0}', { 0: s.titulo || nombreTipo })} onClick={() => onEliminar(s)}>✕</button>
               </span>
             </li>
           );

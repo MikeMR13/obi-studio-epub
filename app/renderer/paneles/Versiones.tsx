@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api, type DiferenciaSeccion, type Estado } from '../api';
 import { aviso, confirmar } from '../dialogos';
+import { locale, t } from '../i18n';
 
 interface Props {
   estado: Estado;
@@ -8,9 +9,9 @@ interface Props {
   onEstado: (e: Estado) => void;
 }
 
-const ESTADOS: Record<DiferenciaSeccion['estado'], string> = { igual: 'Sin cambios', cambiada: 'Cambiada', nueva: 'Nueva desde entonces', borrada: 'Borrada desde entonces' };
+const ESTADOS: Record<DiferenciaSeccion['estado'], string> = { igual: t('Sin cambios'), cambiada: t('Cambiada'), nueva: t('Nueva desde entonces'), borrada: t('Borrada desde entonces') };
 
-const fecha = (iso: string) => new Date(iso).toLocaleString('es-MX', { dateStyle: 'medium', timeStyle: 'short' });
+const fecha = (iso: string) => new Date(iso).toLocaleString(locale(), { dateStyle: 'medium', timeStyle: 'short' });
 
 /** Versiones con nombre del libro: guardar, comparar, restaurar y borrar. */
 export function Versiones({ estado, onCerrar, onEstado }: Props) {
@@ -34,7 +35,7 @@ export function Versiones({ estado, onCerrar, onEstado }: Props) {
   const guardar = () =>
     intentar(async () => {
       onEstado(await api.crearVersion(nombre));
-      aviso(`Versión «${nombre.trim()}» guardada. Se conserva al guardar el proyecto.`);
+      aviso(t('Versión «{0}» guardada. Se conserva al guardar el proyecto.', { 0: nombre.trim() }));
       setNombre('');
     });
 
@@ -44,57 +45,57 @@ export function Versiones({ estado, onCerrar, onEstado }: Props) {
     <div className="fondo-dialogo" onMouseDown={(e) => e.target === e.currentTarget && onCerrar()}>
       <div className="dialogo panel-plugins" role="dialog" aria-modal="true" aria-labelledby="titulo-versiones">
         <div className="cabecera-plugins">
-          <h2 id="titulo-versiones">Versiones</h2>
-          <button className="cerrar" onClick={onCerrar} aria-label="Cerrar">✕</button>
+          <h2 id="titulo-versiones">{t('Versiones')}</h2>
+          <button className="cerrar" onClick={onCerrar} aria-label={t('Cerrar')}>✕</button>
         </div>
         <p className="ayuda">
-          Una versión guarda el libro tal como está ahora, con sus imágenes, dentro del proyecto. Antes de importar correcciones de Word se guarda una automáticamente.
+          {t('Una versión guarda el libro tal como está ahora, con sus imágenes, dentro del proyecto. Antes de importar correcciones de Word se guarda una automáticamente.')}
         </p>
         <form className="fila-buscar" onSubmit={(e) => { e.preventDefault(); void guardar(); }}>
-          <input aria-label="Nombre de la versión" placeholder="Por ejemplo: Enviado a corrección" value={nombre} onChange={(e) => setNombre(e.target.value)} />
-          <button className="principal" type="submit" disabled={!nombre.trim()}>Guardar versión</button>
+          <input aria-label={t('Nombre de la versión')} placeholder={t('Por ejemplo: Enviado a corrección')} value={nombre} onChange={(e) => setNombre(e.target.value)} />
+          <button className="principal" type="submit" disabled={!nombre.trim()}>{t('Guardar versión')}</button>
         </form>
         <ul className="lista-plugins">
-          {!versiones.length && <li className="vacio">Todavía no hay versiones.</li>}
+          {!versiones.length && <li className="vacio">{t('Todavía no hay versiones.')}</li>}
           {versiones.map((v) => (
             <li key={v.id}>
               <div className="cabecera-plugin">
-                <strong>{v.nombre}</strong> <span>{fecha(v.fecha)} · {v.palabras.toLocaleString('es-MX')} palabras</span>
+                <strong>{v.nombre}</strong> <span>{fecha(v.fecha)} · {t('{0} palabras', { 0: v.palabras.toLocaleString(locale()) })}</span>
               </div>
               <div className="acciones-comentario">
                 <button onClick={() => intentar(async () => setComparacion(comparacion?.id === v.id ? undefined : { id: v.id, filas: await api.compararVersion(v.id) }))}>
-                  {comparacion?.id === v.id ? 'Ocultar comparación' : 'Comparar con ahora'}
+                  {comparacion?.id === v.id ? t('Ocultar comparación') : t('Comparar con ahora')}
                 </button>
                 <button
                   onClick={() =>
                     intentar(async () => {
-                      if (!(await confirmar('Restaurar versión', `¿Volver a «${v.nombre}»? Antes se guarda el estado actual como otra versión, así que no se pierde nada.`, 'Restaurar'))) return;
+                      if (!(await confirmar(t('Restaurar versión'), t('¿Volver a «{0}»? Antes se guarda el estado actual como otra versión, así que no se pierde nada.', { 0: v.nombre }), t('Restaurar')))) return;
                       const r = await api.restaurarVersion(v.id);
                       onEstado(r.estado);
                       setComparacion(undefined);
-                      aviso(`Restaurada «${v.nombre}».${r.avisos.length ? ' ' + r.avisos.join(' ') : ''}`);
+                      aviso(t('Restaurada «{0}».{1}', { 0: v.nombre, 1: r.avisos.length ? ' ' + r.avisos.join(' ') : '' }));
                     })
                   }
                 >
-                  Restaurar
+                  {t('Restaurar')}
                 </button>
                 <button
                   className="peligro-texto"
                   onClick={() =>
                     intentar(async () => {
-                      if (!(await confirmar('Borrar versión', `¿Borrar la versión «${v.nombre}»?`, 'Borrar', true))) return;
+                      if (!(await confirmar(t('Borrar versión'), t('¿Borrar la versión «{0}»?', { 0: v.nombre }), t('Borrar'), true))) return;
                       onEstado(await api.eliminarVersion(v.id));
                       if (comparacion?.id === v.id) setComparacion(undefined);
                     })
                   }
                 >
-                  Borrar
+                  {t('Borrar')}
                 </button>
               </div>
               {comparacion?.id === v.id && (
                 <table className="tabla-comparacion">
                   <thead>
-                    <tr><th>Sección</th><th>Estado</th><th>Palabras entonces</th><th>Ahora</th></tr>
+                    <tr><th>{t('Sección')}</th><th>{t('Estado')}</th><th>{t('Palabras entonces')}</th><th>{t('Ahora')}</th></tr>
                   </thead>
                   <tbody>
                     {comparacion.filas.map((f, k) => (

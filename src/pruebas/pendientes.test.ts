@@ -279,3 +279,43 @@ test('Catálogo de plugins: integrado, huella y estado de instalación', async (
   await assert.rejects(b.instalarDesdeCatalogo('https://no-esta.example/catalogo.json', 'x'), /no está en la lista/);
   await assert.rejects(b.agregarCatalogo('ftp://x'), /https|dirección/);
 });
+
+// ---------------------------------------------------------------------------
+// Interfaz en inglés: todos los textos tienen traducción.
+
+import { readFileSync, readdirSync, statSync } from 'node:fs';
+import { join as unir } from 'node:path';
+import { ESTILOS_PARRAFO, FUENTES, TAMANOS_IMPRESION, TIPOS_SECCION } from '../model.js';
+import { TEMAS } from '../temas.js';
+
+test('Interfaz: cada texto de t() y cada nombre del modelo tiene traducción al inglés', async () => {
+  const { EN } = await import('../../app/renderer/i18n-en.js');
+  const raiz = unir(import.meta.dirname, '..', '..', 'app', 'renderer');
+  const claves = new Set<string>();
+  const recorrer = (d: string) => {
+    for (const f of readdirSync(d)) {
+      const r = unir(d, f);
+      if (statSync(r).isDirectory()) recorrer(r);
+      else if (/\.tsx?$/.test(f) && !f.startsWith('i18n')) {
+        const s = readFileSync(r, 'utf8');
+        for (const m of s.matchAll(/\bt\(\s*'((?:\\.|[^'\\])*)'/g)) claves.add(m[1].replace(/\\'/g, "'").replace(/\\n/g, '\n').replace(/\\\\/g, '\\'));
+      }
+    }
+  };
+  recorrer(raiz);
+  for (const x of [...TIPOS_SECCION, ...ESTILOS_PARRAFO, ...TAMANOS_IMPRESION, ...FUENTES]) claves.add(x.nombre);
+  for (const x of TEMAS) {
+    if (x.nombre) claves.add(x.nombre);
+    if (x.descripcion) claves.add(x.descripcion);
+  }
+  // Plantillas de la revisión previa de impresión.
+  const preflight = readFileSync(unir(import.meta.dirname, '..', 'preflight.ts'), 'utf8');
+  for (const m of preflight.matchAll(/'((?:«\{0\}»|La |Los |Las |Margen |Con |El libro |Letra )[^']*)'/g)) claves.add(m[1]);
+  const faltan = [...claves].filter((k) => !(k in EN));
+  assert.deepEqual(faltan, []);
+  // Los marcadores {0}, {1}… se conservan en la traducción.
+  for (const k of claves) {
+    const marcas = (s: string) => (s.match(/\{\d+\}/g) ?? []).sort().join();
+    assert.equal(marcas(EN[k]), marcas(k), `marcadores distintos en «${k}»`);
+  }
+});

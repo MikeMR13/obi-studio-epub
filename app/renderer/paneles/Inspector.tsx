@@ -4,6 +4,7 @@ import type { Metadatos, Seccion, Tema, Tipografia, RolCredito } from '../../../
 import { ROLES, TIPOS_SECCION } from '../../../src/model';
 import type { Estado, Resultado } from '../api';
 import { urlRecurso } from '../api';
+import { locale, t } from '../i18n';
 
 export type Pestana = 'seccion' | 'libro' | 'tema' | 'impresion' | 'comentarios' | 'validacion';
 
@@ -49,19 +50,19 @@ function Texto(p: { etiqueta: string; valor?: string | number; onGuardar: (v: st
 
 export function Inspector(p: Props) {
   const m = p.estado.libro.metadatos;
-  const t = p.estado.libro.tema;
+  const tm = p.estado.libro.tema;
   const tip = p.estado.libro.tipografia;
   const abiertos = (p.seccion?.comentarios ?? []).filter((c) => !c.resuelto).length + (p.seccion?.cambios?.length ?? 0);
   const pestanas: [Pestana, string][] = [
-    ['seccion', 'Sección'],
-    ['libro', 'Libro'],
-    ['tema', 'Tema'],
-    ['impresion', 'Impresión'],
-    ['comentarios', 'Revisión'],
-    ['validacion', 'Validación'],
+    ['seccion', t('Sección')],
+    ['libro', t('Libro')],
+    ['tema', t('Tema')],
+    ['impresion', t('Impresión')],
+    ['comentarios', t('Revisión')],
+    ['validacion', t('Validación')],
   ];
   return (
-    <aside className="inspector" aria-label="Inspector">
+    <aside className="inspector" aria-label={t('Inspector')}>
       <div className="pestanas" role="tablist">
         {pestanas.map(([id, nombre]) => (
           <button key={id} role="tab" aria-selected={p.pestana === id} className={p.pestana === id ? 'activa' : ''} onClick={() => p.onPestana(id)}>
@@ -74,68 +75,68 @@ export function Inspector(p: Props) {
       <div className="contenido-inspector" role="tabpanel">
         {p.pestana === 'seccion' && p.seccion && (
           <>
-            <Texto etiqueta="Título" valor={p.seccion.titulo} onGuardar={(v) => p.onSeccion({ titulo: v })} />
+            <Texto etiqueta={t('Título')} valor={p.seccion.titulo} onGuardar={(v) => p.onSeccion({ titulo: v })} />
             <label className="campo">
-              <span>Tipo de sección</span>
+              <span>{t('Tipo de sección')}</span>
               <select value={p.seccion.tipo} onChange={(e) => p.onSeccion({ tipo: e.target.value as Seccion['tipo'] })}>
                 {TIPOS_SECCION.map((x) => (
-                  <option key={x.id} value={x.id}>{x.nombre}</option>
+                  <option key={x.id} value={x.id}>{t(x.nombre)}</option>
                 ))}
               </select>
-              <small>Define la semántica del EPUB (capítulo, prólogo…) y cómo lo anuncian los lectores de pantalla.</small>
+              <small>{t('Define la semántica del EPUB (capítulo, prólogo…) y cómo lo anuncian los lectores de pantalla.')}</small>
             </label>
             <label className="casilla">
               <input type="checkbox" checked={p.seccion.mostrarTitulo} onChange={(e) => p.onSeccion({ mostrarTitulo: e.target.checked })} />
-              Mostrar el título en la página
+              {t('Mostrar el título en la página')}
             </label>
             <label className="casilla">
               <input type="checkbox" checked={p.seccion.enIndice} onChange={(e) => p.onSeccion({ enIndice: e.target.checked })} />
-              Incluir en el índice
+              {t('Incluir en el índice')}
             </label>
             {!['portada', 'ilustracion', 'indice', 'creditos'].includes(p.seccion.tipo) && (
               <div className="campo">
-                <span>Imagen de cabecera</span>
+                <span>{t('Imagen de cabecera')}</span>
                 {p.seccion.imagenCabecera ? (
                   <div className="fila-ornamento">
-                    <img src={urlRecurso(p.seccion.imagenCabecera, p.version)} alt="Imagen de cabecera" />
-                    <button className="pequeno" onClick={() => p.onImagenCabecera(null)}>Quitar</button>
+                    <img src={urlRecurso(p.seccion.imagenCabecera, p.version)} alt={t('Imagen de cabecera')} />
+                    <button className="pequeno" onClick={() => p.onImagenCabecera(null)}>{t('Quitar')}</button>
                   </div>
                 ) : (
                   <label className="boton-archivo">
-                    Elegir imagen…
+                    {t('Elegir imagen…')}
                     <input type="file" hidden accept="image/png,image/jpeg,image/webp,image/svg+xml" onChange={(e) => { const f = e.target.files?.[0]; if (f) p.onImagenCabecera(f); e.target.value = ''; }} />
                   </label>
                 )}
-                <small>Imagen decorativa sobre el título (una viñeta, un emblema…).</small>
+                <small>{t('Imagen decorativa sobre el título (una viñeta, un emblema…).')}</small>
               </div>
             )}
             {(p.seccion.tipo === 'ilustracion' || p.seccion.tipo === 'portada') && (
               <label className="casilla">
                 <input type="checkbox" checked={!!p.seccion.paginaFija} onChange={(e) => p.onSeccion({ paginaFija: e.target.checked || undefined })} />
-                Página fija en el EPUB (la imagen ocupa la pantalla entera; Apple Books y Kobo)
+                {t('Página fija en el EPUB (la imagen ocupa la pantalla entera; Apple Books y Kobo)')}
               </label>
             )}
             {p.seccion.tipo === 'ilustracion' && (
               <label className="casilla">
                 <input type="checkbox" checked={!!p.seccion.doblePagina} onChange={(e) => p.onSeccion({ doblePagina: e.target.checked || undefined })} />
-                Doble página enfrentada (PDF; y en el EPUB si es página fija)
+                {t('Doble página enfrentada (PDF; y en el EPUB si es página fija)')}
               </label>
             )}
-            <p className="dato">{(p.estado.palabras[p.seccion.id] ?? 0).toLocaleString('es')} palabras · {p.seccion.notas.length} notas</p>
-            <button onClick={() => p.onAplicarTipografia(false)}>Aplicar tipografía a esta sección</button>
+            <p className="dato">{t('{0} palabras · {1} notas', { 0: (p.estado.palabras[p.seccion.id] ?? 0).toLocaleString(locale()), 1: p.seccion.notas.length })}</p>
+            <button onClick={() => p.onAplicarTipografia(false)}>{t('Aplicar tipografía a esta sección')}</button>
           </>
         )}
 
         {p.pestana === 'libro' && (
           <>
-            <Texto etiqueta="Título" valor={m.titulo} onGuardar={(v) => p.onMetadatos({ titulo: v })} />
-            <Texto etiqueta="Subtítulo" valor={m.subtitulo} onGuardar={(v) => p.onMetadatos({ subtitulo: v })} />
+            <Texto etiqueta={t('Título')} valor={m.titulo} onGuardar={(v) => p.onMetadatos({ titulo: v })} />
+            <Texto etiqueta={t('Subtítulo')} valor={m.subtitulo} onGuardar={(v) => p.onMetadatos({ subtitulo: v })} />
             <fieldset className="grupo">
-              <legend>Créditos</legend>
+              <legend>{t('Créditos')}</legend>
               {m.creditos.map((c, k) => (
                 <div key={k} className="fila-credito">
                   <input
-                    aria-label="Nombre"
+                    aria-label={t('Nombre')}
                     defaultValue={c.nombre}
                     onBlur={(e) => {
                       const creditos = [...m.creditos];
@@ -144,7 +145,7 @@ export function Inspector(p: Props) {
                     }}
                   />
                   <select
-                    aria-label="Función"
+                    aria-label={t('Función')}
                     value={c.rol}
                     onChange={(e) => {
                       const creditos = [...m.creditos];
@@ -156,49 +157,49 @@ export function Inspector(p: Props) {
                       <option key={r.id} value={r.id}>{r.nombre}</option>
                     ))}
                   </select>
-                  <button aria-label="Quitar crédito" onClick={() => p.onMetadatos({ creditos: m.creditos.filter((_, j) => j !== k) })}>✕</button>
+                  <button aria-label={t('Quitar crédito')} onClick={() => p.onMetadatos({ creditos: m.creditos.filter((_, j) => j !== k) })}>✕</button>
                 </div>
               ))}
-              <button className="pequeno" onClick={() => p.onMetadatos({ creditos: [...m.creditos, { nombre: 'Nombre', rol: m.creditos.length ? 'trl' : 'aut' }] })}>
-                + Añadir crédito
+              <button className="pequeno" onClick={() => p.onMetadatos({ creditos: [...m.creditos, { nombre: t('Nombre'), rol: m.creditos.length ? 'trl' : 'aut' }] })}>
+                {t('+ Añadir crédito')}
               </button>
             </fieldset>
             <div className="fila-dos">
-              <Texto etiqueta="Serie" valor={m.serie} onGuardar={(v) => p.onMetadatos({ serie: v })} />
-              <Texto etiqueta="Volumen" tipo="number" valor={m.volumen} onGuardar={(v) => p.onMetadatos({ volumen: v ? Number(v) : undefined })} />
+              <Texto etiqueta={t('Serie')} valor={m.serie} onGuardar={(v) => p.onMetadatos({ serie: v })} />
+              <Texto etiqueta={t('Volumen')} tipo="number" valor={m.volumen} onGuardar={(v) => p.onMetadatos({ volumen: v ? Number(v) : undefined })} />
             </div>
             <label className="campo">
-              <span>Idioma</span>
+              <span>{t('Idioma')}</span>
               <select value={m.idioma} onChange={(e) => p.onMetadatos({ idioma: e.target.value })}>
-                <option value="es">Español</option>
-                <option value="es-MX">Español (México)</option>
-                <option value="es-ES">Español (España)</option>
-                <option value="en">Inglés</option>
-                <option value="pt-BR">Portugués (Brasil)</option>
-                <option value="ja">Japonés</option>
+                <option value="es">{t('Español')}</option>
+                <option value="es-MX">{t('Español (México)')}</option>
+                <option value="es-ES">{t('Español (España)')}</option>
+                <option value="en">{t('Inglés')}</option>
+                <option value="pt-BR">{t('Portugués (Brasil)')}</option>
+                <option value="ja">{t('Japonés')}</option>
               </select>
             </label>
             <label className="campo">
-              <span>Escritura</span>
+              <span>{t('Escritura')}</span>
               <select value={p.estado.libro.escritura ?? 'horizontal'} onChange={(e) => p.onEscritura(e.target.value as 'horizontal' | 'vertical')}>
-                <option value="horizontal">Horizontal</option>
-                <option value="vertical">Vertical japonesa (tategaki), de derecha a izquierda</option>
+                <option value="horizontal">{t('Horizontal')}</option>
+                <option value="vertical">{t('Vertical japonesa (tategaki), de derecha a izquierda')}</option>
               </select>
-              <small>En vertical, los números de una o dos cifras y «!?» se ponen en horizontal automáticamente, y se incrusta Noto Serif JP con solo los caracteres que usa el libro. El editor, la vista previa y el PDF se ven en vertical.</small>
+              <small>{t('En vertical, los números de una o dos cifras y «!?» se ponen en horizontal automáticamente, y se incrusta Noto Serif JP con solo los caracteres que usa el libro. El editor, la vista previa y el PDF se ven en vertical.')}</small>
             </label>
-            <Texto etiqueta="ISBN o identificador" valor={m.identificador} onGuardar={(v) => p.onMetadatos({ identificador: v })} ayuda="Si no tienes ISBN, deja el UUID que se generó." />
+            <Texto etiqueta={t('ISBN o identificador')} valor={m.identificador} onGuardar={(v) => p.onMetadatos({ identificador: v })} ayuda={t('Si no tienes ISBN, deja el UUID que se generó.')} />
             <div className="fila-dos">
-              <Texto etiqueta="Fecha" tipo="date" valor={m.fecha} onGuardar={(v) => p.onMetadatos({ fecha: v })} />
-              <Texto etiqueta="Editorial" valor={m.editorial} onGuardar={(v) => p.onMetadatos({ editorial: v })} />
+              <Texto etiqueta={t('Fecha')} tipo="date" valor={m.fecha} onGuardar={(v) => p.onMetadatos({ fecha: v })} />
+              <Texto etiqueta={t('Editorial')} valor={m.editorial} onGuardar={(v) => p.onMetadatos({ editorial: v })} />
             </div>
-            <Texto etiqueta="Sinopsis" area valor={m.descripcion} onGuardar={(v) => p.onMetadatos({ descripcion: v })} />
-            <Texto etiqueta="Derechos" valor={m.derechos} onGuardar={(v) => p.onMetadatos({ derechos: v })} marcador="© 2026 …" />
+            <Texto etiqueta={t('Sinopsis')} area valor={m.descripcion} onGuardar={(v) => p.onMetadatos({ descripcion: v })} />
+            <Texto etiqueta={t('Derechos')} valor={m.derechos} onGuardar={(v) => p.onMetadatos({ derechos: v })} marcador="© 2026 …" />
             <Texto
-              etiqueta="Resumen de accesibilidad"
+              etiqueta={t('Resumen de accesibilidad')}
               area
               valor={m.resumenAccesibilidad}
               onGuardar={(v) => p.onMetadatos({ resumenAccesibilidad: v })}
-              ayuda="Opcional. Si lo dejas vacío, Obi Studio escribe uno automáticamente."
+              ayuda={t('Opcional. Si lo dejas vacío, Obi Studio escribe uno automáticamente.')}
             />
           </>
         )}
@@ -211,27 +212,27 @@ export function Inspector(p: Props) {
 
         {p.pestana === 'validacion' && (
           <>
-            <p className="ayuda">EPUBCheck 5.4 comprueba el libro con las reglas oficiales de EPUB 3.3. Exportar siempre valida antes.</p>
+            <p className="ayuda">{t('EPUBCheck 5.4 comprueba el libro con las reglas oficiales de EPUB 3.3. Exportar siempre valida antes.')}</p>
             <button className="principal" onClick={p.onValidar} disabled={p.validando}>
-              {p.validando ? 'Validando…' : 'Validar ahora'}
+              {p.validando ? t('Validando…') : t('Validar ahora')}
             </button>
             {p.validacion && (
               <div className="resultado-validacion">
                 {p.validacion.valido ? (
                   <p className="ok">✓ El EPUB es válido{p.validacion.avisos ? ` (${p.validacion.avisos} avisos)` : ''}.</p>
                 ) : (
-                  <p className="error">✕ {p.validacion.errores} errores, {p.validacion.avisos} avisos.</p>
+                  <p className="error">{t('✕ {0} errores, {1} avisos.', { 0: p.validacion.errores, 1: p.validacion.avisos })}</p>
                 )}
-                {!p.validacion.disponible && <p className="error">No se encontró EPUBCheck o Java.</p>}
+                {!p.validacion.disponible && <p className="error">{t('No se encontró EPUBCheck o Java.')}</p>}
                 <ul className="mensajes">
                   {p.validacion.mensajes.map((x, k) => {
                     const s = p.estado.libro.secciones.find((y) => y.id === x.seccion);
                     return (
                       <li key={k} className={x.gravedad}>
-                        <strong>{x.gravedad === 'error' ? 'Error' : 'Aviso'}</strong> {x.mensaje}
+                        <strong>{x.gravedad === 'error' ? t('Error') : t('Aviso')}</strong> {x.mensaje}
                         {s && (
                           <button className="enlace" onClick={() => p.onIrA(s.id)}>
-                            Ir a «{s.titulo || s.tipo}»{x.linea ? `, línea ${x.linea}` : ''}
+                            {t("Ir a «{0}»", { 0: s.titulo || s.tipo })}{x.linea ? t(', línea {0}', { 0: x.linea }) : ''}
                           </button>
                         )}
                       </li>

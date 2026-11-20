@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import type { Bloque, Comentario, Inline, Seccion } from '../../../src/model';
 import { confirmar, pedirDatos } from '../dialogos';
+import { locale, t } from '../i18n';
 
 interface Props {
   seccion?: Seccion;
@@ -38,12 +39,12 @@ export function guardarRevisor(nombre: string) {
 
 const fecha = (iso: string) => {
   const d = new Date(iso);
-  return isNaN(d.getTime()) ? '' : d.toLocaleString('es-MX', { dateStyle: 'medium', timeStyle: 'short' });
+  return isNaN(d.getTime()) ? '' : d.toLocaleString(locale(), { dateStyle: 'medium', timeStyle: 'short' });
 };
 
 export function Comentarios({ seccion, onSeccion }: Props) {
   const [verResueltos, setVerResueltos] = useState(false);
-  if (!seccion) return <p className="ayuda">Elige una sección.</p>;
+  if (!seccion) return <p className="ayuda">{t('Elige una sección.')}</p>;
   const lista = seccion.comentarios ?? [];
   const anclas = textosComentados(seccion.bloques);
   const visibles = lista.filter((c) => verResueltos || !c.resuelto);
@@ -55,27 +56,26 @@ export function Comentarios({ seccion, onSeccion }: Props) {
   };
 
   const responder = async (c: Comentario) => {
-    const r = await pedirDatos('Responder', [
-      { nombre: 'texto', etiqueta: 'Respuesta', tipo: 'area' },
-      { nombre: 'autor', etiqueta: 'Tu nombre', valor: nombreRevisor() },
-    ], 'Responder');
+    const r = await pedirDatos(t('Responder'), [
+      { nombre: 'texto', etiqueta: t('Respuesta'), tipo: 'area' },
+      { nombre: 'autor', etiqueta: t('Tu nombre'), valor: nombreRevisor() },
+    ], t('Responder'));
     if (!r?.texto.trim()) return;
     guardarRevisor(r.autor.trim());
-    cambiar(c.id, (x) => ({ ...x, respuestas: [...(x.respuestas ?? []), { autor: r.autor.trim() || 'Anónimo', fecha: new Date().toISOString(), texto: r.texto.trim() }] }));
+    cambiar(c.id, (x) => ({ ...x, respuestas: [...(x.respuestas ?? []), { autor: r.autor.trim() || t('Anónimo'), fecha: new Date().toISOString(), texto: r.texto.trim() }] }));
   };
 
   const borrar = async (c: Comentario) => {
-    if (!(await confirmar('Borrar comentario', `¿Borrar el comentario de ${c.autor} y sus respuestas?`, 'Borrar', true))) return;
+    if (!(await confirmar(t('Borrar comentario'), t('¿Borrar el comentario de {0} y sus respuestas?', { 0: c.autor }), t('Borrar'), true))) return;
     window.dispatchEvent(new CustomEvent('obi:quitar-comentario', { detail: { id: c.id } }));
     cambiar(c.id, () => null);
   };
 
   return (
     <div className="panel-comentarios">
-      <h3>Comentarios</h3>
+      <h3>{t('Comentarios')}</h3>
       <p className="ayuda">
-        Los comentarios no salen en el EPUB ni en el PDF. Viajan en el Word para corrección y vuelven con «Importar correcciones».
-        Para comentar, selecciona texto y pulsa 💬 en la barra del editor.
+        {t('Los comentarios no salen en el EPUB ni en el PDF. Viajan en el Word para corrección y vuelven con «Importar correcciones». Para comentar, selecciona texto y pulsa 💬 en la barra del editor.')}
       </p>
       {resueltos > 0 && (
         <label className="casilla">
@@ -83,7 +83,7 @@ export function Comentarios({ seccion, onSeccion }: Props) {
           Mostrar resueltos ({resueltos})
         </label>
       )}
-      {!visibles.length && <p className="vacio">{lista.length ? 'Todos los comentarios están resueltos.' : 'Esta sección no tiene comentarios.'}</p>}
+      {!visibles.length && <p className="vacio">{lista.length ? t('Todos los comentarios están resueltos.') : t('Esta sección no tiene comentarios.')}</p>}
       <ul className="lista-comentarios">
         {visibles.map((c) => {
           const ancla = anclas.get(c.id);
@@ -96,7 +96,7 @@ export function Comentarios({ seccion, onSeccion }: Props) {
               {ancla !== undefined ? (
                 <button
                   className="cita-comentario"
-                  title="Ir al texto comentado"
+                  title={t('Ir al texto comentado')}
                   onClick={() => window.dispatchEvent(new CustomEvent('obi:ir-comentario', { detail: { id: c.id } }))}
                 >
                   «{ancla.length > 80 ? ancla.slice(0, 80) + '…' : ancla}»
@@ -112,9 +112,9 @@ export function Comentarios({ seccion, onSeccion }: Props) {
                 </div>
               ))}
               <div className="acciones-comentario">
-                <button onClick={() => void responder(c)}>Responder</button>
-                <button onClick={() => cambiar(c.id, (x) => ({ ...x, resuelto: !x.resuelto || undefined }))}>{c.resuelto ? 'Reabrir' : 'Resolver'}</button>
-                <button className="peligro-texto" onClick={() => void borrar(c)}>Borrar</button>
+                <button onClick={() => void responder(c)}>{t('Responder')}</button>
+                <button onClick={() => cambiar(c.id, (x) => ({ ...x, resuelto: !x.resuelto || undefined }))}>{c.resuelto ? t('Reabrir') : t('Resolver')}</button>
+                <button className="peligro-texto" onClick={() => void borrar(c)}>{t('Borrar')}</button>
               </div>
             </li>
           );

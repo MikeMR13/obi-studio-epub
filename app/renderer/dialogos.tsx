@@ -1,6 +1,7 @@
 // Diálogos propios (Electron no admite window.prompt) y avisos breves.
 
 import { useEffect, useRef, useState } from 'react';
+import { t } from './i18n';
 
 export interface Campo {
   nombre: string;
@@ -25,17 +26,17 @@ interface Peticion {
 let mostrar: ((p: Peticion) => void) | undefined;
 let notificar: ((t: string, tipo: 'ok' | 'error') => void) | undefined;
 
-export function pedirDatos(titulo: string, campos: Campo[], aceptar = 'Aceptar', mensaje?: string): Promise<Record<string, string> | null> {
+export function pedirDatos(titulo: string, campos: Campo[], aceptar = t('Aceptar'), mensaje?: string): Promise<Record<string, string> | null> {
   return new Promise((resolver) => mostrar?.({ titulo, campos, aceptar, mensaje, resolver }));
 }
 
-export async function confirmar(titulo: string, mensaje: string, aceptar = 'Continuar', peligro = false): Promise<boolean> {
+export async function confirmar(titulo: string, mensaje: string, aceptar = t('Continuar'), peligro = false): Promise<boolean> {
   const r = await new Promise<Record<string, string> | null>((resolver) => mostrar?.({ titulo, campos: [], aceptar, mensaje, peligro, resolver }));
   return r !== null;
 }
 
 /** Mensaje informativo con un único botón. */
-export async function informar(titulo: string, mensaje: string, aceptar = 'Entendido'): Promise<void> {
+export async function informar(titulo: string, mensaje: string, aceptar = t('Entendido')): Promise<void> {
   await new Promise<Record<string, string> | null>((resolver) => mostrar?.({ titulo, campos: [], aceptar, mensaje, soloAceptar: true, resolver }));
 }
 
@@ -131,7 +132,7 @@ export function Dialogos() {
             <div className="botones-dialogo">
               {!p.soloAceptar && (
                 <button type="button" onClick={() => cerrar(null)}>
-                  Cancelar
+                  {t('Cancelar')}
                 </button>
               )}
               <button ref={botonAceptar} type="submit" className={p.peligro ? 'peligro' : 'principal'}>

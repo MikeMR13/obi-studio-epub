@@ -8,6 +8,15 @@ export interface AvisoImpresion {
   gravedad: 'error' | 'aviso' | 'info';
   mensaje: string;
   seccion?: string;
+  /** Plantilla del mensaje (en español, con {0}, {1}…) y sus valores, para traducirlo en la interfaz. */
+  plantilla?: string;
+  valores?: Record<string, string | number>;
+}
+
+function aviso(gravedad: AvisoImpresion['gravedad'], plantilla: string, valores: (string | number)[] = [], seccion?: string): AvisoImpresion {
+  const v = Object.fromEntries(valores.map((x, k) => [String(k), x]));
+  const mensaje = plantilla.replace(/\{(\d+)\}/g, (_m, k: string) => String(v[k]));
+  return { gravedad, mensaje, plantilla, ...(valores.length ? { valores: v } : {}), ...(seccion ? { seccion } : {}) };
 }
 
 /** Resolución efectiva (ppp) de una imagen mostrada dentro de una caja de ancho×alto mm, sin deformar. */
@@ -27,23 +36,26 @@ export function revisarImpresion(libro: Libro, paginas?: number): AvisoImpresion
   const anchoTexto = a.ancho - interior - a.margenExterior;
   const altoTexto = a.alto - a.margenSuperior - a.margenInferior;
 
-  if (anchoTexto < 70) avisos.push({ gravedad: 'error', mensaje: `La caja de texto mide solo ${anchoTexto.toFixed(0)} mm de ancho: reduce los márgenes o usa un tamaño mayor.` });
+  if (anchoTexto < 70) avisos.push(aviso('error', 'La caja de texto mide solo {0} mm de ancho: reduce los márgenes o usa un tamaño mayor.', [anchoTexto.toFixed(0)]));
   if (a.margenExterior < 6.35 + (b ? 3.175 : 0)) {
-    avisos.push({ gravedad: 'aviso', mensaje: `Margen exterior de ${a.margenExterior} mm: KDP pide al menos ${b ? '9,5' : '6,35'} mm.` });
+    avisos.push(aviso('aviso', 'Margen exterior de {0} mm: KDP pide al menos {1} mm.', [a.margenExterior, b ? 9.5 : 6.35]));
   }
-  if (a.margenSuperior < 6.35 || a.margenInferior < 6.35) avisos.push({ gravedad: 'aviso', mensaje: 'Los márgenes superior e inferior deberían medir al menos 6,35 mm.' });
+  if (a.margenSuperior < 6.35 || a.margenInferior < 6.35) avisos.push(aviso('aviso', 'Los márgenes superior e inferior deberían medir al menos 6,35 mm.'));
   if (a.margenInterior > 0 && paginas && a.margenInterior < margenInteriorAutomatico(paginas)) {
-    avisos.push({
-      gravedad: 'aviso',
-      mensaje: `Con ${paginas} páginas el margen interior debería medir al menos ${margenInteriorAutomatico(paginas).toFixed(1)} mm (ahora ${a.margenInterior} mm). Déjalo en automático.`,
-    });
+    avisos.push(
+      aviso('aviso', 'Con {0} páginas el margen interior debería medir al menos {1} mm (ahora {2} mm). Déjalo en automático.', [
+        paginas,
+        margenInteriorAutomatico(paginas).toFixed(1),
+        a.margenInterior,
+      ]),
+    );
   }
   if (paginas !== undefined) {
-    if (paginas < 24) avisos.push({ gravedad: 'aviso', mensaje: `El libro tiene ${paginas} páginas; KDP Print e IngramSpark piden un mínimo de 24.` });
-    if (paginas > 828) avisos.push({ gravedad: 'aviso', mensaje: `El libro tiene ${paginas} páginas; KDP Print admite como máximo 828 en este formato.` });
+    if (paginas < 24) avisos.push(aviso('aviso', 'El libro tiene {0} páginas; KDP Print e IngramSpark piden un mínimo de 24.', [paginas]));
+    if (paginas > 828) avisos.push(aviso('aviso', 'El libro tiene {0} páginas; KDP Print admite como máximo 828 en este formato.', [paginas]));
   }
-  if (a.cuerpo < 9) avisos.push({ gravedad: 'aviso', mensaje: `Letra de ${a.cuerpo} pt: por debajo de 9 pt cuesta leer en papel.` });
-  if (a.ilustracionesASangre && !b) avisos.push({ gravedad: 'info', mensaje: 'Las ilustraciones a sangre solo se aplican si eliges un sangrado.' });
+  if (a.cuerpo < 9) avisos.push(aviso('aviso', 'Letra de {0} pt: por debajo de 9 pt cuesta leer en papel.', [a.cuerpo]));
+  if (a.ilustracionesASangre && !b) avisos.push(aviso('info', 'Las ilustraciones a sangre solo se aplican si eliges un sangrado.'));
 
   for (const s of libro.secciones) {
     const esPagina = s.tipo === 'ilustracion' || (s.tipo === 'portada' && a.incluirPortada);
@@ -58,29 +70,39 @@ export function revisarImpresion(libro: Libro, paginas?: number): AvisoImpresion
       const ppp = resolucionEfectiva(r, caja[0], caja[1], cubrir);
       if (ppp !== undefined && ppp < 300) {
         const necesario = Math.ceil((caja[0] / MM_POR_PULGADA) * 300);
-        avisos.push({
-          gravedad: ppp < 150 ? 'error' : 'aviso',
-          seccion: s.id,
-          mensaje: `«${r.nombre}» se imprimirá a ${ppp} ppp (se recomiendan 300). Para ${esPagina ? 'una página completa' : 'el ancho del texto'} hacen falta unos ${necesario} px de ancho; ahora tiene ${r.ancho}.`,
-        });
+        avisos.push(
+          aviso(
+            ppp < 150 ? 'error' : 'aviso',
+            esPagina
+              ? '«{0}» se imprimirá a {1} ppp (se recomiendan 300). Para una página completa hacen falta unos {2} px de ancho; ahora tiene {3}.'
+              : '«{0}» se imprimirá a {1} ppp (se recomiendan 300). Para el ancho del texto hacen falta unos {2} px de ancho; ahora tiene {3}.',
+            [r.nombre, ppp, necesario, r.ancho ?? 0],
+            s.id,
+          ),
+        );
       }
       if (esPagina && r.ancho && r.alto) {
         const proporcionImagen = r.ancho / r.alto;
         const proporcionPagina = a.ancho / a.alto;
         const diferencia = Math.abs(proporcionImagen - proporcionPagina) / proporcionPagina;
         if (diferencia > 0.08) {
-          avisos.push({
-            gravedad: 'info',
-            seccion: s.id,
-            mensaje: cubrir
-              ? `«${r.nombre}» no tiene la proporción de la página: se recortarán los bordes.`
-              : `«${r.nombre}» no tiene la proporción de la página: quedarán bandas blancas${r.ancho > r.alto ? ' (es horizontal)' : ''}.`,
-          });
+          avisos.push(
+            aviso(
+              'info',
+              cubrir
+                ? '«{0}» no tiene la proporción de la página: se recortarán los bordes.'
+                : r.ancho > r.alto
+                  ? '«{0}» no tiene la proporción de la página: quedarán bandas blancas (es horizontal).'
+                  : '«{0}» no tiene la proporción de la página: quedarán bandas blancas.',
+              [r.nombre],
+              s.id,
+            ),
+          );
         }
       }
     }
     if (s.bloques.some((x) => x.tipo === 'crudo')) {
-      avisos.push({ gravedad: 'info', seccion: s.id, mensaje: `«${s.titulo || s.tipo}» tiene bloques XHTML (tablas, SVG…): revísalos en la vista de impresión.` });
+      avisos.push(aviso('info', '«{0}» tiene bloques XHTML (tablas, SVG…): revísalos en la vista de impresión.', [s.titulo || s.tipo], s.id));
     }
   }
   return avisos;
