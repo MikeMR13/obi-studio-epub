@@ -430,3 +430,4 @@ p.error { font-weight: 600; }
 .app-invitado .personas-cabecera { flex-direction: row; gap: 12px; margin-left: auto; }
 .estado-conexion { margin-left: auto; font-size: 12px; color: var(--tenue); }
 .estado-conexion.ok { color: var(--ok); }
+.menu-mas .separador-menu { border-top: 1px solid var(--linea); }

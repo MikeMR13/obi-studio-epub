@@ -17,6 +17,7 @@ import { Plugins } from './paneles/Plugins';
 import { Buscar } from './paneles/Buscar';
 import { Versiones } from './paneles/Versiones';
 import { Colaborar } from './paneles/Colaborar';
+import { Configuracion } from './paneles/Configuracion';
 import type { Pestana } from './paneles/Inspector';
 import { cambiarIdioma, idiomaInterfaz, t } from './i18n';
 
@@ -32,6 +33,11 @@ export function App() {
   const [verPlugins, setVerPlugins] = useState(false);
   const [verVersiones, setVerVersiones] = useState(false);
   const [verColaborar, setVerColaborar] = useState(false);
+  const [verConfiguracion, setVerConfiguracion] = useState(false);
+  const [configuracion, setConfiguracion] = useState<{ colaboracion: boolean }>({ colaboracion: false });
+  useEffect(() => {
+    api.configuracion().then(setConfiguracion).catch(() => undefined);
+  }, []);
   const [busqueda, setBusqueda] = useState<{ reemplazo: boolean } | null>(null);
   const entradaCorrecciones = useRef<HTMLInputElement>(null);
   const [validacion, setValidacion] = useState<Resultado | null>(null);
@@ -327,6 +333,7 @@ export function App() {
 
   return (
     <div className="app">
+      {verConfiguracion && <Configuracion onCerrar={() => setVerConfiguracion(false)} onEstado={(e) => aplicar(e)} onConfiguracion={setConfiguracion} />}
       {verColaborar && <Colaborar onCerrar={() => setVerColaborar(false)} onEstado={(e) => aplicar(e)} />}
       {verVersiones && <Versiones estado={estado} onCerrar={() => setVerVersiones(false)} onEstado={(e) => aplicar(e)} />}
       {verPlugins && (
@@ -364,10 +371,12 @@ export function App() {
                 <li><button role="menuitem" onClick={() => { setMenuMas(false); setPestana('impresion'); }}>{t('PDF…')}<small>{t('Para imprenta o digital')}</small></button></li>
                 <li><button role="menuitem" onClick={() => descargarFormato('/api/exportar-word', t('Word para corrección exportado.'), t('Creando el Word…'))}>{t('Word para corrección')}<small>{t('Para enviar a correctores; vuelve con «Importar correcciones»')}</small></button></li>
                 <li><button role="menuitem" onClick={() => { setMenuMas(false); entradaCorrecciones.current?.click(); }}>{t('Importar correcciones de Word…')}<small>{t('Funde los cambios y los comentarios capítulo a capítulo')}</small></button></li>
-                <li><button role="menuitem" onClick={() => { setMenuMas(false); setVerColaborar(true); }}>{t('Colaborar en la red local…')}<small>{t('Escribir a la vez con otras personas')}</small></button></li>
+                {configuracion.colaboracion && (
+                  <li><button role="menuitem" onClick={() => { setMenuMas(false); setVerColaborar(true); }}>{t('Colaborar en la red local…')}<small>{t('Escribir a la vez con otras personas')}</small></button></li>
+                )}
                 <li><button role="menuitem" onClick={() => { setMenuMas(false); setVerVersiones(true); }}>{t('Versiones…')}<small>{t('Guardar, comparar y restaurar versiones del libro')}</small></button></li>
-                <li className="idioma-menu"><SelectorIdioma /></li>
                 <li><button role="menuitem" onClick={() => { setMenuMas(false); setVerPlugins(true); }}>{t('Plugins…')}<small>{t('Revisiones, transformaciones y otros formatos')}</small></button></li>
+                <li className="separador-menu"><button role="menuitem" onClick={() => { setMenuMas(false); setVerConfiguracion(true); }}>{t('Configuración…')}<small>{t('Idioma de la interfaz y funciones opcionales')}</small></button></li>
               </ul>
             )}
             <input ref={entradaCorrecciones} type="file" hidden accept=".docx" onChange={(e) => { const f = e.target.files?.[0]; if (f) void correcciones(f); e.target.value = ''; }} />

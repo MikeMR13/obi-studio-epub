@@ -3,6 +3,7 @@
 import { app, BrowserWindow, Menu, dialog, shell, type MenuItemConstructorOptions } from 'electron';
 import { iniciarServidor } from './servidor.js';
 import { AlmacenPlugins } from '../src/plugins.js';
+import { ArchivoConfiguracion } from '../src/configuracion.js';
 import { Backend } from './backend.js';
 import { join } from 'node:path';
 
@@ -53,6 +54,7 @@ let salirConfirmado = false;
 
 async function crearVentana() {
   const backend = new Backend(join(app.getPath('userData'), 'recuperacion'));
+  backend.configuracion = new ArchivoConfiguracion(process.env.OBI_CONFIGURACION || join(app.getPath('userData'), 'configuracion.json'));
   backend.plugins = new AlmacenPlugins(process.env.OBI_PLUGINS || join(app.getPath('userData'), 'plugins'));
   backend.renderizador = renderizadorElectron;
   backend.evaluador = evaluadorElectron;

@@ -205,7 +205,18 @@ export async function iniciarServidor(op: OpcionesServidor = {}) {
       enviar(r, 200, backend.estado());
     }],
     ['GET', /^\/api\/colaboracion$/, async (_q, r) => enviar(r, 200, colaboracion.estado())],
-    ['POST', /^\/api\/colaboracion$/, async (_q, r) => enviar(r, 200, { ...(await colaboracion.iniciar()), estado: backend.estado() })],
+    ['POST', /^\/api\/colaboracion$/, async (_q, r) => {
+      if (!(await backend.configuracion.leer()).colaboracion)
+        throw new ErrorUsuario('La colaboración en la red local está desactivada. Actívala en Configuración.', 403);
+      enviar(r, 200, { ...(await colaboracion.iniciar()), estado: backend.estado() });
+    }],
+    ['GET', /^\/api\/configuracion$/, async (_q, r) => enviar(r, 200, await backend.configuracion.leer())],
+    ['PUT', /^\/api\/configuracion$/, async (q, r) => {
+      const c = await backend.configuracion.cambiar(await json(q));
+      // Al desactivar la colaboración se cierra la que estuviera abierta.
+      if (!c.colaboracion && colaboracion.activa) await colaboracion.detener();
+      enviar(r, 200, { configuracion: c, estado: backend.estado() });
+    }],
     ['DELETE', /^\/api\/colaboracion$/, async (_q, r) => {
       await colaboracion.detener();
       enviar(r, 200, { ...colaboracion.estado(), estado: backend.estado() });

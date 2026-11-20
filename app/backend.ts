@@ -8,6 +8,7 @@ import type { Bloque, Comentario, Impresion, Libro, Nota, Metadatos, Recurso, Se
 import { ajustesImpresion, TAMANOS_IMPRESION, temaCompleto, validarTema } from '../src/model.js';
 import { TEMAS } from '../src/temas.js';
 import { buscarGhostscript } from '../src/pdfx.js';
+import { ArchivoConfiguracion } from '../src/configuracion.js';
 import { CATALOGO_INTEGRADO, ListaCatalogos, archivoCatalogos, leerCatalogo, normalizarUrlCatalogo, paqueteDeCatalogo, versionMayor, type EntradaCatalogo } from '../src/catalogo.js';
 import { ErrorCambio, aceptarCambio, aceptarTodos, rechazarCambio } from '../src/cambios.js';
 import { ErrorVersion, compararVersion, crearVersion, eliminarVersion, restaurarVersion, resumenVersiones, type DiferenciaSeccion, type ResumenVersion } from '../src/versiones.js';
@@ -126,6 +127,9 @@ export class Backend {
   plugins = new AlmacenPlugins(process.env.OBI_PLUGINS || join(homedir(), '.obi-studio', 'plugins'));
   /** Libro antes de la última transformación de un plugin, para deshacerla. */
   private antesDePlugin?: { libro: Libro; plugin: string };
+
+  /** Configuración de la app (Electron la guarda en la carpeta de datos). */
+  configuracion = new ArchivoConfiguracion(process.env.OBI_CONFIGURACION || join(homedir(), '.obi-studio', 'configuracion.json'));
 
   constructor(private carpetaRecuperacion = join(homedir(), '.obi-studio')) {}
 
