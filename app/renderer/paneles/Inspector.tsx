@@ -4,7 +4,7 @@ import { ROLES, TIPOS_SECCION } from '../../../src/model';
 import type { Estado, Resultado } from '../api';
 import { urlRecurso } from '../api';
 
-export type Pestana = 'seccion' | 'libro' | 'tema' | 'impresion' | 'validacion';
+export type Pestana = 'seccion' | 'libro' | 'tema' | 'impresion' | 'comentarios' | 'validacion';
 
 interface Props {
   estado: Estado;
@@ -22,6 +22,7 @@ interface Props {
   onIrA: (seccion: string) => void;
   panelImpresion: React.ReactNode;
   panelTema: React.ReactNode;
+  panelComentarios: React.ReactNode;
   onImagenCabecera: (archivo: File | null) => void;
   onEscritura: (v: 'horizontal' | 'vertical') => void;
   version: number;
@@ -49,11 +50,13 @@ export function Inspector(p: Props) {
   const m = p.estado.libro.metadatos;
   const t = p.estado.libro.tema;
   const tip = p.estado.libro.tipografia;
+  const abiertos = (p.seccion?.comentarios ?? []).filter((c) => !c.resuelto).length;
   const pestanas: [Pestana, string][] = [
     ['seccion', 'Sección'],
     ['libro', 'Libro'],
     ['tema', 'Tema'],
     ['impresion', 'Impresión'],
+    ['comentarios', 'Comentarios'],
     ['validacion', 'Validación'],
   ];
   return (
@@ -63,6 +66,7 @@ export function Inspector(p: Props) {
           <button key={id} role="tab" aria-selected={p.pestana === id} className={p.pestana === id ? 'activa' : ''} onClick={() => p.onPestana(id)}>
             {nombre}
             {id === 'validacion' && p.validacion && !p.validacion.valido ? <span className="punto-error" aria-label="con errores" /> : null}
+            {id === 'comentarios' && abiertos > 0 ? <span className="contador" aria-label={`${abiertos} abiertos`}>{abiertos}</span> : null}
           </button>
         ))}
       </div>
@@ -201,6 +205,8 @@ export function Inspector(p: Props) {
         {p.pestana === 'tema' && p.panelTema}
 
         {p.pestana === 'impresion' && p.panelImpresion}
+
+        {p.pestana === 'comentarios' && p.panelComentarios}
 
         {p.pestana === 'validacion' && (
           <>

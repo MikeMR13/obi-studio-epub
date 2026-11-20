@@ -172,6 +172,29 @@ export async function iniciarServidor(op: OpcionesServidor = {}) {
       const { nombre, datos } = await backend.exportarWord();
       descarga(r, nombre, 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', datos);
     }],
+    ['GET', /^\/api\/plugins$/, async (_q, r) => enviar(r, 200, await backend.listarPlugins())],
+    ['POST', /^\/api\/plugins\/inspeccionar$/, async (q, r) => enviar(r, 200, await backend.inspeccionarPlugin(await cuerpo(q, 5 * 1024 * 1024)))],
+    ['POST', /^\/api\/plugins$/, async (q, r) => {
+      await backend.instalarPlugin(await cuerpo(q, 5 * 1024 * 1024));
+      enviar(r, 200, await backend.listarPlugins());
+    }],
+    ['DELETE', /^\/api\/plugins\/([a-z0-9._-]+)$/, async (_q, r, m) => {
+      await backend.eliminarPlugin(m[1]);
+      enviar(r, 200, await backend.listarPlugins());
+    }],
+    ['POST', /^\/api\/plugins\/([a-z0-9._-]+)\/revisar$/, async (_q, r, m) => enviar(r, 200, await backend.revisarConPlugin(m[1]))],
+    ['POST', /^\/api\/plugins\/([a-z0-9._-]+)\/transformar$/, async (_q, r, m) => {
+      const { registros } = await backend.transformarConPlugin(m[1]);
+      enviar(r, 200, { registros, estado: backend.estado() });
+    }],
+    ['POST', /^\/api\/plugins\/deshacer$/, async (_q, r) => {
+      backend.deshacerPlugin();
+      enviar(r, 200, backend.estado());
+    }],
+    ['GET', /^\/api\/plugins\/([a-z0-9._-]+)\/exportar$/, async (_q, r, m) => {
+      const { nombre, datos, tipoMime } = await backend.exportarConPlugin(m[1]);
+      descarga(r, nombre, tipoMime, datos);
+    }],
     ['POST', /^\/api\/correcciones$/, async (q, r, _m, url) => {
       const resumen = await backend.importarCorrecciones(url.searchParams.get('nombre') ?? '', await cuerpo(q));
       enviar(r, 200, { resumen, estado: backend.estado() });

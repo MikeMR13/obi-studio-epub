@@ -7,11 +7,14 @@ import { bloquesAPM, pmABloques } from '../../../src/editor-modelo';
 import { extensiones } from './extensiones';
 import { api } from '../api';
 import { aviso, pedirDatos } from '../dialogos';
+import { guardarRevisor, nombreRevisor } from '../paneles/Comentarios';
 
 interface Props {
   seccion: Seccion;
   onCambio: (bloques: Bloque[], notas: Nota[]) => void;
   onEstado: (e: { recargar?: boolean }) => void;
+  /** Se creó un comentario sobre el texto seleccionado. */
+  onComentar: (c: { id: string; texto: string; autor: string; cita: string }) => void;
 }
 
 function idsNotas(bloques: Bloque[]): Set<string> {
@@ -24,7 +27,7 @@ function idsNotas(bloques: Bloque[]): Set<string> {
   return ids;
 }
 
-export function Editor({ seccion, onCambio, onEstado }: Props) {
+export function Editor({ seccion, onCambio, onEstado, onComentar }: Props) {
   const [notas, setNotas] = useState<Nota[]>(seccion.notas);
   const notasRef = useRef(notas);
   notasRef.current = notas;
@@ -83,6 +86,44 @@ export function Editor({ seccion, onCambio, onEstado }: Props) {
   }, [seccion.bloques]);
 
   useEffect(() => () => window.clearTimeout(temporizador.current), []);
+
+  // Comentarios: el panel pide ir al texto comentado o quitar la marca.
+  useEffect(() => {
+    if (!editor) return;
+    const rango = (id: string) => {
+      let desde = -1;
+      let hasta = -1;
+      editor.state.doc.descendants((n, pos) => {
+        if (n.isText && n.marks.some((m) => m.type.name === 'comentario' && m.attrs.id === id)) {
+          if (desde < 0) desde = pos;
+          hasta = pos + n.nodeSize;
+        }
+      });
+      return desde < 0 ? null : { desde, hasta };
+    };
+    const ir = (e: Event) => {
+      const r = rango((e as CustomEvent).detail.id);
+      if (!r) return;
+      editor.chain().focus().setTextSelection({ from: r.desde, to: r.hasta }).scrollIntoView().run();
+    };
+    const quitar = (e: Event) => {
+      const id = (e as CustomEvent).detail.id;
+      const tr = editor.state.tr;
+      editor.state.doc.descendants((n, pos) => {
+        for (const m of n.marks) if (m.type.name === 'comentario' && m.attrs.id === id) tr.removeMark(pos, pos + n.nodeSize, m);
+      });
+      if (tr.docChanged) {
+        editor.view.dispatch(tr);
+        guardar(editor, true);
+      }
+    };
+    window.addEventListener('obi:ir-comentario', ir);
+    window.addEventListener('obi:quitar-comentario', quitar);
+    return () => {
+      window.removeEventListener('obi:ir-comentario', ir);
+      window.removeEventListener('obi:quitar-comentario', quitar);
+    };
+  }, [editor]);
 
   const estado = useEditorState({
     editor,
@@ -170,6 +211,27 @@ export function Editor({ seccion, onCambio, onEstado }: Props) {
     setNotas(notasRef.current);
     editor.chain().focus().insertarNota(id).run();
     guardar(editor, true);
+  };
+
+  const comentar = async () => {
+    if (!editor) return;
+    const { from, to, empty } = editor.state.selection;
+    if (empty) return aviso('Selecciona primero el texto que quieres comentar.', 'error');
+    const cita = editor.state.doc.textBetween(from, to, ' ');
+    const r = await pedirDatos(
+      'Nuevo comentario',
+      [
+        { nombre: 'texto', etiqueta: `Comentario sobre «${cita.length > 60 ? cita.slice(0, 60) + '…' : cita}»`, tipo: 'area' },
+        { nombre: 'autor', etiqueta: 'Tu nombre', valor: nombreRevisor(), ayuda: 'Se recuerda para los siguientes comentarios.' },
+      ],
+      'Comentar',
+    );
+    if (!r?.texto.trim()) return;
+    guardarRevisor(r.autor.trim());
+    const id = nuevoId('c');
+    editor.chain().focus().setTextSelection({ from, to }).setMark('comentario', { id }).run();
+    guardar(editor, true);
+    onComentar({ id, texto: r.texto.trim(), autor: r.autor.trim() || 'Anónimo', cita });
   };
 
   const imagen = async (archivo: File) => {
@@ -263,6 +325,7 @@ export function Editor({ seccion, onCambio, onEstado }: Props) {
         <B titulo={estado.idioma ? `Quitar idioma (${estado.idioma})` : 'Texto en otro idioma'} activo={!!estado.idioma} onClick={idioma}>🌐</B>
         <B titulo={estado.enlace ? 'Quitar enlace' : 'Enlace'} activo={estado.enlace} onClick={enlace}>🔗</B>
         <B titulo="Nota al pie" onClick={nota}>✱</B>
+        <B titulo="Comentar" onClick={comentar}>💬</B>
         <span className="sep" />
         <B titulo="Separador de escena" onClick={() => c().setHorizontalRule().run()}>⁂</B>
         <B titulo="Imagen" onClick={() => entradaImagen.current?.click()}>🖼</B>

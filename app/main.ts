@@ -2,6 +2,7 @@
 
 import { app, BrowserWindow, Menu, dialog, shell, type MenuItemConstructorOptions } from 'electron';
 import { iniciarServidor } from './servidor.js';
+import { AlmacenPlugins } from '../src/plugins.js';
 import { Backend } from './backend.js';
 import { join } from 'node:path';
 
@@ -37,6 +38,7 @@ let salirConfirmado = false;
 
 async function crearVentana() {
   const backend = new Backend(join(app.getPath('userData'), 'recuperacion'));
+  backend.plugins = new AlmacenPlugins(process.env.OBI_PLUGINS || join(app.getPath('userData'), 'plugins'));
   backend.renderizador = renderizadorElectron;
   const { url, puerto } = await iniciarServidor({ backend });
   const origen = `http://127.0.0.1:${puerto}`;

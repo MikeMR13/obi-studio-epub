@@ -4,9 +4,22 @@ import JSZip from 'jszip';
 import { mkdir } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import type { Impresion, Libro, Metadatos, Recurso, Seccion, Tema, TipoSeccion, Tipografia } from '../src/model.js';
+import type { Comentario, Impresion, Libro, Metadatos, Recurso, Seccion, Tema, TipoSeccion, Tipografia } from '../src/model.js';
 import { ajustesImpresion, TAMANOS_IMPRESION, temaCompleto, validarTema } from '../src/model.js';
 import { TEMAS } from '../src/temas.js';
+import {
+  AlmacenPlugins,
+  ErrorPlugin,
+  ejecutarPlugin,
+  leerPlugin,
+  libroParaPlugin,
+  validarExportacion,
+  validarHallazgos,
+  validarLibroPlugin,
+  type Hallazgo,
+  type Manifiesto,
+  type PluginInstalado,
+} from '../src/plugins.js';
 import { compilarKepub } from '../src/kepub.js';
 import { exportarWord, importarCorrecciones, type ResumenCorrecciones } from '../src/formatos/word.js';
 import { archivosImpresion, margenInteriorAutomatico } from '../src/impresion.js';
@@ -22,6 +35,25 @@ import { deserializarProyecto, guardarProyecto, serializarProyecto } from '../sr
 import { validarDatos, type Resultado } from '../src/validar.js';
 import { aplicarTipografiaLibro, aplicarTipografiaSeccion } from '../src/tipografia.js';
 import { tamanoImagen, tipoPorContenido, extension } from '../src/imagen.js';
+
+/** Acepta solo comentarios con la forma esperada. */
+function limpiarComentarios(v: unknown): Comentario[] {
+  if (!Array.isArray(v)) return [];
+  const txt = (x: unknown, max: number) => (typeof x === 'string' ? x.slice(0, max) : '');
+  return v
+    .filter((c) => c && typeof c === 'object' && typeof c.id === 'string' && typeof c.texto === 'string')
+    .map((c) => ({
+      id: c.id.slice(0, 40),
+      autor: txt(c.autor, 120) || 'Anónimo',
+      fecha: txt(c.fecha, 40) || new Date().toISOString(),
+      texto: txt(c.texto, 10_000),
+      ...(c.resuelto ? { resuelto: true } : {}),
+      ...(c.cita ? { cita: txt(c.cita, 500) } : {}),
+      ...(Array.isArray(c.respuestas) && c.respuestas.length
+        ? { respuestas: c.respuestas.filter((r: unknown) => r && typeof r === 'object').map((r: Record<string, unknown>) => ({ autor: txt(r.autor, 120) || 'Anónimo', fecha: txt(r.fecha, 40), texto: txt(r.texto, 10_000) })) }
+        : {}),
+    }));
+}
 
 export class ErrorUsuario extends Error {
   constructor(mensaje: string, public estado = 400, public datos?: unknown) {
@@ -39,6 +71,8 @@ export interface Estado {
   cambiado: boolean;
   palabras: Record<string, number>;
   avisos: string[];
+  /** Nombre del plugin cuya transformación se puede deshacer. */
+  deshacerPlugin?: string;
 }
 
 export class Backend {
@@ -57,16 +91,30 @@ export class Backend {
   private paquetes = new Map<string, Map<string, string | Uint8Array>>();
   private contadorImpresion = 0;
 
+  /** Plugins instalados (Electron usa la carpeta de datos de la app). */
+  plugins = new AlmacenPlugins(process.env.OBI_PLUGINS || join(homedir(), '.obi-studio', 'plugins'));
+  /** Libro antes de la última transformación de un plugin, para deshacerla. */
+  private antesDePlugin?: { libro: Libro; plugin: string };
+
   constructor(private carpetaRecuperacion = join(homedir(), '.obi-studio')) {}
 
   estado(): Estado {
     const recursos = this.libro.recursos.map(({ datos, ...r }) => ({ ...r, bytes: datos.length }));
     const palabras: Record<string, number> = {};
     for (const s of this.libro.secciones) palabras[s.id] = contarPalabras(s);
-    return { libro: { ...this.libro, recursos }, nombreArchivo: this.nombreArchivo, cambiado: this.cambiado, palabras, avisos: this.avisos };
+    return {
+      libro: { ...this.libro, recursos },
+      nombreArchivo: this.nombreArchivo,
+      cambiado: this.cambiado,
+      palabras,
+      avisos: this.avisos,
+      ...(this.antesDePlugin ? { deshacerPlugin: this.antesDePlugin.plugin } : {}),
+    };
   }
 
   private marcar() {
+    // Cualquier cambio posterior a una transformación hace que ya no se pueda deshacer de golpe.
+    this.antesDePlugin = undefined;
     this.cambiado = true;
     this.ultimaValidacion = undefined;
     clearTimeout(this.temporizador);
@@ -107,15 +155,24 @@ export class Backend {
         const r = await importarDocx(datos);
         libro = r.libro;
         avisos = r.avisos.map((a) => a.mensaje);
+      } else if (ext && (await this.importadorPara(ext))) {
+        const p = (await this.importadorPara(ext))!;
+        const plugin = await this.plugins.obtener(p.id);
+        const base = libroNuevo(nombre.replace(/\.[^.]+$/, ''), '');
+        base.secciones = [];
+        const r = await ejecutarPlugin(plugin, 'importador', [datos, nombre]);
+        libro = validarLibroPlugin(r.resultado, { ...base, recursos: [] }, p.permisos);
+        avisos = [`Importado con el plugin «${p.nombre}».`];
       } else if (ext === 'doc' || ext === 'rtf') {
         throw new ErrorUsuario('Abre el archivo en Word o LibreOffice y guárdalo como .docx para importarlo.');
-      } else throw new ErrorUsuario('Formato no admitido. Usa .epub, .docx u .obi.');
+      } else throw new ErrorUsuario('Formato no admitido. Usa .epub, .docx u .obi, o instala un plugin que lo importe.');
     } catch (e) {
       if (e instanceof ErrorUsuario) throw e;
       throw new ErrorUsuario(`No se pudo abrir el archivo: ${(e as Error).message}`);
     }
     this.libro = libro;
     this.avisos = avisos;
+    this.antesDePlugin = undefined;
     this.nombreArchivo = ext === 'obi' ? nombre : nombreDeArchivo(libro.metadatos.titulo || nombre.replace(/\.[^.]+$/, '')) + '.obi';
     this.cambiado = ext !== 'obi';
     this.ultimaValidacion = undefined;
@@ -220,6 +277,8 @@ export class Backend {
     const { id: _id, ...resto } = cambios as Partial<Seccion>;
     Object.assign(s, resto);
     // null quita un campo opcional (imagen de cabecera, doble página).
+    if ('comentarios' in (cambios as object)) s.comentarios = limpiarComentarios((cambios as { comentarios?: unknown }).comentarios);
+    if (!s.comentarios?.length) delete s.comentarios;
     for (const k of ['imagenCabecera', 'doblePagina', 'paginaFija'] as const) if ((s as unknown as Record<string, unknown>)[k] === null || s[k] === undefined) delete s[k];
     if (s.imagenCabecera && !this.libro.recursos.some((r) => r.id === s.imagenCabecera)) delete s.imagenCabecera;
     this.marcar();
@@ -397,6 +456,74 @@ export class Backend {
     if (tipo === 'impresion') this.ultimasPaginas = r.paginas;
     const sufijo = tipo === 'impresion' ? '-impresion' : '-digital';
     return { nombre: nombreDeArchivo(this.libro.metadatos.titulo) + sufijo + '.pdf', datos: r.datos, paginas: r.paginas, avisos: revisarImpresion(this.libro, r.paginas) };
+  }
+
+  // ----- Plugins -----
+
+  private async importadorPara(ext: string): Promise<PluginInstalado | undefined> {
+    return (await this.plugins.listar()).find((p) => p.tipos.includes('importador') && p.extensiones?.includes(ext));
+  }
+
+  async listarPlugins(): Promise<PluginInstalado[]> {
+    return this.plugins.listar();
+  }
+
+  /** Lee un paquete sin instalarlo, para mostrar sus permisos antes de aceptar. */
+  async inspeccionarPlugin(datos: Uint8Array): Promise<Manifiesto> {
+    return (await this.conPlugin(() => leerPlugin(datos))).manifiesto;
+  }
+
+  async instalarPlugin(datos: Uint8Array): Promise<PluginInstalado> {
+    return this.conPlugin(() => this.plugins.instalar(datos));
+  }
+
+  async eliminarPlugin(id: string) {
+    await this.conPlugin(() => this.plugins.eliminar(id));
+  }
+
+  private async conPlugin<T>(f: () => Promise<T>): Promise<T> {
+    try {
+      return await f();
+    } catch (e) {
+      if (e instanceof ErrorPlugin) throw new ErrorUsuario(e.message);
+      throw e;
+    }
+  }
+
+  async revisarConPlugin(id: string): Promise<{ hallazgos: Hallazgo[]; registros: string[] }> {
+    return this.conPlugin(async () => {
+      const p = await this.plugins.obtener(id);
+      const r = await ejecutarPlugin(p, 'revision', [libroParaPlugin(this.libro, p.manifiesto.permisos)]);
+      return { hallazgos: validarHallazgos(r.resultado, this.libro), registros: r.registros };
+    });
+  }
+
+  async transformarConPlugin(id: string): Promise<{ registros: string[] }> {
+    return this.conPlugin(async () => {
+      const p = await this.plugins.obtener(id);
+      const r = await ejecutarPlugin(p, 'transformacion', [libroParaPlugin(this.libro, p.manifiesto.permisos)]);
+      const nuevo = validarLibroPlugin(r.resultado, this.libro, p.manifiesto.permisos);
+      const antes = this.libro;
+      this.libro = nuevo;
+      this.marcar();
+      this.antesDePlugin = { libro: antes, plugin: p.manifiesto.nombre };
+      return { registros: r.registros };
+    });
+  }
+
+  deshacerPlugin() {
+    if (!this.antesDePlugin) throw new ErrorUsuario('No hay ninguna transformación que deshacer.');
+    this.libro = this.antesDePlugin.libro;
+    this.antesDePlugin = undefined;
+    this.marcar();
+  }
+
+  async exportarConPlugin(id: string): Promise<{ nombre: string; datos: Uint8Array; tipoMime: string }> {
+    return this.conPlugin(async () => {
+      const p = await this.plugins.obtener(id);
+      const r = await ejecutarPlugin(p, 'exportador', [libroParaPlugin(this.libro, p.manifiesto.permisos)]);
+      return validarExportacion(r.resultado, p.manifiesto, nombreDeArchivo(this.libro.metadatos.titulo));
+    });
   }
 
   escritura(valor: 'horizontal' | 'vertical') {

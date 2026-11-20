@@ -314,3 +314,23 @@ p.error { font-weight: 600; }
 .menu-mas .desplegable button { display: flex; flex-direction: column; align-items: flex-start; gap: 1px; }
 .menu-mas .desplegable small { color: var(--tenue); font-size: 11.5px; }
 .resumen-correcciones ul { margin: 4px 0 0; padding-left: 18px; }
+
+/* ---------- Comentarios ---------- */
+.pagina-editor .comentado { background: #fff1b8; box-shadow: inset 0 -2px 0 #e2b100; border-radius: 2px; }
+.pestanas .contador { display: inline-block; margin-left: 4px; min-width: 16px; padding: 0 4px; border-radius: 8px; background: var(--obi); color: #fff; font-size: 10.5px; line-height: 16px; text-align: center; }
+.panel-comentarios { display: flex; flex-direction: column; gap: 10px; }
+.lista-comentarios { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.lista-comentarios > li { background: var(--papel); border: 1px solid var(--linea); border-left: 3px solid #e2b100; border-radius: var(--radio); padding: 10px; display: flex; flex-direction: column; gap: 6px; }
+.lista-comentarios > li.resuelto { opacity: 0.65; border-left-color: var(--ok); }
+.cabecera-comentario { display: flex; justify-content: space-between; gap: 8px; font-size: 12.5px; }
+.cabecera-comentario span, .respuesta span { color: var(--tenue); font-size: 11.5px; }
+.cita-comentario { all: unset; cursor: pointer; font-style: italic; color: var(--tinta-suave); font-size: 12.5px; }
+.cita-comentario:hover, .cita-comentario:focus-visible { color: var(--obi); text-decoration: underline; }
+.cita-comentario.perdida { cursor: default; margin: 0; }
+.texto-comentario { margin: 0; white-space: pre-wrap; font-size: 13.5px; }
+.respuesta { border-top: 1px dashed var(--linea); padding-top: 6px; font-size: 12.5px; }
+.respuesta p { margin: 2px 0 0; white-space: pre-wrap; }
+.acciones-comentario { display: flex; gap: 6px; flex-wrap: wrap; }
+.acciones-comentario button { font-size: 12px; padding: 3px 8px; }
+.peligro-texto { color: var(--error); }
+.panel-comentarios .vacio { color: var(--tenue); font-size: 13px; margin: 0; }

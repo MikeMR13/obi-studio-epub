@@ -1,0 +1,11 @@
+{
+  "id": "texto-plano",
+  "nombre": "Texto plano (.txt)",
+  "version": "1.0.0",
+  "autor": "Obi Studio",
+  "descripcion": "Importa un .txt (una línea en blanco separa párrafos; «Capítulo …», «Prólogo» y «Epílogo» empiezan sección; *** es un separador) y exporta el libro como .txt.",
+  "tipos": ["importador", "exportador"],
+  "permisos": [],
+  "extensiones": ["txt"],
+  "salida": { "extension": "txt", "tipoMime": "text/plain; charset=utf-8" }
+}

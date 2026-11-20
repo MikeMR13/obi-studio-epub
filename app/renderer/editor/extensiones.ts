@@ -65,6 +65,16 @@ export const Enfasis = Mark.create({
   renderHTML: () => ['span', { class: 'boten', title: 'Puntos de énfasis (傍点)' }, 0],
 });
 
+/** Comentario de revisión: una marca por comentario (pueden solaparse). No sale en el EPUB. */
+export const ComentarioMarca = Mark.create({
+  name: 'comentario',
+  excludes: '',
+  inclusive: false,
+  addAttributes: () => ({ id: { default: null, parseHTML: (e) => e.getAttribute('data-comentario'), renderHTML: (a) => ({ 'data-comentario': a.id }) } }),
+  parseHTML: () => [{ tag: 'span[data-comentario]' }],
+  renderHTML: ({ HTMLAttributes }) => ['span', { ...HTMLAttributes, class: 'comentado' }, 0],
+});
+
 export const Idioma = Mark.create({
   name: 'idioma',
   addAttributes: () => ({ lang: { default: null } }),
@@ -169,6 +179,7 @@ export function extensiones() {
     Subscript,
     Versalitas,
     Enfasis,
+    ComentarioMarca,
     Idioma,
     Ruby,
     NotaRef,

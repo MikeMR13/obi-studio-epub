@@ -11,6 +11,7 @@ import { Codigo } from './paneles/Codigo';
 import { Ilustracion } from './paneles/Ilustracion';
 import { PanelImpresion, VistaImpresion } from './paneles/Impresion';
 import { PanelTema } from './paneles/Tema';
+import { Comentarios } from './paneles/Comentarios';
 import type { Pestana } from './paneles/Inspector';
 
 type Vista = 'editor' | 'codigo' | 'vista' | 'impresion';
@@ -347,7 +348,16 @@ export function App() {
             onPortada={(recurso) => llamar(async () => aplicar(await api.metadatos({ portada: recurso } as Partial<Metadatos>)))}
           />
         ) : (
-          <Editor key={seccion.id} seccion={seccion} onCambio={(b, n) => guardarTexto(seccion.id, b, n)} onEstado={() => api.estado().then((e) => aplicar(e))} />
+          <Editor
+            key={seccion.id}
+            seccion={seccion}
+            onCambio={(b, n) => guardarTexto(seccion.id, b, n)}
+            onEstado={() => api.estado().then((e) => aplicar(e))}
+            onComentar={(c) => {
+              cambiarSeccion({ comentarios: [...(seccion.comentarios ?? []), { id: c.id, autor: c.autor, fecha: new Date().toISOString(), texto: c.texto }] });
+              setPestana('comentarios');
+            }}
+          />
         ))}
         {seccion && vista === 'codigo' && (
           <Codigo
@@ -395,6 +405,7 @@ export function App() {
             aplicar(await api.seccion(seccion.id, { imagenCabecera: r.recurso.id }));
           })
         }
+        panelComentarios={<Comentarios seccion={seccion} onSeccion={cambiarSeccion} />}
         panelTema={
           <PanelTema
             estado={estado}

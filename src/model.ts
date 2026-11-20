@@ -21,6 +21,8 @@ export interface Texto {
   enlace?: string;
   /** Idioma BCP 47 de este fragmento, si difiere del libro (p. ej. "ja"). */
   idioma?: string;
+  /** Comentarios de revisión anclados a este fragmento (ids de `Seccion.comentarios`). No salen en el EPUB ni en el PDF. */
+  comentarios?: string[];
 }
 
 /** Furigana u otra anotación ruby sobre un texto base. */
@@ -133,6 +135,26 @@ export const TIPOS_SECCION: { id: TipoSeccion; nombre: string }[] = [
   { id: 'otro', nombre: 'Otra sección' },
 ];
 
+/** Respuesta dentro de un hilo de comentarios. */
+export interface Respuesta {
+  autor: string;
+  /** Fecha ISO 8601. */
+  fecha: string;
+  texto: string;
+}
+
+/** Comentario de revisión. Solo vive en el proyecto y en el Word de corrección; nunca en el EPUB ni en el PDF. */
+export interface Comentario {
+  id: string;
+  autor: string;
+  fecha: string;
+  texto: string;
+  resuelto?: boolean;
+  respuestas?: Respuesta[];
+  /** Texto comentado, cuando el ancla se perdió (p. ej. el corrector borró la frase). */
+  cita?: string;
+}
+
 export interface Nota {
   id: string;
   contenido: Inline[];
@@ -153,6 +175,8 @@ export interface Seccion {
   doblePagina?: boolean;
   /** Ilustración o portada como página fija (pre-paginated) dentro de un libro fluido. */
   paginaFija?: boolean;
+  /** Comentarios de revisión de esta sección. */
+  comentarios?: Comentario[];
 }
 
 export interface Recurso {
@@ -484,15 +508,31 @@ export function normalizarInlines(lista: Inline[]): Inline[] {
       prev.tipo === 'texto' &&
       prev.enlace === i.enlace &&
       prev.idioma === i.idioma &&
-      mismasMarcas(prev.marcas, i.marcas)
+      mismasMarcas(prev.marcas, i.marcas) &&
+      mismosComentarios(prev.comentarios, i.comentarios)
     ) {
       prev.texto += i.texto;
       continue;
     }
-    salida.push(i.tipo === 'texto' ? { ...i, marcas: i.marcas?.length ? [...i.marcas].sort() : undefined } : i);
+    salida.push(
+      i.tipo === 'texto'
+        ? { ...i, marcas: i.marcas?.length ? [...i.marcas].sort() : undefined, comentarios: i.comentarios?.length ? [...new Set(i.comentarios)].sort() : undefined }
+        : i,
+    );
   }
-  for (const i of salida) if (i.tipo === 'texto' && !i.marcas) delete i.marcas;
+  for (const i of salida) {
+    if (i.tipo !== 'texto') continue;
+    if (!i.marcas) delete i.marcas;
+    if (!i.comentarios) delete i.comentarios;
+  }
   return salida;
+}
+
+export function mismosComentarios(a: string[] = [], b: string[] = []): boolean {
+  if (a.length !== b.length) return false;
+  const sa = [...a].sort();
+  const sb = [...b].sort();
+  return sa.every((m, k) => m === sb[k]);
 }
 
 export function mismasMarcas(a: Marca[] = [], b: Marca[] = []): boolean {

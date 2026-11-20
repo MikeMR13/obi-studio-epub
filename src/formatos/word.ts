@@ -3,11 +3,13 @@
 // tema, metadatos ni bloques XHTML.
 
 import {
-  AlignmentType, Document, ExternalHyperlink, FootnoteReferenceRun, HeadingLevel, ImageRun, LevelFormat, Packer, Paragraph, TextRun,
+  AlignmentType, CommentRangeEnd, CommentRangeStart, CommentReference, Document, ExternalHyperlink, FootnoteReferenceRun, HeadingLevel, ImageRun, LevelFormat, Packer, Paragraph, TextRun,
   type IRunOptions, type ParagraphChild,
 } from 'docx';
+import JSZip from 'jszip';
 import type { Bloque, Inline, Libro, Nota, Recurso, Seccion } from '../model.js';
-import { TIPOS_SECCION, nuevoId } from '../model.js';
+import { anclarComentario, fundirComentarios, leerComentariosWord, textosComentados } from '../comentarios.js';
+import { TIPOS_SECCION, normalizarInlines, nuevoId } from '../model.js';
 import { importarDocx } from './docx.js';
 export { rubiesDeTexto } from './docx.js';
 
@@ -24,9 +26,31 @@ function encabezadoSeccion(s: Seccion): string {
   return `⟦${TIPOS_SECCION.find((t) => t.id === s.tipo)?.nombre ?? 'Sección'}⟧`;
 }
 
-function runs(lista: Inline[], notas: Map<string, number>): ParagraphChild[] {
+/** Números de comentario de Word por id del modelo; `cerrados` evita repetir un rango. */
+interface ContextoComentarios {
+  numeros: Map<string, number>;
+  cerrados: Set<string>;
+}
+
+function runs(lista: Inline[], notas: Map<string, number>, cc?: ContextoComentarios): ParagraphChild[] {
   const salida: ParagraphChild[] = [];
+  const abiertos: string[] = [];
+  const cerrar = (id: string) => {
+    const n = cc!.numeros.get(id)!;
+    salida.push(new CommentRangeEnd(n), new TextRun({ children: [new CommentReference(n)] }));
+    abiertos.splice(abiertos.indexOf(id), 1);
+    cc!.cerrados.add(id);
+  };
   for (const i of lista) {
+    if (cc) {
+      const ids = (i.tipo === 'texto' ? i.comentarios ?? [] : abiertos).filter((id) => cc.numeros.has(id));
+      for (const id of [...abiertos]) if (!ids.includes(id)) cerrar(id);
+      for (const id of ids)
+        if (!abiertos.includes(id) && !cc.cerrados.has(id)) {
+          salida.push(new CommentRangeStart(cc.numeros.get(id)!));
+          abiertos.push(id);
+        }
+    }
     if (i.tipo === 'salto') salida.push(new TextRun({ text: '', break: 1 }));
     else if (i.tipo === 'nota') {
       const n = notas.get(i.id);
@@ -50,6 +74,7 @@ function runs(lista: Inline[], notas: Map<string, number>): ParagraphChild[] {
       else salida.push(new TextRun(opciones));
     }
   }
+  for (const id of [...abiertos]) cerrar(id);
   return salida;
 }
 
@@ -69,6 +94,22 @@ export async function exportarWord(libro: Libro): Promise<Uint8Array> {
   const notasWord: Record<number, { children: Paragraph[] }> = {};
   let siguienteNota = 1;
   const hijos: Paragraph[] = [];
+  const cc: ContextoComentarios = { numeros: new Map(), cerrados: new Set() };
+  const comentariosWord: { id: number; author: string; date: Date; children: Paragraph[]; parentId?: number; resolved?: boolean }[] = [];
+  const parrafosComentario = (t: string) => t.split('\n').map((l) => new Paragraph({ children: [new TextRun(l)] }));
+  const fechaValida = (f: string) => (isNaN(new Date(f).getTime()) ? new Date() : new Date(f));
+  for (const s of seccionesDeTexto(libro)) {
+    const anclados = textosComentados(s.bloques);
+    for (const c of s.comentarios ?? []) {
+      // Solo viajan los comentarios con su texto en la sección; los demás se quedan en el proyecto.
+      if (!anclados.has(c.id)) continue;
+      const n = comentariosWord.length;
+      cc.numeros.set(c.id, n);
+      comentariosWord.push({ id: n, author: c.autor, date: fechaValida(c.fecha), children: parrafosComentario(c.texto), ...(c.resuelto ? { resolved: true } : {}) });
+      for (const r of c.respuestas ?? [])
+        comentariosWord.push({ id: comentariosWord.length, author: r.autor, date: fechaValida(r.fecha), children: parrafosComentario(r.texto), parentId: n });
+    }
+  }
   seccionesDeTexto(libro).forEach((s, k) => {
     hijos.push(new Paragraph({ heading: HeadingLevel.HEADING_1, pageBreakBefore: k > 0, children: [new TextRun(encabezadoSeccion(s))] }));
     const numeros = new Map<string, number>();
@@ -93,13 +134,13 @@ export async function exportarWord(libro: Libro): Promise<Uint8Array> {
             new Paragraph({
               style: estilo,
               alignment: b.estilo === 'centrado' ? AlignmentType.CENTER : b.estilo === 'derecha' ? AlignmentType.RIGHT : undefined,
-              children: runs(b.contenido, numeros),
+              children: runs(b.contenido, numeros, cc),
             }),
           );
           break;
         }
         case 'subtitulo':
-          hijos.push(new Paragraph({ heading: b.nivel === 2 ? HeadingLevel.HEADING_2 : HeadingLevel.HEADING_3, children: runs(b.contenido, numeros) }));
+          hijos.push(new Paragraph({ heading: b.nivel === 2 ? HeadingLevel.HEADING_2 : HeadingLevel.HEADING_3, children: runs(b.contenido, numeros, cc) }));
           break;
         case 'separador':
           hijos.push(new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun('* * *')] }));
@@ -109,7 +150,7 @@ export async function exportarWord(libro: Libro): Promise<Uint8Array> {
             hijos.push(
               new Paragraph({
                 ...(b.ordenada ? { numbering: { reference: 'numerada', level: 0 } } : { bullet: { level: 0 } }),
-                children: runs(e, numeros),
+                children: runs(e, numeros, cc),
               }),
             );
           }
@@ -164,6 +205,7 @@ export async function exportarWord(libro: Libro): Promise<Uint8Array> {
     },
     numbering: { config: [{ reference: 'numerada', levels: [{ level: 0, format: LevelFormat.DECIMAL, text: '%1.', alignment: AlignmentType.START }] }] },
     footnotes: notasWord,
+    ...(comentariosWord.length ? { comments: { children: comentariosWord } } : {}),
     sections: [{ children: hijos }],
   });
   return new Uint8Array(await Packer.toBuffer(doc));
@@ -173,7 +215,17 @@ export interface ResumenCorrecciones {
   actualizadas: string[];
   nuevas: string[];
   sinCambios: number;
+  /** Comentarios y respuestas nuevos del corrector. */
+  comentarios: number;
   avisos: string[];
+}
+
+/** Bloques sin anclas de comentario, para comparar el texto. */
+function sinComentarios(bloques: Bloque[]): Bloque[] {
+  const limpiar = (l: Inline[]) => normalizarInlines(l.map((i) => (i.tipo === 'texto' && i.comentarios ? (({ comentarios: _c, ...r }) => r)(i) : i)));
+  return bloques.map((b) =>
+    b.tipo === 'parrafo' || b.tipo === 'subtitulo' ? { ...b, contenido: limpiar(b.contenido) } : b.tipo === 'lista' ? { ...b, elementos: b.elementos.map(limpiar) } : b,
+  );
 }
 
 const normalizar = (t: string) => t.normalize('NFKC').replace(/\s+/g, ' ').trim().toLowerCase();
@@ -185,7 +237,23 @@ function textoDe(b: Bloque): string {
 /** Funde en el libro las correcciones hechas en un Word exportado con exportarWord. Modifica `libro`. */
 export async function importarCorrecciones(libro: Libro, datos: Uint8Array): Promise<ResumenCorrecciones> {
   const { libro: corregido } = await importarDocx(datos);
-  const resumen: ResumenCorrecciones = { actualizadas: [], nuevas: [], sinCambios: 0, avisos: [] };
+  const resumen: ResumenCorrecciones = { actualizadas: [], nuevas: [], sinCambios: 0, comentarios: 0, avisos: [] };
+  const deWord = await leerComentariosWord(datos);
+  const comentariosDe = (k: number) => {
+    const raices = deWord.filter((c) => c.seccion === k && !c.padre);
+    const ids = new Set(raices.map((c) => c.wid));
+    return [...raices, ...deWord.filter((c) => c.padre && ids.has(c.padre))];
+  };
+  const fundir = (s: Seccion, k: number) => {
+    const r = fundirComentarios(s.bloques, s.comentarios ?? [], comentariosDe(k), deWord);
+    resumen.comentarios += r.nuevos;
+    if (r.comentarios.length) s.comentarios = r.comentarios;
+    else delete s.comentarios;
+  };
+  const xml = (await JSZip.loadAsync(datos)).file('word/document.xml');
+  const documento = xml ? await xml.async('string') : '';
+  const marcas = (documento.match(/<w:(ins|del) /g) ?? []).length;
+  if (marcas) resumen.avisos.push(`El Word tenía ${marcas} cambio${marcas === 1 ? '' : 's'} con control de cambios sin aceptar; se tomaron como aceptados.`);
   const destino = seccionesDeTexto(libro);
   const usadas = new Set<Seccion>();
   let ultimaPosicion = -1;
@@ -200,6 +268,7 @@ export async function importarCorrecciones(libro: Libro, datos: Uint8Array): Pro
       // Capítulo nuevo escrito en Word: se inserta después del último emparejado.
       const sec: Seccion = { ...nueva, id: nuevoId('s'), titulo: esMarcador ? '' : titulo };
       for (const b of sec.bloques) if (b.tipo === 'imagen') b.recurso = reutilizarImagen(libro, corregido, b.recurso);
+      fundir(sec, k);
       const pos = ultimaPosicion >= 0 ? ultimaPosicion + 1 : libro.secciones.length;
       libro.secciones.splice(pos, 0, sec);
       ultimaPosicion = pos;
@@ -241,14 +310,22 @@ export async function importarCorrecciones(libro: Libro, datos: Uint8Array): Pro
     const notas: Nota[] = nueva.notas;
     // Los párrafos vacíos no viajan por Word: no cuentan como cambio.
     const sinVacios = (l: Bloque[]) => l.filter((b) => !(b.tipo === 'parrafo' && !b.contenido.length));
-    const antes = JSON.stringify({ b: sinVacios(s.bloques), n: s.notas.map((n) => n.contenido) }).replace(/"id":"n[^"]+"/g, '');
+    const antes = JSON.stringify({ b: sinVacios(sinComentarios(s.bloques)), n: s.notas.map((n) => n.contenido) }).replace(/"id":"n[^"]+"/g, '');
     const despues = JSON.stringify({ b: sinVacios(bloques), n: notas.map((n) => n.contenido) }).replace(/"id":"n[^"]+"/g, '');
     const tituloNuevo = esMarcador ? s.titulo : titulo;
     if (antes === despues && tituloNuevo === s.titulo) {
       resumen.sinCambios++;
+      fundir(s, k);
       return;
     }
+    // Los comentarios del proyecto se vuelven a anclar a su texto en la versión corregida.
+    const anclas = textosComentados(s.bloques);
     s.bloques = bloques;
+    for (const c of s.comentarios ?? []) {
+      const texto = anclas.get(c.id);
+      if (texto && !anclarComentario(s.bloques, c.id, texto)) c.cita = texto.slice(0, 500);
+    }
+    fundir(s, k);
     s.notas = notas;
     s.titulo = tituloNuevo;
     resumen.actualizadas.push(s.titulo || TIPOS_SECCION.find((t) => t.id === s!.tipo)?.nombre || 'Sección');

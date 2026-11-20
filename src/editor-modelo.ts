@@ -29,10 +29,11 @@ const MARCA_A_PM: Record<Marca, string> = {
 };
 const PM_A_MARCA: Record<string, Marca> = Object.fromEntries(Object.entries(MARCA_A_PM).map(([k, v]) => [v, k as Marca]));
 
-function marcasPM(i: { marcas?: Marca[]; enlace?: string; idioma?: string }): PMMark[] | undefined {
+function marcasPM(i: { marcas?: Marca[]; enlace?: string; idioma?: string; comentarios?: string[] }): PMMark[] | undefined {
   const m: PMMark[] = (i.marcas ?? []).map((x) => ({ type: MARCA_A_PM[x] }));
   if (i.enlace) m.push({ type: 'link', attrs: { href: i.enlace } });
   if (i.idioma) m.push({ type: 'idioma', attrs: { lang: i.idioma } });
+  for (const id of i.comentarios ?? []) m.push({ type: 'comentario', attrs: { id } });
   return m.length ? m : undefined;
 }
 
@@ -87,15 +88,18 @@ export function bloquesAPM(bloques: Bloque[]): PMNodo {
   return { type: 'doc', content };
 }
 
-function datosMarcas(marks: PMMark[] = []): { marcas?: Marca[]; enlace?: string; idioma?: string } {
-  const r: { marcas?: Marca[]; enlace?: string; idioma?: string } = {};
+function datosMarcas(marks: PMMark[] = []): { marcas?: Marca[]; enlace?: string; idioma?: string; comentarios?: string[] } {
+  const r: { marcas?: Marca[]; enlace?: string; idioma?: string; comentarios?: string[] } = {};
   const marcas: Marca[] = [];
+  const comentarios: string[] = [];
   for (const m of marks) {
     if (PM_A_MARCA[m.type]) marcas.push(PM_A_MARCA[m.type]);
     else if (m.type === 'link' && m.attrs?.href) r.enlace = String(m.attrs.href);
     else if (m.type === 'idioma' && m.attrs?.lang) r.idioma = String(m.attrs.lang);
+    else if (m.type === 'comentario' && m.attrs?.id) comentarios.push(String(m.attrs.id));
   }
   if (marcas.length) r.marcas = marcas;
+  if (comentarios.length) r.comentarios = comentarios;
   return r;
 }
 

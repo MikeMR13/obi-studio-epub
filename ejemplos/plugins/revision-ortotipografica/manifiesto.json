@@ -1,0 +1,9 @@
+{
+  "id": "revision-ortotipografica",
+  "nombre": "Revisión ortotipográfica",
+  "version": "1.0.0",
+  "autor": "Obi Studio",
+  "descripcion": "Busca espacios dobles, comillas rectas, tres puntos sueltos, espacios antes de signos, ¿? y ¡! sin pareja y párrafos muy largos.",
+  "tipos": ["revision"],
+  "permisos": []
+}

@@ -1,0 +1,9 @@
+{
+  "id": "limpieza-espacios",
+  "nombre": "Limpieza de espacios",
+  "version": "1.0.0",
+  "autor": "Obi Studio",
+  "descripcion": "Une espacios dobles, quita espacios al principio y al final de cada párrafo y borra los párrafos vacíos. Se puede deshacer.",
+  "tipos": ["transformacion"],
+  "permisos": []
+}
