@@ -7,6 +7,7 @@ import { join } from 'node:path';
 import type { Bloque, Comentario, Impresion, Libro, Nota, Metadatos, Recurso, Seccion, Tema, TipoSeccion, Tipografia } from '../src/model.js';
 import { ajustesImpresion, TAMANOS_IMPRESION, temaCompleto, validarTema } from '../src/model.js';
 import { TEMAS } from '../src/temas.js';
+import { TIENDAS, compilarParaTienda, revisarTienda, type AvisoTienda, type IdTienda } from '../src/tiendas.js';
 import { buscarGhostscript } from '../src/pdfx.js';
 import { ArchivoConfiguracion } from '../src/configuracion.js';
 import { CATALOGO_INTEGRADO, ListaCatalogos, archivoCatalogos, leerCatalogo, normalizarUrlCatalogo, paqueteDeCatalogo, versionMayor, type EntradaCatalogo } from '../src/catalogo.js';
@@ -737,6 +738,33 @@ export class Backend {
     const r = await validarDatos(datos);
     if (!r.valido) throw new ErrorUsuario('El KEPUB tiene errores. Corrígelos antes de exportar (pestaña Validación).', 409, r);
     return { nombre: nombreDeArchivo(this.libro.metadatos.titulo) + '.kepub.epub', datos };
+  }
+
+  // ----- Tiendas -----
+
+  private idTienda(id: string): IdTienda {
+    if (!TIENDAS.some((t) => t.id === id)) throw new ErrorUsuario('Tienda desconocida.', 404);
+    return id as IdTienda;
+  }
+
+  async revisarTienda(id: string): Promise<AvisoTienda[]> {
+    return revisarTienda(this.libro, this.idTienda(id));
+  }
+
+  /** EPUB ajustado a la tienda; se valida con EPUBCheck antes de entregarlo. */
+  async exportarTienda(id: string): Promise<{ nombre: string; datos: Uint8Array }> {
+    const t = this.idTienda(id);
+    const { datos } = await compilarParaTienda(this.libro, t);
+    const r = await validarDatos(datos);
+    if (!r.valido) throw new ErrorUsuario('El EPUB tiene errores. Corrígelos antes de exportar (pestaña Validación).', 409, r);
+    return { nombre: `${nombreDeArchivo(this.libro.metadatos.titulo)}-${t}.epub`, datos };
+  }
+
+  /** Imagen de portada original, para subirla aparte a la tienda. */
+  portadaOriginal(): { nombre: string; datos: Uint8Array; tipoMime: string } {
+    const r = this.libro.recursos.find((x) => x.id === this.libro.metadatos.portada);
+    if (!r) throw new ErrorUsuario('El libro no tiene portada.');
+    return { nombre: `${nombreDeArchivo(this.libro.metadatos.titulo)}-portada.${r.nombre.split('.').pop()}`, datos: r.datos, tipoMime: r.tipoMime };
   }
 
   async exportarWord(): Promise<{ nombre: string; datos: Uint8Array }> {

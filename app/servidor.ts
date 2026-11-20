@@ -179,6 +179,15 @@ export async function iniciarServidor(op: OpcionesServidor = {}) {
       const { nombre, datos } = await backend.exportarKepub();
       descarga(r, nombre, 'application/epub+zip', datos);
     }],
+    ['GET', /^\/api\/tiendas\/(\w+)\/revision$/, async (_q, r, m) => enviar(r, 200, await backend.revisarTienda(m[1]))],
+    ['GET', /^\/api\/tiendas\/(\w+)\/exportar$/, async (_q, r, m) => {
+      const { nombre, datos } = await backend.exportarTienda(m[1]);
+      descarga(r, nombre, 'application/epub+zip', datos);
+    }],
+    ['GET', /^\/api\/portada$/, async (_q, r) => {
+      const { nombre, datos, tipoMime } = backend.portadaOriginal();
+      descarga(r, nombre, tipoMime, datos);
+    }],
     ['GET', /^\/api\/exportar-word$/, async (_q, r) => {
       const { nombre, datos } = await backend.exportarWord();
       descarga(r, nombre, 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', datos);

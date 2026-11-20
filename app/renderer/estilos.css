@@ -431,3 +431,15 @@ p.error { font-weight: 600; }
 .estado-conexion { margin-left: auto; font-size: 12px; color: var(--tenue); }
 .estado-conexion.ok { color: var(--ok); }
 .menu-mas .separador-menu { border-top: 1px solid var(--linea); }
+
+/* ---------- Publicar en tiendas ---------- */
+.tiendas { display: flex; flex-wrap: wrap; gap: 6px; }
+.tiendas button { border-radius: 16px; padding: 4px 12px; font-size: 13px; }
+.tiendas button.activa { background: var(--obi); color: #fff; border-color: var(--obi); }
+.lista-tienda { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; font-size: 13.5px; }
+.lista-tienda li { display: flex; gap: 8px; align-items: flex-start; padding: 6px 8px; border-radius: 6px; background: var(--papel); }
+.lista-tienda li.error { background: #fbe9e7; }
+.lista-tienda li.aviso { background: #fff4e0; }
+.lista-tienda .icono-tienda { width: 16px; flex: none; text-align: center; }
+.lista-tienda li.ok .icono-tienda { color: var(--ok); }
+.lista-tienda li.error .icono-tienda { color: var(--error); }

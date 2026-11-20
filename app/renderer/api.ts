@@ -6,10 +6,11 @@ import type { InformeAccesibilidad } from '../../src/accesibilidad';
 import type { Coincidencia, OpcionesBusqueda } from '../../src/buscar';
 import type { DiferenciaSeccion } from '../../src/versiones';
 import type { EntradaCatalogo } from '../../src/catalogo';
+import type { AvisoTienda } from '../../src/tiendas';
 import type { EstadoColaboracion } from '../colaboracion';
 import type { Hallazgo, Manifiesto, PluginInstalado } from '../../src/plugins';
 
-export type { Coincidencia, OpcionesBusqueda, DiferenciaSeccion };
+export type { Coincidencia, OpcionesBusqueda, DiferenciaSeccion, AvisoTienda };
 export type Catalogo = { catalogos: string[]; plugins: (EntradaCatalogo & { estado: 'nuevo' | 'instalado' | 'actualizable' })[]; errores: string[] };
 import { t } from './i18n';
 export type { Estado, Resultado, AvisoImpresion, InformeAccesibilidad, Hallazgo, Manifiesto, PluginInstalado };
@@ -63,6 +64,7 @@ export const api = {
   compararVersion: (id: string) => pedir<DiferenciaSeccion[]>('GET', `/api/versiones/${id}/comparar`),
   restaurarVersion: (id: string) => pedir<{ avisos: string[]; estado: Estado }>('POST', `/api/versiones/${id}/restaurar`),
   eliminarVersion: (id: string) => pedir<Estado>('DELETE', `/api/versiones/${id}`),
+  revisarTienda: (id: string) => pedir<AvisoTienda[]>('GET', `/api/tiendas/${id}/revision`),
   configuracion: () => pedir<{ colaboracion: boolean }>('GET', '/api/configuracion'),
   cambiarConfiguracion: (c: { colaboracion?: boolean }) => pedir<{ configuracion: { colaboracion: boolean }; estado: Estado }>('PUT', '/api/configuracion', c),
   colaboracion: () => pedir<EstadoColaboracion>('GET', '/api/colaboracion'),

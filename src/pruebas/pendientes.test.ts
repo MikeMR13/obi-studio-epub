@@ -311,6 +311,9 @@ test('Interfaz: cada texto de t() y cada nombre del modelo tiene traducción al 
   // Plantillas de la revisión previa de impresión.
   const preflight = readFileSync(unir(import.meta.dirname, '..', 'preflight.ts'), 'utf8');
   for (const m of preflight.matchAll(/'((?:«\{0\}»|La |Los |Las |Margen |Con |El libro |Letra )[^']*)'/g)) claves.add(m[1]);
+  // Plantillas de los perfiles por tienda.
+  const tiendas = readFileSync(unir(import.meta.dirname, '..', 'tiendas.ts'), 'utf8');
+  for (const m of tiendas.matchAll(/aviso\(\s*'\w+',\s*'((?:\\.|[^'\\])*)'/g)) claves.add(m[1]);
   const faltan = [...claves].filter((k) => !(k in EN));
   assert.deepEqual(faltan, []);
   // Los marcadores {0}, {1}… se conservan en la traducción.

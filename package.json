@@ -47,6 +47,7 @@
     "electron-builder": "^26.18.0",
     "esbuild": "^0.28.2",
     "hyphenopoly": "^6.1.0",
+    "jimp": "^1.6.1",
     "jszip": "^3.10.2",
     "linkedom": "^0.18.15",
     "mammoth": "^1.13.0",

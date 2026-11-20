@@ -549,10 +549,12 @@ export function compilarArchivos(libro: Libro): Map<string, string | Uint8Array>
   return archivos;
 }
 
-export async function empaquetar(archivos: Map<string, string | Uint8Array>): Promise<Uint8Array> {
+export async function empaquetar(archivos: Map<string, string | Uint8Array>, metaInf: Record<string, string> = {}): Promise<Uint8Array> {
   const zip = new JSZip();
   zip.file('mimetype', 'application/epub+zip', { compression: 'STORE' });
   zip.file('META-INF/container.xml', CONTAINER);
+  // Archivos propios de una tienda (p. ej. las opciones de Apple Books).
+  for (const [nombre, contenido] of Object.entries(metaInf)) zip.file(`META-INF/${nombre}`, contenido);
   for (const [ruta, datos] of archivos) zip.file(`${CARPETA}/${ruta}`, datos);
   return zip.generateAsync({ type: 'uint8array', compression: 'DEFLATE', compressionOptions: { level: 9 }, mimeType: 'application/epub+zip' });
 }

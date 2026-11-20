@@ -520,6 +520,22 @@ with sync_playwright() as p:
     colab.get_by_role("button", name="Cerrar").click()
     invitada.close()
 
+    # F6: publicar en tiendas.
+    pagina.get_by_role("button", name="Más ▾").click()
+    pagina.get_by_role("menuitem", name="Publicar en tiendas…").click()
+    publicar = pagina.locator(".panel-publicar")
+    expect(publicar.locator(".lista-tienda")).to_be_visible(timeout=30000)
+    texto_kindle = publicar.locator(".lista-tienda").inner_text()
+    boton_exportar = publicar.get_by_role("button", name="Exportar EPUB para Kindle (KDP)")
+    pagina.screenshot(path=f"{CAPTURAS}/29-publicar.png")
+    paso("Publicar: revisión con las reglas de Kindle", "625 px en el lado corto" in texto_kindle and boton_exportar.is_disabled(), texto_kindle.splitlines()[0][:120])
+    publicar.get_by_role("radio", name="Apple Books").click()
+    expect(publicar.locator(".lista-tienda")).to_contain_text("1400 px", timeout=30000)
+    with pagina.expect_download() as d:
+        publicar.get_by_role("button", name="Descargar portada").click()
+    paso("Publicar: cambiar de tienda y descargar la portada", "portada" in d.value.suggested_filename)
+    publicar.get_by_role("button", name="Cerrar").click()
+
     # Ventana pequeña (1024 px).
     pagina.set_viewport_size({"width": 1024, "height": 700})
     pagina.wait_for_timeout(300)
