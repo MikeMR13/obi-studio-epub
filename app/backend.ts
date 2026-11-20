@@ -7,6 +7,7 @@ import { join } from 'node:path';
 import type { Comentario, Impresion, Libro, Metadatos, Recurso, Seccion, Tema, TipoSeccion, Tipografia } from '../src/model.js';
 import { ajustesImpresion, TAMANOS_IMPRESION, temaCompleto, validarTema } from '../src/model.js';
 import { TEMAS } from '../src/temas.js';
+import { evaluadorChrome, informeHtml, revisarAccesibilidad, type Evaluador, type InformeAccesibilidad } from '../src/accesibilidad.js';
 import {
   AlmacenPlugins,
   ErrorPlugin,
@@ -87,6 +88,9 @@ export class Backend {
   clave = '-';
   /** Cómo se imprime a PDF: Electron inyecta el suyo; si no, Chrome/Edge del sistema. */
   renderizador: Renderizador = renderizadorChrome();
+  /** Navegador para el informe de accesibilidad (Electron usa una ventana oculta). */
+  evaluador: Evaluador = evaluadorChrome();
+  private ultimoInforme?: InformeAccesibilidad;
   ultimasPaginas?: number;
   private paquetes = new Map<string, Map<string, string | Uint8Array>>();
   private contadorImpresion = 0;
@@ -456,6 +460,22 @@ export class Backend {
     if (tipo === 'impresion') this.ultimasPaginas = r.paginas;
     const sufijo = tipo === 'impresion' ? '-impresion' : '-digital';
     return { nombre: nombreDeArchivo(this.libro.metadatos.titulo) + sufijo + '.pdf', datos: r.datos, paginas: r.paginas, avisos: revisarImpresion(this.libro, r.paginas) };
+  }
+
+  // ----- Accesibilidad -----
+
+  async accesibilidad(): Promise<InformeAccesibilidad> {
+    try {
+      this.ultimoInforme = await revisarAccesibilidad(this.libro, this.evaluador);
+    } catch (e) {
+      throw new ErrorUsuario(`No se pudo revisar la accesibilidad: ${(e as Error).message}`);
+    }
+    return this.ultimoInforme;
+  }
+
+  informeAccesibilidad(): { nombre: string; datos: Uint8Array } {
+    if (!this.ultimoInforme) throw new ErrorUsuario('Primero revisa la accesibilidad.');
+    return { nombre: nombreDeArchivo(this.libro.metadatos.titulo) + '-accesibilidad.html', datos: new TextEncoder().encode(informeHtml(this.ultimoInforme)) };
   }
 
   // ----- Plugins -----

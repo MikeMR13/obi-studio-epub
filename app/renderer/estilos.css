@@ -334,3 +334,21 @@ p.error { font-weight: 600; }
 .acciones-comentario button { font-size: 12px; padding: 3px 8px; }
 .peligro-texto { color: var(--error); }
 .panel-comentarios .vacio { color: var(--tenue); font-size: 13px; margin: 0; }
+
+/* ---------- Plugins y accesibilidad ---------- */
+.panel-plugins { width: min(640px, 94vw); max-height: 86vh; overflow: auto; }
+.cabecera-plugins { display: flex; justify-content: space-between; align-items: center; }
+.cabecera-plugins .cerrar { border: none; background: none; font-size: 16px; cursor: pointer; }
+.lista-plugins { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.lista-plugins > li { border: 1px solid var(--linea); border-radius: var(--radio); padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; }
+.lista-plugins > li p { margin: 0; font-size: 13px; color: var(--tinta-suave); }
+.lista-plugins .vacio { color: var(--tenue); border-style: dashed; }
+.cabecera-plugin span { color: var(--tenue); font-size: 12px; }
+.etiquetas { display: flex; gap: 6px; flex-wrap: wrap; }
+.etiqueta { font-size: 11.5px; padding: 1px 8px; border-radius: 10px; background: var(--fondo); border: 1px solid var(--linea); }
+.etiqueta.permiso { background: #fff4e0; border-color: #e8b860; }
+.barra-deshacer { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 8px 10px; background: #eef5ff; border-radius: var(--radio); font-size: 13px; }
+.accesibilidad { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--linea); display: flex; flex-direction: column; gap: 8px; }
+.accesibilidad h3 { margin: 0; font-size: 14px; }
+.fila-botones { display: flex; gap: 8px; flex-wrap: wrap; }
+.nodo-axe { display: block; font-size: 11px; color: var(--tenue); word-break: break-all; margin-top: 2px; }

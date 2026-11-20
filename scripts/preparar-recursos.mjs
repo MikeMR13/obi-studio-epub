@@ -48,6 +48,12 @@ for (const familia of ['literata', 'noto-sans', 'eb-garamond', 'cinzel']) {
   }
   await cp(`node_modules/@fontsource/${familia}/LICENSE`, `recursos/fuentes/LICENCIA-${familia}-OFL.txt`).catch(() => undefined);
 }
+// axe-core para el informe de accesibilidad (licencia MPL-2.0).
+await mkdir('recursos/axe', { recursive: true });
+await cp('node_modules/axe-core/axe.min.js', 'recursos/axe/axe.min.js');
+await cp('node_modules/axe-core/locales/es.json', 'recursos/axe/es.json');
+await cp('node_modules/axe-core/LICENSE', 'recursos/axe/LICENCIA-axe-core-MPL-2.0.txt').catch(() => undefined);
+
 await mkdir('recursos/hyphenopoly', { recursive: true });
 await cp('node_modules/hyphenopoly/patterns/es.wasm', 'recursos/hyphenopoly/es.wasm');
 console.log('Recursos listos.');

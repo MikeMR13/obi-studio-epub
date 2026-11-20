@@ -172,6 +172,11 @@ export async function iniciarServidor(op: OpcionesServidor = {}) {
       const { nombre, datos } = await backend.exportarWord();
       descarga(r, nombre, 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', datos);
     }],
+    ['POST', /^\/api\/accesibilidad$/, async (_q, r) => enviar(r, 200, await backend.accesibilidad())],
+    ['GET', /^\/api\/accesibilidad\/informe$/, async (_q, r) => {
+      const { nombre, datos } = backend.informeAccesibilidad();
+      descarga(r, nombre, 'text/html; charset=utf-8', datos);
+    }],
     ['GET', /^\/api\/plugins$/, async (_q, r) => enviar(r, 200, await backend.listarPlugins())],
     ['POST', /^\/api\/plugins\/inspeccionar$/, async (q, r) => enviar(r, 200, await backend.inspeccionarPlugin(await cuerpo(q, 5 * 1024 * 1024)))],
     ['POST', /^\/api\/plugins$/, async (q, r) => {

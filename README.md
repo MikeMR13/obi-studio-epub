@@ -23,6 +23,12 @@ Maquetador visual de novelas ligeras para Windows, macOS y Linux. Escribes y das
 - **Proyecto `.obi`:** un ZIP con `libro.json` y las imágenes. Copia de recuperación automática cada minuto con cambios.
 - EPUBCheck y un Java mínimo (jlink, 56 MB) van **dentro del instalador**.
 
+## Ecosistema (F5)
+
+- **Plugins** (menú «Más» → Plugins…): archivos `.obiplugin` con `manifiesto.json` y `principal.js`. Hay cuatro tipos: revisión, transformación (se puede deshacer), exportador e importador (se usa desde «Importar»). Cada plugin corre en un proceso aparte con el modelo de permisos de Node (sin disco, sin procesos, memoria y tiempo limitados) y dentro de un contexto vacío sin `require`, `process` ni `fetch`. Solo ve el libro; las imágenes requieren el permiso «recursos» y la red el permiso «red», que se muestran antes de instalar. El libro que devuelve se valida antes de aceptarlo. Ejemplos en `ejemplos/plugins/` (revisión ortotipográfica, limpieza de espacios, texto plano .txt); se empaquetan con `node scripts/empaquetar-plugin.mjs <carpeta>`. La API se describe en [docs/plugins.md](docs/plugins.md).
+- **Comentarios de revisión:** botón 💬 en el editor y pestaña Comentarios (responder, resolver, borrar, ir al texto). No salen en el EPUB ni en el PDF. Viajan al Word de corrección como comentarios reales de Word (con respuestas y estado resuelto) y vuelven con «Importar correcciones» sin duplicarse; los del corrector se anclan a su texto. Si el Word trae control de cambios, se toma como aceptado y se avisa.
+- **Informe de accesibilidad** (pestaña Validación): axe-core en español sobre cada página del EPUB, con su CSS, en un navegador real (WCAG 2.1 A/AA y buenas prácticas), más comprobaciones de EPUB Accessibility 1.1 sobre el libro (idioma, títulos del índice, descripción de imágenes). Se guarda como HTML. Línea de comandos: `obi accesibilidad <proyecto.obi> <informe.html>`.
+
 ## Novela ligera avanzada (F4)
 
 - **Escritura vertical japonesa (tategaki):** en la pestaña Libro. El EPUB sale con `writing-mode: vertical-rl` y avance de páginas de derecha a izquierda; los números de una o dos cifras y «!?» se ponen en horizontal (tate-chū-yoko) solos. El PDF también se compagina en vertical (capítulos en página par, dobles páginas invertidas). El EPUB vertical se reconoce al importarlo.
@@ -114,6 +120,9 @@ En local: `npm run instaladores` construye el del sistema actual en `instaladore
 | `src/impresion.ts`, `src/pdf.ts`, `src/servicio-impresion.ts` | HTML y CSS de impresión, generación y posproceso del PDF, servicio del visor |
 | `src/estilo-tema.ts`, `src/temas.ts`, `src/fuentes.ts` | CSS del tema común al EPUB y al PDF, galería de temas, fuentes incrustadas |
 | `src/preflight.ts`, `src/division.ts`, `src/recursos.ts` | Revisión previa, división silábica, ubicación de los recursos |
+| `src/plugins.ts` | Plugins: manifiesto, ejecución aislada, validación de lo que devuelven, plugins instalados |
+| `src/comentarios.ts` | Anclas de comentarios y comentarios de Word (hilos y resueltos) |
+| `src/accesibilidad.ts` | Informe de accesibilidad (axe-core + EPUB Accessibility 1.1) |
 | `src/kepub.ts`, `src/formatos/word.ts` | KEPUB para Kobo; Word para corrección e importación de correcciones |
 | `src/proyecto.ts`, `src/tipografia.ts`, `src/imagen.ts`, `src/cli.ts` | Proyecto .obi, tipografía española, tamaño de imágenes, línea de comandos |
 | `src/pruebas/` | Pruebas del motor y documentos de prueba generados al vuelo |
@@ -129,6 +138,7 @@ En local: `npm run instaladores` construye el del sistema actual en `instaladore
 - Interfaz en inglés.
 - Fuentes del sistema incrustadas (subconjunto con HarfBuzz), recorte y giro de ilustraciones; fuente japonesa incrustada (Noto Serif JP en subconjunto) para el tategaki.
 - Editor en vertical (hoy el editor muestra el texto en horizontal y la vista previa en vertical).
-- Buscar y reemplazar, versiones con nombre, revisión de accesibilidad con axe-core.
+- Buscar y reemplazar, versiones con nombre.
+- Colaboración en tiempo real (Yjs) y control de cambios propio, con revisión de cada cambio.
+- Catálogo de plugins para compartirlos.
 - PDF/X-1a y CMYK con Ghostscript.
-- Las fases siguientes del plan técnico (ver el documento del proyecto).

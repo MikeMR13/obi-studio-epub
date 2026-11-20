@@ -249,3 +249,32 @@ test('Comentarios: el control de cambios de Word se toma como aceptado y se avis
   assert.match(JSON.stringify(cap.bloques), /Nadie contestó\./);
   assert.match(r.avisos.join(' '), /2 cambios con control de cambios/);
 });
+
+// ---------------------------------------------------------------------------
+// Accesibilidad.
+
+import { buscarNavegador } from '../pdf.js';
+import { evaluadorChrome, informeHtml, revisarAccesibilidad } from '../accesibilidad.js';
+
+test('Accesibilidad: axe en cada página y comprobaciones del libro', { skip: !buscarNavegador() && 'sin Chrome' }, async () => {
+  const bueno = libroComentado();
+  const r = await revisarAccesibilidad(bueno, evaluadorChrome());
+  assert.equal(r.incidencias.length, 0, JSON.stringify(r.incidencias));
+  assert.ok(r.conforme);
+  assert.ok(r.documentos >= 3);
+
+  const malo = libroComentado();
+  malo.recursos.push({ id: 'i', nombre: 'i.png', tipoMime: 'image/png', datos: pngSolido(30, 30), ancho: 30, alto: 30 });
+  const cap = malo.secciones.find((s) => s.tipo === 'capitulo')!;
+  cap.bloques.push({ tipo: 'imagen', recurso: 'i', alt: '' });
+  cap.bloques.push({ tipo: 'crudo', xhtml: '<div><p style="color:#eee">Texto casi invisible</p><p><a href="https://example.com"></a></p></div>' });
+  const r2 = await revisarAccesibilidad(malo, evaluadorChrome());
+  assert.equal(r2.conforme, false);
+  assert.deepEqual(r2.incidencias.map((i) => i.regla).sort(), ['color-contrast', 'link-name']);
+  assert.equal(r2.incidencias[0].seccion, cap.id);
+  assert.match(r2.incidencias.find((i) => i.regla === 'link-name')!.ayuda, /enlaces/i, 'mensajes en español');
+  assert.equal(r2.comprobaciones.find((c) => c.nombre === 'Descripción de las imágenes')!.ok, false);
+  const html = informeHtml(r2);
+  assert.match(html, /<html lang="es">/);
+  assert.match(html, /Hay problemas que corregir/);
+});

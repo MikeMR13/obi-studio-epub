@@ -55,7 +55,7 @@ export function Dialogos() {
     };
     notificar = (texto, tipo) => {
       const id = Date.now() + Math.random();
-      setToasts((t) => [...t, { id, texto, tipo }]);
+      setToasts((t) => [...t, { id, texto, tipo }].slice(-3));
       setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), tipo === 'error' ? 7000 : 3500);
     };
   }, []);

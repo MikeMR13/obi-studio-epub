@@ -12,6 +12,7 @@ import { Ilustracion } from './paneles/Ilustracion';
 import { PanelImpresion, VistaImpresion } from './paneles/Impresion';
 import { PanelTema } from './paneles/Tema';
 import { Comentarios } from './paneles/Comentarios';
+import { Plugins } from './paneles/Plugins';
 import type { Pestana } from './paneles/Inspector';
 
 type Vista = 'editor' | 'codigo' | 'vista' | 'impresion';
@@ -23,6 +24,7 @@ export function App() {
   const [pestana, setPestana] = useState<Pestana>('seccion');
   const [exportandoPdf, setExportandoPdf] = useState(false);
   const [menuMas, setMenuMas] = useState(false);
+  const [verPlugins, setVerPlugins] = useState(false);
   const entradaCorrecciones = useRef<HTMLInputElement>(null);
   const [validacion, setValidacion] = useState<Resultado | null>(null);
   const [validando, setValidando] = useState(false);
@@ -143,13 +145,14 @@ export function App() {
     const r = await llamar(() => api.correcciones(archivo), 'Fundiendo las correcciones…');
     if (!r) return;
     aplicar(r.estado);
-    const { actualizadas, nuevas, sinCambios, avisos } = r.resumen;
+    const { actualizadas, nuevas, sinCambios, comentarios, avisos } = r.resumen;
     await informar(
       'Correcciones importadas',
       [
         actualizadas.length ? `Actualizadas (${actualizadas.length}): ${actualizadas.join(', ')}.` : 'Ninguna sección cambió.',
         nuevas.length ? `Nuevas (${nuevas.length}): ${nuevas.join(', ')}.` : '',
         sinCambios ? `Sin cambios: ${sinCambios}.` : '',
+        comentarios ? `Comentarios y respuestas nuevos: ${comentarios} (pestaña Comentarios).` : '',
         avisos.length ? `Avisos: ${avisos.join(' ')}` : '',
         'Las ilustraciones, el tema y los bloques XHTML se conservaron.',
       ].filter(Boolean).join('\n'),
@@ -273,6 +276,17 @@ export function App() {
 
   return (
     <div className="app">
+      {verPlugins && (
+        <Plugins
+          estado={estado}
+          onCerrar={() => setVerPlugins(false)}
+          onEstado={(e) => aplicar(e)}
+          onIrA={(id) => {
+            setActual(id);
+            setVista('editor');
+          }}
+        />
+      )}
       <Dialogos />
       {entrada}
       <header className="cabecera">
@@ -296,7 +310,8 @@ export function App() {
                 <li><button role="menuitem" onClick={() => descargarFormato('/api/exportar-kepub', 'KEPUB para Kobo exportado.', 'Creando el KEPUB…')}>KEPUB para Kobo<small>Estadísticas de lectura y subrayado preciso en Kobo</small></button></li>
                 <li><button role="menuitem" onClick={() => { setMenuMas(false); setPestana('impresion'); }}>PDF…<small>Para imprenta o digital</small></button></li>
                 <li><button role="menuitem" onClick={() => descargarFormato('/api/exportar-word', 'Word para corrección exportado.', 'Creando el Word…')}>Word para corrección<small>Para enviar a correctores; vuelve con «Importar correcciones»</small></button></li>
-                <li><button role="menuitem" onClick={() => { setMenuMas(false); entradaCorrecciones.current?.click(); }}>Importar correcciones de Word…<small>Funde los cambios capítulo a capítulo</small></button></li>
+                <li><button role="menuitem" onClick={() => { setMenuMas(false); entradaCorrecciones.current?.click(); }}>Importar correcciones de Word…<small>Funde los cambios y los comentarios capítulo a capítulo</small></button></li>
+                <li><button role="menuitem" onClick={() => { setMenuMas(false); setVerPlugins(true); }}>Plugins…<small>Revisiones, transformaciones y otros formatos</small></button></li>
               </ul>
             )}
             <input ref={entradaCorrecciones} type="file" hidden accept=".docx" onChange={(e) => { const f = e.target.files?.[0]; if (f) void correcciones(f); e.target.value = ''; }} />

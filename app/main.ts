@@ -9,6 +9,21 @@ import { join } from 'node:path';
 let ventana: BrowserWindow | null = null;
 
 /** Imprime a PDF con el Chromium de Electron: ventana oculta con el visor de Vivliostyle. */
+/** Informe de accesibilidad: abre cada documento en una ventana oculta y ejecuta axe. */
+async function evaluadorElectron(urls: string[], codigo: string): Promise<unknown[]> {
+  const oculta = new BrowserWindow({ show: false, width: 1000, height: 800, webPreferences: { sandbox: true, contextIsolation: true } });
+  try {
+    const salida: unknown[] = [];
+    for (const url of urls) {
+      await oculta.loadURL(url);
+      salida.push(await oculta.webContents.executeJavaScript(codigo, true));
+    }
+    return salida;
+  } finally {
+    oculta.destroy();
+  }
+}
+
 async function renderizadorElectron(url: string): Promise<Uint8Array> {
   const oculta = new BrowserWindow({ show: false, width: 1200, height: 900, webPreferences: { sandbox: true, contextIsolation: true, offscreen: false } });
   try {
@@ -40,6 +55,7 @@ async function crearVentana() {
   const backend = new Backend(join(app.getPath('userData'), 'recuperacion'));
   backend.plugins = new AlmacenPlugins(process.env.OBI_PLUGINS || join(app.getPath('userData'), 'plugins'));
   backend.renderizador = renderizadorElectron;
+  backend.evaluador = evaluadorElectron;
   const { url, puerto } = await iniciarServidor({ backend });
   const origen = `http://127.0.0.1:${puerto}`;
 
@@ -76,10 +92,12 @@ async function crearVentana() {
       epub: { titulo: 'Exportar EPUB', filtro: { name: 'Libro EPUB', extensions: ['epub'] } },
       kepub: { titulo: 'Exportar KEPUB para Kobo', filtro: { name: 'Libro KEPUB', extensions: ['epub'] } },
       pdf: { titulo: 'Exportar PDF', filtro: { name: 'PDF', extensions: ['pdf'] } },
+      html: { titulo: 'Guardar informe de accesibilidad', filtro: { name: 'Página web', extensions: ['html'] } },
       docx: { titulo: 'Exportar Word para corrección', filtro: { name: 'Documento de Word', extensions: ['docx'] } },
       obi: { titulo: 'Guardar proyecto', filtro: { name: 'Proyecto de Obi Studio', extensions: ['obi'] } },
     };
-    const f = filtros[tipo ?? 'obi'] ?? filtros.obi;
+    // Exportadores de plugins: cualquier otra extensión.
+    const f = filtros[tipo ?? 'obi'] ?? (tipo ? { titulo: 'Exportar', filtro: { name: tipo.toUpperCase(), extensions: [tipo] } } : filtros.obi);
     item.setSaveDialogOptions({ title: f.titulo, defaultPath: join(app.getPath('documents'), nombre), filters: [f.filtro] });
   });
 

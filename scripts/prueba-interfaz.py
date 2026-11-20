@@ -276,6 +276,32 @@ with sync_playwright() as p:
     r = subprocess.run(["java", "-jar", "recursos/epubcheck/epubcheck.jar", ruta_kepub], capture_output=True, text=True)
     paso("KEPUB (vertical, con página fija) pasa EPUBCheck", d.value.suggested_filename.endswith(".kepub.epub") and "No errors or warnings detected" in r.stdout, r.stdout.strip().splitlines()[-1] if r.stdout else r.stderr[-200:])
 
+    # F5: comentarios con respuesta y resuelto.
+    pagina.locator(".lista-secciones").get_by_role("button", name="Capítulo 1 – La llegada").click()
+    editor = pagina.locator(".pagina-editor")
+    editor.locator("p").nth(1).click()
+    pagina.keyboard.press("Home")
+    pagina.keyboard.press("Shift+Control+ArrowRight")
+    pagina.get_by_role("button", name="Comentar").click()
+    dialogo = pagina.get_by_role("dialog")
+    dialogo.locator("textarea").fill("¿Seguro que esta palabra va aquí?")
+    dialogo.get_by_label("Tu nombre").fill("Mike")
+    dialogo.get_by_role("button", name="Comentar").click()
+    panel = pagina.locator(".panel-comentarios")
+    expect(panel).to_contain_text("¿Seguro que esta palabra va aquí?")
+    pagina.wait_for_timeout(600)
+    paso("Comentario sobre el texto seleccionado", editor.locator(".comentado").count() >= 1 and panel.locator(".lista-comentarios > li").count() == 1)
+    panel.get_by_role("button", name="Responder").click()
+    dialogo = pagina.get_by_role("dialog")
+    dialogo.locator("textarea").fill("Sí, la dejo.")
+    expect(dialogo.get_by_label("Tu nombre")).to_have_value("Mike")
+    dialogo.get_by_role("button", name="Responder").click()
+    expect(panel.locator(".respuesta")).to_contain_text("Sí, la dejo.")
+    pagina.screenshot(path=f"{CAPTURAS}/17-comentarios.png")
+    panel.get_by_role("button", name="Resolver").click()
+    expect(panel).to_contain_text("Mostrar resueltos (1)")
+    paso("Responder y resolver un comentario", True)
+
     # F4: Word para corrección y vuelta.
     pagina.get_by_role("button", name="Más ▾").click()
     with pagina.expect_download(timeout=60000) as d:
@@ -301,7 +327,49 @@ with sync_playwright() as p:
     pagina.locator(".lista-secciones").get_by_role("button", name="Capítulo 1 – La llegada").click()
     expect(pagina.locator(".pagina-editor")).to_contain_text("Final corregido de la escena")
     estado = pagina.evaluate("fetch('/api/estado').then(r => r.json())")
+    pagina.get_by_role("tab", name="Comentarios").click()
+    estado = pagina.evaluate("fetch('/api/estado').then(r => r.json())")
+    cap = [x for x in estado["libro"]["secciones"] if x["titulo"] == "Capítulo 1 – La llegada"][0]
+    paso("Los comentarios vuelven de Word sin duplicarse", len(cap.get("comentarios", [])) == 1 and cap["comentarios"][0].get("resuelto") is True and len(cap["comentarios"][0].get("respuestas", [])) == 1, str(cap.get("comentarios"))[:200])
     paso("Correcciones de Word fundidas", "Actualizadas (1)" in texto_dialogo and estado["libro"]["secciones"][i_ilus].get("paginaFija") is True and estado["libro"].get("escritura") == "vertical", texto_dialogo.replace("\n", " ")[:200])
+
+    # F5: plugins.
+    for nombre in ["revision-ortotipografica", "limpieza-espacios"]:
+        subprocess.run(["node", "scripts/empaquetar-plugin.mjs", f"ejemplos/plugins/{nombre}", f"{CAPTURAS}/{nombre}.obiplugin"], check=True, capture_output=True)
+    pagina.get_by_role("button", name="Más ▾").click()
+    pagina.get_by_role("menuitem", name="Plugins…").click()
+    plugins = pagina.locator(".panel-plugins")
+    expect(plugins).to_contain_text("No hay plugins instalados.")
+    for nombre, titulo in [("revision-ortotipografica", "Revisión ortotipográfica"), ("limpieza-espacios", "Limpieza de espacios")]:
+        plugins.locator('input[type=file]').set_input_files(f"{CAPTURAS}/{nombre}.obiplugin")
+        confirmacion = pagina.get_by_role("dialog").filter(has_text=f"Instalar «{titulo}»")
+        expect(confirmacion).to_contain_text("No pide permisos")
+        confirmacion.get_by_role("button", name="Instalar").click()
+        expect(plugins.locator(".lista-plugins")).to_contain_text(titulo)
+    paso("Instalar plugins mostrando sus permisos", plugins.locator(".lista-plugins > li").count() == 2)
+    plugins.get_by_role("button", name="Revisar").click()
+    expect(plugins.locator(".resultado-validacion h3")).to_contain_text("Revisión ortotipográfica", timeout=30000)
+    texto_revision = plugins.locator(".resultado-validacion").inner_text()
+    pagina.screenshot(path=f"{CAPTURAS}/18-plugins.png")
+    paso("Plugin de revisión", "hallazgos" in texto_revision, texto_revision.splitlines()[0])
+    plugins.get_by_role("button", name="Aplicar").click()
+    pagina.get_by_role("dialog").filter(has_text="Aplicar «Limpieza de espacios»").get_by_role("button", name="Aplicar").click()
+    expect(plugins.locator(".barra-deshacer")).to_contain_text("Limpieza de espacios", timeout=30000)
+    plugins.locator(".barra-deshacer").get_by_role("button", name="Deshacer").click()
+    expect(plugins.locator(".barra-deshacer")).to_have_count(0)
+    paso("Plugin de transformación con deshacer", True)
+    plugins.get_by_role("button", name="Cerrar").click()
+
+    # F5: informe de accesibilidad.
+    pagina.get_by_role("tab", name="Validación").click()
+    pagina.get_by_role("button", name="Revisar accesibilidad").click()
+    resultado = pagina.locator(".accesibilidad .resultado-validacion")
+    expect(resultado).to_be_visible(timeout=120000)
+    texto_a11y = resultado.inner_text()
+    pagina.screenshot(path=f"{CAPTURAS}/19-accesibilidad.png")
+    with pagina.expect_download() as d:
+        pagina.get_by_role("button", name="Guardar informe").click()
+    paso("Informe de accesibilidad", "páginas revisadas con axe-core" in texto_a11y and d.value.suggested_filename.endswith("-accesibilidad.html"), texto_a11y.splitlines()[0])
 
     # Ventana pequeña (1024 px).
     pagina.set_viewport_size({"width": 1024, "height": 700})

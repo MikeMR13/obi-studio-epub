@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Accesibilidad } from './Accesibilidad';
 import type { Metadatos, Seccion, Tema, Tipografia, RolCredito } from '../../../src/model';
 import { ROLES, TIPOS_SECCION } from '../../../src/model';
 import type { Estado, Resultado } from '../api';
@@ -239,6 +240,7 @@ export function Inspector(p: Props) {
                 </ul>
               </div>
             )}
+            <Accesibilidad onIrA={p.onIrA} />
           </>
         )}
       </div>

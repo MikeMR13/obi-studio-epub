@@ -6,6 +6,7 @@
 //   obi kepub <proyecto.obi> <salida.kepub.epub>
 //   obi word <proyecto.obi> <salida.docx>
 //   obi correcciones <proyecto.obi> <corregido.docx>   (actualiza el proyecto)
+//   obi accesibilidad <proyecto.obi> <informe.html>
 
 import { readFile, writeFile } from 'node:fs/promises';
 import { importarEpub } from './formatos/epub.js';
@@ -15,6 +16,7 @@ import { deserializarProyecto, guardarProyecto } from './proyecto.js';
 import { validarArchivo } from './validar.js';
 import { pdfDesdeLibro } from './servicio-impresion.js';
 import { compilarKepub } from './kepub.js';
+import { evaluadorChrome, informeHtml, revisarAccesibilidad } from './accesibilidad.js';
 import { exportarWord, importarCorrecciones } from './formatos/word.js';
 
 const [orden, entrada, salida] = process.argv.slice(2);
@@ -54,8 +56,17 @@ async function principal() {
     await guardarProyecto(entrada, libro);
     console.log(`Actualizadas: ${r.actualizadas.join(', ') || 'ninguna'}. Nuevas: ${r.nuevas.join(', ') || 'ninguna'}. Sin cambios: ${r.sinCambios}.`);
     for (const a of r.avisos) console.log(`Aviso: ${a}`);
+  } else if (orden === 'accesibilidad' && entrada && salida) {
+    const libro = await deserializarProyecto(new Uint8Array(await readFile(entrada)));
+    const r = await revisarAccesibilidad(libro, evaluadorChrome());
+    await writeFile(salida, informeHtml(r));
+    for (const c of r.comprobaciones.filter((x) => !x.ok)) console.log(`✕ ${c.nombre}: ${c.detalle}`);
+    for (const i of r.incidencias) console.log(`${i.impacto}: ${i.ayuda} (${i.tituloSeccion ?? i.archivo}, ${i.cantidad})`);
+    console.log(r.conforme ? 'Sin problemas graves de accesibilidad.' : 'Hay problemas de accesibilidad que corregir.');
+    console.log(`Informe escrito en ${salida}`);
+    if (!r.conforme) process.exitCode = 1;
   } else {
-    console.log('Uso:\n  obi importar <entrada.epub|.docx> <salida.obi>\n  obi compilar <proyecto.obi> <salida.epub>\n  obi validar <libro.epub>\n  obi pdf <proyecto.obi> <salida.pdf> [--digital]\n  obi kepub <proyecto.obi> <salida.kepub.epub>\n  obi word <proyecto.obi> <salida.docx>\n  obi correcciones <proyecto.obi> <corregido.docx>');
+    console.log('Uso:\n  obi importar <entrada.epub|.docx> <salida.obi>\n  obi compilar <proyecto.obi> <salida.epub>\n  obi validar <libro.epub>\n  obi pdf <proyecto.obi> <salida.pdf> [--digital]\n  obi kepub <proyecto.obi> <salida.kepub.epub>\n  obi word <proyecto.obi> <salida.docx>\n  obi correcciones <proyecto.obi> <corregido.docx>\n  obi accesibilidad <proyecto.obi> <informe.html>');
     process.exitCode = 2;
   }
 }

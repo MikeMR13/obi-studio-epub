@@ -2,8 +2,10 @@ import type { Estado } from '../backend';
 import type { Resultado } from '../../src/validar';
 
 import type { AvisoImpresion } from '../../src/preflight';
+import type { InformeAccesibilidad } from '../../src/accesibilidad';
+import type { Hallazgo, Manifiesto, PluginInstalado } from '../../src/plugins';
 
-export type { Estado, Resultado, AvisoImpresion };
+export type { Estado, Resultado, AvisoImpresion, InformeAccesibilidad, Hallazgo, Manifiesto, PluginInstalado };
 
 export class ErrorApi extends Error {
   constructor(mensaje: string, public estado: number, public datos?: unknown) {
@@ -50,9 +52,17 @@ export const api = {
   codigo: (id: string) => pedir<{ xhtml: string }>('GET', `/api/codigo/${id}`),
   aplicarCodigo: (id: string, xhtml: string) => pedir<{ secciones: string[]; estado: Estado }>('PUT', `/api/codigo/${id}`, { xhtml }),
   validar: () => pedir<Resultado>('POST', '/api/validar'),
+  accesibilidad: () => pedir<InformeAccesibilidad>('POST', '/api/accesibilidad'),
+  plugins: () => pedir<PluginInstalado[]>('GET', '/api/plugins'),
+  inspeccionarPlugin: (archivo: Blob) => pedir<Manifiesto>('POST', '/api/plugins/inspeccionar', undefined, archivo),
+  instalarPlugin: (archivo: Blob) => pedir<PluginInstalado[]>('POST', '/api/plugins', undefined, archivo),
+  eliminarPlugin: (id: string) => pedir<PluginInstalado[]>('DELETE', `/api/plugins/${id}`),
+  revisarPlugin: (id: string) => pedir<{ hallazgos: Hallazgo[]; registros: string[] }>('POST', `/api/plugins/${id}/revisar`),
+  transformarPlugin: (id: string) => pedir<{ registros: string[]; estado: Estado }>('POST', `/api/plugins/${id}/transformar`),
+  deshacerPlugin: () => pedir<Estado>('POST', '/api/plugins/deshacer'),
   escritura: (escritura: 'horizontal' | 'vertical') => pedir<Estado>('PUT', '/api/escritura', { escritura }),
   correcciones: (archivo: File) =>
-    pedir<{ resumen: { actualizadas: string[]; nuevas: string[]; sinCambios: number; avisos: string[] }; estado: Estado }>(
+    pedir<{ resumen: { actualizadas: string[]; nuevas: string[]; sinCambios: number; comentarios: number; avisos: string[] }; estado: Estado }>(
       'POST',
       `/api/correcciones?nombre=${encodeURIComponent(archivo.name)}`,
       undefined,
