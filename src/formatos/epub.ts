@@ -343,6 +343,7 @@ export async function importarEpub(datos: Uint8Array): Promise<ResultadoImportac
       s.mostrarTitulo = p.titulo !== undefined && !!p.titulo;
       s.enIndice = !!titulo && !['portada', 'ilustracion'].includes(tipo);
       s.bloques = tipo === 'indice' ? [] : p.bloques;
+      if (p.imagenCabecera) s.imagenCabecera = p.imagenCabecera;
       if (tipo === 'portada' && !portadaId) {
         const img = p.bloques.find((b) => b.tipo === 'imagen');
         if (img && img.tipo === 'imagen') portadaId = img.recurso;
@@ -419,7 +420,7 @@ export async function importarEpub(datos: Uint8Array): Promise<ResultadoImportac
   // Recursos no usados (p. ej. imágenes del manifiesto que nadie muestra) quedan fuera.
   const usadosIds = new Set<string>();
   if (libro.metadatos.portada) usadosIds.add(libro.metadatos.portada);
-  for (const s of libro.secciones) for (const b of s.bloques) {
+  for (const s of libro.secciones) for (const b of [...s.bloques, ...(s.imagenCabecera ? [{ tipo: 'imagen', recurso: s.imagenCabecera } as const] : [])]) {
     if (b.tipo === 'imagen') usadosIds.add(b.recurso);
     if (b.tipo === 'crudo') for (const r of recursos) if (b.xhtml.includes(rutaImagen(r.nombre))) usadosIds.add(r.id);
   }

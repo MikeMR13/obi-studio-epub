@@ -163,3 +163,58 @@ test('editor visual: bloques → ProseMirror → bloques sin pérdidas', () => {
   const cap = libroCompleto().secciones.find((s) => s.tipo === 'capitulo')!;
   assert.deepEqual(pmABloques(bloquesAPM(cap.bloques)), cap.bloques);
 });
+
+test('temas: galería, validación y tema aplicado al EPUB (fuentes, títulos, capitular, ornamentos, cabecera)', async () => {
+  const { TEMAS } = await import('../temas.js');
+  const { validarTema, partesTitulo } = await import('../model.js');
+  assert.ok(TEMAS.length >= 8);
+  assert.deepEqual(validarTema({ interlineado: 9, colorTitulos: 'rojo', fuenteTexto: 'cinzel', capitular: 'letra', otro: 1 }), { interlineado: 2.2, capitular: 'letra' });
+  assert.deepEqual(partesTitulo('Capítulo 3: El gremio'), { etiqueta: 'Capítulo 3', sep: ': ', nombre: 'El gremio' });
+  assert.equal(partesTitulo('El gremio'), null);
+
+  const l = libroCompleto();
+  const fantasia = TEMAS.find((t) => t.id === 'fantasia')!.tema;
+  const cab = { id: nuevoId('i'), nombre: 'cabecera.png', tipoMime: 'image/png', datos: pngSolido(300, 60), ancho: 300, alto: 60 };
+  const orn = { id: nuevoId('i'), nombre: 'ornamento.png', tipoMime: 'image/png', datos: pngSolido(40, 12), ancho: 40, alto: 12 };
+  l.recursos.push(cab, orn);
+  l.tema = { ...fantasia, separador: 'imagen', separadorImagen: orn.id };
+  const cap = l.secciones.find((s) => s.tipo === 'capitulo')!;
+  cap.imagenCabecera = cab.id;
+  cap.titulo = 'Capítulo 1: El despertar';
+  const archivos = compilarArchivos(l);
+  const opf = archivos.get('package.opf') as string;
+  assert.match(opf, /href="fuentes\/eb-garamond-latin-400-normal\.woff2" media-type="font\/woff2"/);
+  assert.match(opf, /href="fuentes\/cinzel-latin-700-normal\.woff2"/);
+  assert.doesNotMatch(opf, /cinzel-latin-400-italic/);
+  const css = archivos.get('estilos.css') as string;
+  assert.match(css, /@font-face \{ font-family: 'EB Garamond'/);
+  assert.match(css, /::first-letter/);
+  assert.match(css, /::first-line/);
+  assert.match(css, /h1 \.etiqueta \{ display: block/);
+  const x = archivos.get(`${cap.id}.xhtml`) as string;
+  assert.match(x, /<div class="cabecera-capitulo"><img src="img\/cabecera\.png" alt="" role="presentation"\/><\/div>/);
+  assert.match(x, /<h1 id="t-[^"]+"><span class="etiqueta">Capítulo 1<\/span><span class="sep">: <\/span><span class="nombre">El despertar<\/span><\/h1>/);
+  assert.match(x, /<div class="escena imagen" role="separator"><img src="img\/ornamento\.png"/);
+  if (hayEpubcheck) {
+    const r = await validarDatos(await compilar(l));
+    assert.deepEqual(r.mensajes.map((m) => `${m.codigo} ${m.original}`), []);
+  }
+  // Ida y vuelta: título completo e imagen de cabecera.
+  const { libro } = await importarEpub(await compilar(l));
+  const c2 = libro.secciones.find((s) => s.tipo === 'capitulo')!;
+  assert.equal(c2.titulo, 'Capítulo 1: El despertar');
+  assert.equal(libro.recursos.find((r) => r.id === c2.imagenCabecera)?.nombre, 'cabecera.png');
+  assert.equal(c2.bloques.length, cap.bloques.length);
+});
+
+test('EPUBCheck: cada tema de la galería da un EPUB sin errores ni avisos', { skip: !hayEpubcheck, timeout: 300_000 }, async () => {
+  const { TEMAS } = await import('../temas.js');
+  for (const g of TEMAS) {
+    const l = libroCompleto();
+    l.tema = g.tema;
+    const cap = l.secciones.find((s) => s.tipo === 'capitulo')!;
+    cap.titulo = 'Capítulo 1: El despertar';
+    const r = await validarDatos(await compilar(l));
+    assert.deepEqual(r.mensajes.map((m) => `${g.id}: ${m.codigo} ${m.original}`), []);
+  }
+});

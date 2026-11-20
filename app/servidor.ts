@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { randomBytes } from 'node:crypto';
 import { Backend, ErrorUsuario } from './backend.js';
 import { resolverImpresion } from '../src/servicio-impresion.js';
+import { rutaRecurso } from '../src/recursos.js';
 
 const aqui = dirname(fileURLToPath(import.meta.url));
 
@@ -99,6 +100,17 @@ export async function iniciarServidor(op: OpcionesServidor = {}) {
       backend.tema(await json(q));
       enviar(r, 200, backend.estado());
     }],
+    ['POST', /^\/api\/tema\/galeria$/, async (q, r) => {
+      backend.aplicarTemaGaleria((await json(q)).id);
+      enviar(r, 200, backend.estado());
+    }],
+    ['GET', /^\/api\/tema\/muestra$/, async (_q, r, _m, url) => enviar(r, 200, { url: await backend.muestraTema(url.searchParams.get('modo') === 'pagina' ? 'pagina' : 'lector') })],
+    ['GET', /^\/muestra\/(\d+)\/(.+)$/, async (_q, r, m) => {
+      const d = backend.archivoMuestra(m[1], decodeURIComponent(m[2]));
+      if (d === undefined) throw new ErrorUsuario('No encontrado', 404);
+      r.writeHead(200, { 'Content-Type': TIPOS[extname(m[2])] ?? 'application/octet-stream', 'Cache-Control': 'no-store' });
+      r.end(typeof d === 'string' ? d : Buffer.from(d));
+    }],
     ['PUT', /^\/api\/tipografia$/, async (q, r) => {
       backend.tipografia(await json(q));
       enviar(r, 200, backend.estado());
@@ -184,7 +196,14 @@ export async function iniciarServidor(op: OpcionesServidor = {}) {
         res.writeHead(200, { 'Content-Type': respuesta.tipo, 'Cache-Control': 'no-store' });
         return res.end(typeof respuesta.datos === 'string' ? respuesta.datos : Buffer.from(respuesta.datos));
       }
-      const esApi = url.pathname.startsWith('/api/') || url.pathname.startsWith('/vista/');
+      // Fuentes OFL para la galería de temas de la interfaz.
+      if (url.pathname.startsWith('/fuentes/')) {
+        const f = rutaRecurso('fuentes', decodeURIComponent(url.pathname.slice(9)).replace(/[/\\]/g, ''));
+        if (!f) return enviar(res, 404, { error: 'No encontrado' });
+        res.writeHead(200, { 'Content-Type': 'font/woff2', 'Cache-Control': 'max-age=86400' });
+        return res.end(await readFile(f));
+      }
+      const esApi = url.pathname.startsWith('/api/') || url.pathname.startsWith('/vista/') || url.pathname.startsWith('/muestra/');
       if (esApi && token) {
         const t = req.headers['x-obi-token'] ?? url.searchParams.get('t') ?? leerCookie(req.headers.cookie, 'obi');
         if (t !== token) return enviar(res, 403, { error: 'Acceso no autorizado.' });

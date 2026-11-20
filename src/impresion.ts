@@ -5,6 +5,9 @@ import type { Impresion, Libro, Nota, Seccion } from './model.js';
 import { ajustesImpresion, textoPlano } from './model.js';
 import { bloquesXhtml, numerarNotas, inlinesXhtml, type Contexto } from './compilar.js';
 import { esc, escAttr } from './xml.js';
+import { temaCompleto } from './model.js';
+import { fuentesTema, caraFuente, familiaCss } from './fuentes.js';
+import { cssTema, contenidoTitulo } from './estilo-tema.js';
 
 export const MM_POR_PULGADA = 25.4;
 
@@ -27,13 +30,10 @@ export interface OpcionesImpresion {
 
 const TIPOS_TEXTO = new Set(['prologo', 'capitulo', 'interludio', 'epilogo', 'posfacio', 'apendice', 'otro', 'dedicatoria']);
 
-function fuente(f: string): string {
-  return f === 'sans-serif' ? `'Noto Sans', 'Noto Sans JP', sans-serif` : `'Literata', 'Noto Serif JP', serif`;
-}
 
 export function cssImpresion(libro: Libro, op: OpcionesImpresion): string {
   const a = ajustesImpresion(libro);
-  const t = libro.tema;
+  const t = temaCompleto(libro);
   const b = op.digital ? 0 : sangradoMm(a);
   const interior = op.digital ? (op.interior + a.margenExterior) / 2 : op.interior;
   const exterior = op.digital ? interior : a.margenExterior;
@@ -42,24 +42,11 @@ export function cssImpresion(libro: Libro, op: OpcionesImpresion): string {
   const titulo = (libro.metadatos.titulo || '').replace(/["\\]/g, '\\$&');
   const sinMarcas = `@top-center { content: none; } @bottom-center { content: none; }`;
   const interlineado = Math.min(1.6, Math.max(1.2, t.interlineado * 0.92));
-  const pesos = [
-    ['400', 'normal'],
-    ['400', 'italic'],
-    ['700', 'normal'],
-    ['700', 'italic'],
-  ];
-  const caras = pesos
-    .flatMap(([peso, estilo]) =>
-      [
-        ['Literata', 'literata'],
-        ['Noto Sans', 'noto-sans'],
-      ].map(
-        ([familia, archivo]) =>
-          `@font-face { font-family: '${familia}'; font-weight: ${peso}; font-style: ${estilo}; src: url('fuentes/${archivo}-latin-${peso}-${estilo}.woff2') format('woff2'); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+2000-206F, U+2074, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
-@font-face { font-family: '${familia}'; font-weight: ${peso}; font-style: ${estilo}; src: url('fuentes/${archivo}-latin-ext-${peso}-${estilo}.woff2') format('woff2'); unicode-range: U+0100-02AF, U+0304, U+0308, U+0329, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF; }`,
-      ),
-    )
-    .join('\n');
+  const tema = temaCompleto(libro);
+  const fuentes = fuentesTema(tema, true);
+  const familiaTexto = familiaCss(fuentes.texto);
+  const familiaTitulos = familiaCss(fuentes.titulos);
+  const caras = fuentes.archivos.map((x) => caraFuente(x, 'fuentes/')).join('\n');
   const cabecera = (lado: 'izq' | 'der') =>
     a.cabeceras ? `@top-center { content: ${lado === 'izq' ? 'string(libro, first-except)' : 'string(capitulo, first-except)'}; font-variant: small-caps; letter-spacing: 0.05em; font-size: 8.5pt; vertical-align: bottom; padding-bottom: 4mm; }` : '';
   const folio = a.folios ? `@bottom-center { content: counter(page); font-size: 9pt; vertical-align: top; padding-top: 4mm; }` : '';
@@ -78,10 +65,10 @@ ${caras}
 @page imagen { margin: 0; ${sinMarcas} }
 @page preliminar { ${sinMarcas} }
 
-html { font-family: ${fuente(t.fuenteTexto)}; font-size: ${a.cuerpo}pt; line-height: ${interlineado}; color: #000; }
+html { font-family: ${familiaTexto}; font-size: ${a.cuerpo}pt; line-height: ${interlineado}; color: #000; }
 body { margin: 0; widows: 2; orphans: 2; hyphens: manual; font-kerning: normal; font-variant-ligatures: common-ligatures; }
 p { margin: ${t.espacioParrafos}em 0 0; text-indent: ${t.sangria}em; text-align: ${t.alinear === 'justificado' ? 'justify' : 'left'}; }
-h1, h2, h3 { font-family: ${fuente(t.fuenteTitulos)}; font-weight: 700; text-align: center; line-height: 1.25; hyphens: none; break-after: avoid; }
+h1, h2, h3 { font-weight: 700; line-height: 1.25; hyphens: none; break-after: avoid; }
 h2 { font-size: 1.2em; margin: 1.6em 0 0.8em; }
 h3 { font-size: 1.05em; margin: 1.2em 0 0.6em; }
 h1 + p, h2 + p, h3 + p, .escena + p, figure + p, p.sin-sangria { text-indent: 0; }
@@ -93,7 +80,7 @@ p.carta { margin-left: 1.5em; margin-right: 1.5em; text-indent: 0; font-style: i
 p.cita { margin: 0.4em 1.5em; text-indent: 0; }
 .escena { text-align: center; margin: 0.9em 0; text-indent: 0; break-after: avoid; }
 .escena.espacio { height: 1.2em; margin: 0; }
-hr.escena { border: 0; border-top: 0.4pt solid #000; width: 20%; margin: 1.2em auto; }
+hr.escena { width: 20%; margin: 1.2em auto; }
 .vs { font-variant: small-caps; }
 ruby rt { font-size: 0.5em; }
 figure { margin: 0.8em 0; text-align: center; break-inside: avoid; }
@@ -105,7 +92,15 @@ td, th { border: 0.4pt solid #000; padding: 0.2em 0.5em; }
 
 section { break-before: page; counter-reset: footnote; }
 section.texto { break-before: ${a.capituloEnImpar ? 'right' : 'page'}; }
-section.texto > h1 { string-set: capitulo content(text), libro "${titulo}"; font-size: 1.6em; margin: 0; padding: 22mm 0 12mm; }
+section.texto > h1 { string-set: capitulo content(text), libro "${titulo}"; margin: 0; padding: ${Math.max(6, tema.tituloEspacio * 5)}mm 0 10mm; }
+section.texto > .cabecera-capitulo { margin: 8mm 0 0; }
+section.texto > .cabecera-capitulo img { max-height: 45mm; }
+section.texto > .cabecera-capitulo + h1 { padding-top: 6mm; }
+${cssTema(tema, familiaTexto, familiaTitulos)}
+.pagina-imagen.doble-izq img, .pagina-imagen.doble-der img { width: ${2 * a.ancho + 2 * b}mm; height: ${alto}mm; max-width: none; max-height: none; object-fit: cover; }
+.pagina-imagen.doble-izq { justify-content: flex-start; }
+.pagina-imagen.doble-der { justify-content: flex-end; }
+section.doble { break-before: left; }
 section.preliminar { page: preliminar; }
 section.creditos p, section.preliminar p { text-indent: 0; text-align: center; }
 section.creditos { font-size: 0.85em; }
@@ -129,6 +124,7 @@ a { color: inherit; text-decoration: none; }
 }
 
 function claseSeccion(s: Seccion): string {
+  if (s.tipo === 'ilustracion' && s.doblePagina) return 'imagen doble';
   if (s.tipo === 'ilustracion' || s.tipo === 'portada') return 'imagen';
   if (s.tipo === 'creditos' || s.tipo === 'indice') return `preliminar ${s.tipo}`;
   return TIPOS_TEXTO.has(s.tipo) ? `texto ${s.tipo}` : s.tipo;
@@ -161,7 +157,11 @@ export function htmlImpresion(libro: Libro, op: OpcionesImpresion): string {
       const ids = imgs.length ? imgs.map((b) => (b.tipo === 'imagen' ? b.recurso : '')) : s.tipo === 'portada' && libro.metadatos.portada ? [libro.metadatos.portada] : [];
       for (const id of ids) {
         const r = libro.recursos.find((x) => x.id === id);
-        if (r) contenido += `<div class="pagina-imagen"><img src="${escAttr(rutaImg(r.nombre))}" alt=""/></div>`;
+        if (!r) continue;
+        const src = escAttr(rutaImg(r.nombre));
+        // Doble página: la misma imagen en dos páginas enfrentadas, cada una muestra su mitad.
+        if (s.doblePagina && s.tipo === 'ilustracion') contenido += `<div class="pagina-imagen doble-izq"><img src="${src}" alt=""/></div><div class="pagina-imagen doble-der"><img src="${src}" alt=""/></div>`;
+        else contenido += `<div class="pagina-imagen"><img src="${src}" alt=""/></div>`;
       }
       const resto = s.bloques.filter((b) => b.tipo !== 'imagen');
       if (resto.length) contenido += bloquesXhtml(resto, ctx, s);
@@ -173,7 +173,10 @@ export function htmlImpresion(libro: Libro, op: OpcionesImpresion): string {
         .join('\n');
       contenido = `<h1>${esc(s.titulo || 'Índice')}</h1>\n<ol class="indice">\n${items}\n</ol>` + bloquesXhtml(s.bloques, ctx, s);
     } else {
-      const encabezado = s.mostrarTitulo && s.titulo ? `<h1>${esc(s.titulo)}</h1>\n` : '';
+      const cab = s.imagenCabecera ? libro.recursos.find((r) => r.id === s.imagenCabecera) : undefined;
+      const encabezado =
+        (cab ? `<div class="cabecera-capitulo"><img src="${escAttr(rutaImg(cab.nombre))}" alt=""/></div>\n` : '') +
+        (s.mostrarTitulo && s.titulo ? `<h1>${contenidoTitulo(s.titulo)}</h1>\n` : '');
       contenido = encabezado + bloquesXhtml(s.bloques, ctx, s);
       // Notas sin llamada: al final de la sección para no perder texto.
       const huerfanas = s.notas.filter((n) => !ctx.numeroNota.has(n.id));

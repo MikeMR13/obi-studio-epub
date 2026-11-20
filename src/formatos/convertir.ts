@@ -75,6 +75,8 @@ export interface Parte {
   tipos: string[];
   /** aria-label del elemento que abre la parte (título no visible). */
   etiqueta?: string;
+  /** Imagen de cabecera del capítulo (div.cabecera-capitulo de Obi Studio). */
+  imagenCabecera?: string;
   bloques: Bloque[];
 }
 
@@ -327,6 +329,16 @@ export function convertirBloques(raiz: Nodo, o: OpcionesConversion, idiomaLibro?
       if (et === 'hr') {
         actual().bloques.push({ tipo: 'separador' });
         continue;
+      }
+      if (clases(h).includes('cabecera-capitulo')) {
+        const img = contieneSoloImagen(h);
+        const sImg = img ? srcImagen(img) : undefined;
+        const id = sImg ? o.imagen(sImg.src) : undefined;
+        if (id) {
+          if (actual().bloques.length || actual().titulo !== undefined) partes.push({ tipos: [], bloques: [] });
+          actual().imagenCabecera = id;
+          continue;
+        }
       }
       if (clases(h).includes('escena') || attr(h, 'role') === 'separator') {
         actual().bloques.push({ tipo: 'separador' });

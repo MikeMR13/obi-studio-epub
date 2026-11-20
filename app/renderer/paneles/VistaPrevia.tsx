@@ -20,7 +20,7 @@ const CSS_PAGINAS = `
 html { height: 100% !important; overflow: hidden !important; }
 body { margin: 0 !important; padding: 7vh 7vw !important; box-sizing: border-box !important; height: 100vh !important;
   column-width: 86vw !important; column-gap: 14vw !important; column-fill: auto !important; }
-img { max-height: 86vh !important; }
+figure img, section.portada img { max-height: 86vh !important; }
 `;
 
 export function VistaPrevia({ libro, seccionId, version, onSeccion }: Props) {

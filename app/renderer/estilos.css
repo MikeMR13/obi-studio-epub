@@ -272,3 +272,37 @@ p.error { font-weight: 600; }
 .mensajes li.info { border-color: #6a86b8; }
 .vista-impresion { flex: 1; display: flex; flex-direction: column; min-height: 0; padding: 10px 16px; gap: 6px; }
 .vista-impresion iframe { flex: 1; border: 1px solid var(--linea); border-radius: var(--radio); background: #d9d4cb; width: 100%; }
+
+/* ---------- Temas ---------- */
+@font-face { font-family: 'Literata'; src: url('/fuentes/literata-latin-400-normal.woff2') format('woff2'); }
+@font-face { font-family: 'EB Garamond'; src: url('/fuentes/eb-garamond-latin-400-normal.woff2') format('woff2'); }
+@font-face { font-family: 'Cinzel'; src: url('/fuentes/cinzel-latin-700-normal.woff2') format('woff2'); }
+@font-face { font-family: 'Noto Sans'; src: url('/fuentes/noto-sans-latin-400-normal.woff2') format('woff2'); }
+.panel-tema { display: flex; flex-direction: column; gap: 10px; }
+.muestra-viva { display: flex; flex-direction: column; gap: 6px; }
+.conmutador { display: flex; background: #e9e3d9; border-radius: 8px; padding: 2px; }
+.conmutador button { flex: 1; border: 0; background: none; padding: 4px 8px; font-size: 12.5px; }
+.conmutador button.activo { background: #fff; box-shadow: var(--sombra); font-weight: 600; }
+.marco-muestra { height: 260px; border: 1px solid var(--linea); border-radius: var(--radio); overflow: hidden; background: #fff; }
+.marco-muestra.pagina { background: #d9d4cb; height: 360px; position: relative; }
+.marco-muestra.pagina iframe { position: absolute; top: 0; left: 0; width: 640px; height: 900px; transform: scale(var(--escala, 0.4)); transform-origin: 0 0; }
+.marco-muestra iframe { width: 100%; height: 100%; border: 0; }
+.seccion-tema { border: 1px solid var(--linea); border-radius: var(--radio); background: #fbf9f5; }
+.seccion-tema > summary { cursor: pointer; padding: 8px 10px; font-weight: 600; font-size: 13px; }
+.seccion-tema[open] > summary { border-bottom: 1px solid var(--linea); }
+.seccion-tema > :not(summary) { margin: 8px 10px; }
+.galeria-temas { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.tarjeta-tema { display: flex; flex-direction: column; align-items: flex-start; text-align: left; gap: 2px; padding: 8px; border-radius: 8px; background: #fff; }
+.tarjeta-tema.activo { border-color: var(--obi); box-shadow: inset 0 0 0 1px var(--obi); }
+.tarjeta-tema strong { font-size: 12.5px; }
+.tarjeta-tema small { font-size: 11px; color: var(--tenue); line-height: 1.3; }
+.muestra-tarjeta { font-size: 22px; line-height: 1; }
+.opciones-separador { display: flex; flex-wrap: wrap; gap: 4px; }
+.opciones-separador button { padding: 3px 8px; font-size: 12.5px; }
+.opciones-separador button.activo { background: var(--obi-claro); border-color: #e2b8ab; }
+.fila-ornamento { display: flex; align-items: center; gap: 8px; }
+.fila-ornamento img { max-height: 40px; max-width: 120px; border: 1px solid var(--linea); border-radius: 4px; background: #fff; }
+.campo.color { flex-direction: row; align-items: center; justify-content: space-between; }
+.campo.color input { width: 48px; height: 28px; padding: 2px; }
+.boton-archivo { display: inline-block; border: 1px solid var(--linea); background: #fff; border-radius: 6px; padding: 5px 12px; cursor: pointer; width: fit-content; }
+.boton-archivo:hover { background: var(--obi-claro); }

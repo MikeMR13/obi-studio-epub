@@ -5,7 +5,8 @@ import { mkdir } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import type { Impresion, Libro, Metadatos, Recurso, Seccion, Tema, TipoSeccion, Tipografia } from '../src/model.js';
-import { ajustesImpresion, TAMANOS_IMPRESION } from '../src/model.js';
+import { ajustesImpresion, TAMANOS_IMPRESION, temaCompleto, validarTema } from '../src/model.js';
+import { TEMAS } from '../src/temas.js';
 import { archivosImpresion, margenInteriorAutomatico } from '../src/impresion.js';
 import { generarPdf, renderizadorChrome, urlVisor, type Renderizador, type TipoPdf } from '../src/pdf.js';
 import { libroParaImprimir } from '../src/servicio-impresion.js';
@@ -127,9 +128,68 @@ export class Backend {
     this.marcar();
   }
 
-  tema(cambios: Partial<Tema>) {
-    this.libro.tema = { ...this.libro.tema, ...cambios };
+  tema(cambios: Partial<Tema> | Record<string, unknown>) {
+    const validos = validarTema(cambios);
+    if ('separadorImagen' in validos && validos.separadorImagen && !this.libro.recursos.some((r) => r.id === validos.separadorImagen)) {
+      delete validos.separadorImagen;
+    }
+    // Un cambio manual convierte el tema en personalizado (salvo que llegue con nombre: galería o archivo).
+    const nombre = typeof (cambios as Record<string, unknown>).nombre === 'string' ? validos.nombre : 'Personalizado';
+    this.libro.tema = { ...temaCompleto(this.libro), ...validos, nombre };
     this.marcar();
+  }
+
+  aplicarTemaGaleria(id: string) {
+    const t = TEMAS.find((x) => x.id === id);
+    if (!t) throw new ErrorUsuario('Ese tema no existe.');
+    this.libro.tema = { ...t.tema };
+    this.marcar();
+  }
+
+  /** Libro de muestra con el tema actual: un capítulo corto para ver el tema en vivo. */
+  private libroMuestra(): Libro {
+    const conCabecera = this.libro.secciones.find((s) => s.imagenCabecera);
+    const p = (texto: string, estilo: 'cuerpo' | 'pensamiento' = 'cuerpo') => ({ tipo: 'parrafo' as const, estilo, contenido: [{ tipo: 'texto' as const, texto }] });
+    const muestra: Seccion = {
+      id: 'muestra',
+      tipo: 'capitulo',
+      titulo: 'Capítulo 1: El despertar',
+      mostrarTitulo: true,
+      enIndice: true,
+      imagenCabecera: conCabecera?.imagenCabecera,
+      notas: [],
+      bloques: [
+        p('La madrugada sorprendió a los mercenarios atravesando el desfiladero. Nadie hablaba; solo se oía el crujido de la nieve bajo las botas y, de vez en cuando, el relincho nervioso de algún caballo.'),
+        p('—¿De verdad crees que el gremio nos aceptará? —preguntó Aria, sin apartar la vista del camino.'),
+        p('—Si no lo hace, tendremos que inventarnos otro oficio —respondió Kael con una media sonrisa.'),
+        p('No puede ser tan difícil, pensó ella.', 'pensamiento'),
+        { tipo: 'separador' },
+        p('Cuando por fin alcanzaron las murallas, el sol ya teñía de naranja los tejados de la ciudad. Las banderas ondeaban sobre la puerta principal y los guardias observaban con desconfianza a cada viajero que se acercaba.'),
+        p('El mercado seguía abierto. Entre los puestos de especias y las tiendas de armas, un cartel anunciaba con letras doradas: «Se buscan aventureros».'),
+      ],
+    };
+    return { ...this.libro, secciones: [muestra], metadatos: { ...this.libro.metadatos, portada: undefined } };
+  }
+
+  private muestras = new Map<string, Map<string, string | Uint8Array>>();
+
+  /** URL de la muestra del tema: el XHTML real del EPUB (lector) o la página compaginada (impresión). */
+  async muestraTema(modo: 'lector' | 'pagina'): Promise<string> {
+    const libro = this.libroMuestra();
+    if (modo === 'pagina') {
+      const v = String(++this.contadorImpresion);
+      const a = ajustesImpresion(libro);
+      this.paquetes.set(v, archivosImpresion(await libroParaImprimir({ ...libro, impresion: { ...a, capituloEnImpar: false } }), { interior: margenInteriorAutomatico(200), digital: false }));
+      return urlVisor(this.base, this.clave, Number(v)).replace('spread=false', 'spread=false&zoom=fit');
+    }
+    const v = String(Date.now());
+    this.muestras.clear();
+    this.muestras.set(v, compilarArchivos(libro));
+    return `/muestra/${v}/muestra.xhtml`;
+  }
+
+  archivoMuestra(version: string, ruta: string): string | Uint8Array | undefined {
+    return this.muestras.get(version)?.get(ruta);
   }
 
   tipografia(cambios: Partial<Tipografia>) {
@@ -153,10 +213,13 @@ export class Backend {
     return s;
   }
 
-  actualizarSeccion(id: string, cambios: Partial<Seccion>) {
+  actualizarSeccion(id: string, cambios: Partial<Seccion> | Record<string, unknown>) {
     const s = this.seccion(id);
-    const { id: _id, ...resto } = cambios;
+    const { id: _id, ...resto } = cambios as Partial<Seccion>;
     Object.assign(s, resto);
+    // null quita un campo opcional (imagen de cabecera, doble página).
+    for (const k of ['imagenCabecera', 'doblePagina'] as const) if ((s as unknown as Record<string, unknown>)[k] === null || s[k] === undefined) delete s[k];
+    if (s.imagenCabecera && !this.libro.recursos.some((r) => r.id === s.imagenCabecera)) delete s.imagenCabecera;
     this.marcar();
   }
 
@@ -250,6 +313,8 @@ export class Backend {
     for (const r of libro.recursos) if (!porNombre.has(r.nombre)) this.libro.recursos.push(r);
     const nuevas = libro.secciones.map((x, k) => {
       for (const b of x.bloques) if (b.tipo === 'imagen') b.recurso = idNuevo.get(b.recurso) ?? b.recurso;
+      if (x.imagenCabecera) x.imagenCabecera = idNuevo.get(x.imagenCabecera) ?? x.imagenCabecera;
+      if (k === 0 && s.doblePagina) x.doblePagina = s.doblePagina;
       if (k === 0) return { ...x, id: s.id, tipo: s.tipo === x.tipo || x.tipo === 'otro' || x.tipo === 'capitulo' ? s.tipo : x.tipo };
       return { ...x, tipo: x.tipo === 'otro' ? s.tipo : x.tipo };
     });

@@ -39,16 +39,15 @@ const { cp } = await import('node:fs/promises');
 await rm('recursos/vivliostyle', { recursive: true, force: true });
 await cp('node_modules/@vivliostyle/viewer/lib', 'recursos/vivliostyle', { recursive: true });
 await mkdir('recursos/fuentes', { recursive: true });
-for (const familia of ['literata', 'noto-sans']) {
+for (const familia of ['literata', 'noto-sans', 'eb-garamond', 'cinzel']) {
   for (const sub of ['latin', 'latin-ext']) {
     for (const v of ['400-normal', '400-italic', '700-normal', '700-italic']) {
       const archivo = `${familia}-${sub}-${v}.woff2`;
-      await cp(`node_modules/@fontsource/${familia}/files/${archivo}`, `recursos/fuentes/${archivo}`);
+      if (existsSync(`node_modules/@fontsource/${familia}/files/${archivo}`)) await cp(`node_modules/@fontsource/${familia}/files/${archivo}`, `recursos/fuentes/${archivo}`);
     }
   }
+  await cp(`node_modules/@fontsource/${familia}/LICENSE`, `recursos/fuentes/LICENCIA-${familia}-OFL.txt`).catch(() => undefined);
 }
-await cp('node_modules/@fontsource/literata/LICENSE', 'recursos/fuentes/LICENCIA-Literata-OFL.txt').catch(() => undefined);
-await cp('node_modules/@fontsource/noto-sans/LICENSE', 'recursos/fuentes/LICENCIA-NotoSans-OFL.txt').catch(() => undefined);
 await mkdir('recursos/hyphenopoly', { recursive: true });
 await cp('node_modules/hyphenopoly/patterns/es.wasm', 'recursos/hyphenopoly/es.wasm');
 console.log('Recursos listos.');

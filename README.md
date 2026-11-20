@@ -23,6 +23,19 @@ Maquetador visual de novelas ligeras para Windows, macOS y Linux. Escribes y das
 - **Proyecto `.obi`:** un ZIP con `libro.json` y las imágenes. Copia de recuperación automática cada minuto con cambios.
 - EPUBCheck y un Java mínimo (jlink, 56 MB) van **dentro del instalador**.
 
+## Diseño (F3)
+
+- **Galería de temas:** Clásico, Novela ligera, Fantasía épica, Romance, Ciencia ficción, Misterio, Juvenil, Minimalista y Literario. Cada uno es un conjunto de valores del modelo; al tocar cualquier ajuste el tema pasa a «Personalizado».
+- **Constructor visual sin CSS** (pestaña Tema), con muestra en vivo del EPUB real (lector) y de la página compaginada (impresión):
+  - letra del texto y de los títulos: las del lector, o Literata, EB Garamond, Noto Sans y Cinzel (OFL), que se **incrustan en el EPUB y en el PDF**;
+  - interlineado, sangría, espacio entre párrafos y alineación;
+  - títulos de capítulo: centrado, «número arriba y título grande» (separa «Capítulo 3» de «El gremio»), a la izquierda o con línea; tamaño, espacio encima, versalitas y color;
+  - letra capitular y primera línea en versalitas;
+  - separador de escena: asteriscos, flor, rombos, puntos, línea, espacio o una imagen propia; color de acento.
+- **Guardar y cargar temas** (`.obitema`) para usarlos en otros libros; los archivos se validan al cargarlos.
+- **Imagen de cabecera por capítulo** (viñeta o emblema sobre el título), en el EPUB y en el PDF. Vuelve al modelo al reimportar el EPUB.
+- **Doble página en impresión:** una ilustración horizontal ocupa dos páginas enfrentadas (siempre empieza en página par), cada una con su mitad.
+
 ## PDF de impresión (F2)
 
 - **Compaginación con Vivliostyle** (CSS Paged Media) en el Chromium de Electron, o en Chrome/Edge desde la línea de comandos. El PDF sale del mismo modelo y del mismo tema que el EPUB.
@@ -90,6 +103,7 @@ En local: `npm run instaladores` construye el del sistema actual en `instaladore
 | `src/editor-modelo.ts` | Puente entre el JSON de ProseMirror y los bloques del modelo |
 | `src/validar.ts` | EPUBCheck con mensajes en español |
 | `src/impresion.ts`, `src/pdf.ts`, `src/servicio-impresion.ts` | HTML y CSS de impresión, generación y posproceso del PDF, servicio del visor |
+| `src/estilo-tema.ts`, `src/temas.ts`, `src/fuentes.ts` | CSS del tema común al EPUB y al PDF, galería de temas, fuentes incrustadas |
 | `src/preflight.ts`, `src/division.ts`, `src/recursos.ts` | Revisión previa, división silábica, ubicación de los recursos |
 | `src/proyecto.ts`, `src/tipografia.ts`, `src/imagen.ts`, `src/cli.ts` | Proyecto .obi, tipografía española, tamaño de imágenes, línea de comandos |
 | `src/pruebas/` | Pruebas del motor y documentos de prueba generados al vuelo |
@@ -106,4 +120,4 @@ En local: `npm run instaladores` construye el del sistema actual en `instaladore
 - Fuentes del sistema incrustadas (subconjunto con HarfBuzz), recorte y giro de ilustraciones, dobles páginas.
 - Buscar y reemplazar, versiones con nombre, revisión de accesibilidad con axe-core.
 - PDF/X-1a y CMYK con Ghostscript.
-- Constructor visual de temas (F3).
+- Novela ligera avanzada (F4): escritura vertical, layout fijo selectivo, KEPUB, DOCX de ida y vuelta.

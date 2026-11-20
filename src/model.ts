@@ -145,6 +145,10 @@ export interface Seccion {
   enIndice: boolean;
   bloques: Bloque[];
   notas: Nota[];
+  /** Imagen decorativa sobre el título del capítulo. */
+  imagenCabecera?: string;
+  /** Ilustración horizontal a doble página enfrentada en el PDF de impresión. */
+  doblePagina?: boolean;
 }
 
 export interface Recurso {
@@ -189,9 +193,41 @@ export interface Metadatos {
   portada?: string;
 }
 
+/** Fuentes disponibles. Las «del lector» no se incrustan; las demás (licencia OFL) van dentro del EPUB y del PDF. */
+export interface Fuente {
+  id: string;
+  nombre: string;
+  familia: string;
+  /** Prefijo de los archivos .woff2 en recursos/fuentes; vacío si no se incrusta. */
+  archivo: string;
+  estilos: string[];
+  /** Fuente con la que se imprime si no se incrusta en el EPUB. */
+  impresion: string;
+  generica: 'serif' | 'sans-serif';
+  soloTitulos?: boolean;
+}
+
+export const FUENTES: Fuente[] = [
+  { id: 'serif', nombre: 'Con remate del lector', familia: 'serif', archivo: '', estilos: [], impresion: 'literata', generica: 'serif' },
+  { id: 'sans-serif', nombre: 'Sin remate del lector', familia: 'sans-serif', archivo: '', estilos: [], impresion: 'noto-sans', generica: 'sans-serif' },
+  { id: 'literata', nombre: 'Literata', familia: 'Literata', archivo: 'literata', estilos: ['400-normal', '400-italic', '700-normal', '700-italic'], impresion: 'literata', generica: 'serif' },
+  { id: 'eb-garamond', nombre: 'EB Garamond', familia: 'EB Garamond', archivo: 'eb-garamond', estilos: ['400-normal', '400-italic', '700-normal', '700-italic'], impresion: 'eb-garamond', generica: 'serif' },
+  { id: 'noto-sans', nombre: 'Noto Sans', familia: 'Noto Sans', archivo: 'noto-sans', estilos: ['400-normal', '400-italic', '700-normal', '700-italic'], impresion: 'noto-sans', generica: 'sans-serif' },
+  { id: 'cinzel', nombre: 'Cinzel (títulos)', familia: 'Cinzel', archivo: 'cinzel', estilos: ['400-normal', '700-normal'], impresion: 'cinzel', generica: 'serif', soloTitulos: true },
+];
+
+export function fuente(id: string): Fuente {
+  return FUENTES.find((f) => f.id === id) ?? FUENTES[0];
+}
+
+export type EstiloTitulo = 'centrado' | 'izquierda' | 'numero-grande' | 'linea';
+export type SeparadorEscena = 'asteriscos' | 'linea' | 'espacio' | 'flor' | 'rombos' | 'puntos' | 'imagen';
+
 export interface Tema {
-  fuenteTexto: 'serif' | 'sans-serif';
-  fuenteTitulos: 'serif' | 'sans-serif';
+  /** Nombre del tema (para guardarlo y reconocerlo en la galería). */
+  nombre?: string;
+  fuenteTexto: string;
+  fuenteTitulos: string;
   /** Interlineado, en múltiplos del tamaño de letra. */
   interlineado: number;
   /** Sangría de primera línea, en em. */
@@ -199,7 +235,83 @@ export interface Tema {
   /** Espacio entre párrafos, en em. */
   espacioParrafos: number;
   alinear: 'justificado' | 'izquierda';
-  separador: 'asteriscos' | 'linea' | 'espacio';
+  separador: SeparadorEscena;
+  /** Imagen del separador cuando separador = 'imagen'. */
+  separadorImagen?: string;
+  tituloEstilo: EstiloTitulo;
+  tituloMayusculas: boolean;
+  /** Tamaño del título de capítulo, en em. */
+  tituloTamano: number;
+  /** Espacio sobre el título en la apertura, en em. */
+  tituloEspacio: number;
+  capitular: 'ninguna' | 'letra';
+  /** Primera línea del capítulo en versalitas. */
+  primeraLinea: boolean;
+  colorTitulos: string;
+  colorAcento: string;
+}
+
+export const TEMA_PREDETERMINADO: Tema = {
+  nombre: 'Clásico',
+  fuenteTexto: 'serif',
+  fuenteTitulos: 'serif',
+  interlineado: 1.5,
+  sangria: 1.5,
+  espacioParrafos: 0,
+  alinear: 'justificado',
+  separador: 'asteriscos',
+  tituloEstilo: 'centrado',
+  tituloMayusculas: false,
+  tituloTamano: 1.5,
+  tituloEspacio: 2,
+  capitular: 'ninguna',
+  primeraLinea: false,
+  colorTitulos: '#000000',
+  colorAcento: '#000000',
+};
+
+/** Tema completo (los proyectos antiguos no tienen todos los campos). */
+export function temaCompleto(libro: Pick<Libro, 'tema'>): Tema {
+  return { ...TEMA_PREDETERMINADO, ...(libro.tema ?? {}) };
+}
+
+const COLOR = /^#[0-9a-f]{6}$/i;
+
+/** Valida un tema que llega de fuera (archivo .obitema o la interfaz) y devuelve solo los campos correctos. */
+export function validarTema(entrada: unknown): Partial<Tema> {
+  const e = (entrada && typeof entrada === 'object' ? entrada : {}) as Record<string, unknown>;
+  const t: Partial<Tema> = {};
+  const numero = (k: keyof Tema, min: number, max: number) => {
+    const v = Number(e[k]);
+    if (e[k] !== undefined && !isNaN(v)) (t as Record<string, unknown>)[k] = Math.min(max, Math.max(min, v));
+  };
+  const opcion = <T extends string>(k: keyof Tema, validos: readonly T[]) => {
+    if (validos.includes(e[k] as T)) (t as Record<string, unknown>)[k] = e[k];
+  };
+  if (typeof e.nombre === 'string') t.nombre = e.nombre.slice(0, 60);
+  opcion('fuenteTexto', FUENTES.filter((f) => !f.soloTitulos).map((f) => f.id));
+  opcion('fuenteTitulos', FUENTES.map((f) => f.id));
+  numero('interlineado', 1.1, 2.2);
+  numero('sangria', 0, 4);
+  numero('espacioParrafos', 0, 2);
+  opcion('alinear', ['justificado', 'izquierda'] as const);
+  opcion('separador', ['asteriscos', 'linea', 'espacio', 'flor', 'rombos', 'puntos', 'imagen'] as const);
+  if (typeof e.separadorImagen === 'string') t.separadorImagen = e.separadorImagen;
+  opcion('tituloEstilo', ['centrado', 'izquierda', 'numero-grande', 'linea'] as const);
+  if (typeof e.tituloMayusculas === 'boolean') t.tituloMayusculas = e.tituloMayusculas;
+  numero('tituloTamano', 1, 3);
+  numero('tituloEspacio', 0, 12);
+  opcion('capitular', ['ninguna', 'letra'] as const);
+  if (typeof e.primeraLinea === 'boolean') t.primeraLinea = e.primeraLinea;
+  if (typeof e.colorTitulos === 'string' && COLOR.test(e.colorTitulos)) t.colorTitulos = e.colorTitulos;
+  if (typeof e.colorAcento === 'string' && COLOR.test(e.colorAcento)) t.colorAcento = e.colorAcento;
+  return t;
+}
+
+/** Divide «Capítulo 3: El gremio» en etiqueta («Capítulo 3»), separador y nombre («El gremio»). */
+export function partesTitulo(titulo: string): { etiqueta: string; sep: string; nombre: string } | null {
+  const m = titulo.match(/^((?:cap[ií]tulo|chapter|parte|libro|acto|interludio|ep[ií]logo|pr[oó]logo)\s+[\wIVXLCDM]+|\d+|[IVXLCDM]+)(\s*[.:–—-]\s*|\s+)(.+)$/i);
+  return m ? { etiqueta: m[1], sep: m[2], nombre: m[3] } : null;
 }
 
 export interface Tipografia {
@@ -273,16 +385,6 @@ export interface Libro {
 export function ajustesImpresion(libro: Libro): Impresion {
   return { ...IMPRESION_PREDETERMINADA, ...(libro.impresion ?? {}) };
 }
-
-export const TEMA_PREDETERMINADO: Tema = {
-  fuenteTexto: 'serif',
-  fuenteTitulos: 'serif',
-  interlineado: 1.5,
-  sangria: 1.5,
-  espacioParrafos: 0,
-  alinear: 'justificado',
-  separador: 'asteriscos',
-};
 
 export const TIPOGRAFIA_PREDETERMINADA: Tipografia = {
   raya: true,

@@ -10,6 +10,7 @@ import { VistaPrevia } from './paneles/VistaPrevia';
 import { Codigo } from './paneles/Codigo';
 import { Ilustracion } from './paneles/Ilustracion';
 import { PanelImpresion, VistaImpresion } from './paneles/Impresion';
+import { PanelTema } from './paneles/Tema';
 import type { Pestana } from './paneles/Inspector';
 
 type Vista = 'editor' | 'codigo' | 'vista' | 'impresion';
@@ -336,6 +337,32 @@ export function App() {
           setActual(id);
           setVista('codigo');
         }}
+        version={version}
+        onImagenCabecera={(archivo) =>
+          seccion &&
+          llamar(async () => {
+            if (!archivo) return aplicar(await api.seccion(seccion.id, { imagenCabecera: null }));
+            const r = await api.subirImagen(archivo);
+            aplicar(await api.seccion(seccion.id, { imagenCabecera: r.recurso.id }));
+          })
+        }
+        panelTema={
+          <PanelTema
+            estado={estado}
+            version={version}
+            onTema={(c) => llamar(async () => aplicar(await api.tema(c)))}
+            onGaleria={(id) => llamar(async () => aplicar(await api.temaGaleria(id)))}
+            onTipografia={(c) => llamar(async () => aplicar(await api.tipografia(c), false))}
+            onAplicarTipografia={() =>
+              llamar(async () => {
+                const r = await api.aplicarTipografia();
+                aplicar(r.estado);
+                aviso(r.cambios ? `Tipografía aplicada en ${r.cambios} fragmentos.` : 'No había nada que corregir.');
+              })
+            }
+            onEstado={(e) => aplicar(e)}
+          />
+        }
         panelImpresion={
           <PanelImpresion
             estado={estado}

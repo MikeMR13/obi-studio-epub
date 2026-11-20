@@ -74,7 +74,7 @@ export function Ilustracion({ estado, seccion, version, onBloques, onEstado, onP
         )}
         {baja && <p className="aviso-texto">⚠ Resolución baja: para una página completa se recomiendan al menos 1200 px de lado.</p>}
         {orientacion === 'horizontal' && !esPortada && (
-          <p className="aviso-texto">Imagen horizontal: en lectores verticales se verá pequeña. En una próxima versión podrás girarla o dividirla en doble página.</p>
+          <p className="aviso-texto">Imagen horizontal: en lectores verticales se verá pequeña. En el PDF de impresión puedes ponerla a doble página (pestaña Sección).</p>
         )}
         {bloque && (
           <>

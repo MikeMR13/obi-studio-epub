@@ -5,6 +5,9 @@
 import JSZip from 'jszip';
 import type { Bloque, Imagen, Inline, Libro, Marca, Nota, Seccion, TipoSeccion } from './model.js';
 import { esc, escAttr, limpiarXml } from './xml.js';
+import { temaCompleto } from './model.js';
+import { cssTema, separadorXhtml as separadorTema, contenidoTitulo } from './estilo-tema.js';
+import { fuentesTema, caraFuente, familiaCss, leerFuente } from './fuentes.js';
 
 export const CARPETA = 'EPUB';
 
@@ -104,15 +107,10 @@ function imagenXhtml(img: Imagen, libro: Libro, clase = 'imagen', rutaImg = ruta
   return `<figure class="${clase}"><img src="${escAttr(rutaImg(r.nombre))}" alt="${escAttr(alt)}"${extra}/>${pie}</figure>`;
 }
 
-function separadorXhtml(libro: Libro): string {
-  switch (libro.tema.separador) {
-    case 'linea':
-      return '<hr class="escena"/>';
-    case 'espacio':
-      return '<div class="escena espacio" role="separator"></div>';
-    default:
-      return '<div class="escena" role="separator">* * *</div>';
-  }
+function separadorXhtml(ctx: Contexto): string {
+  const t = temaCompleto(ctx.libro);
+  const r = t.separador === 'imagen' && t.separadorImagen ? ctx.libro.recursos.find((x) => x.id === t.separadorImagen) : undefined;
+  return separadorTema(t, r ? (ctx.rutaImg ?? rutaImagen)(r.nombre) : undefined);
 }
 
 export function bloquesXhtml(bloques: Bloque[], ctx: Contexto, seccion?: Seccion): string {
@@ -128,7 +126,7 @@ export function bloquesXhtml(bloques: Bloque[], ctx: Contexto, seccion?: Seccion
         partes.push(`<h${b.nivel}>${inlinesXhtml(b.contenido, ctx)}</h${b.nivel}>`);
         break;
       case 'separador':
-        partes.push(separadorXhtml(ctx.libro));
+        partes.push(separadorXhtml(ctx));
         break;
       case 'imagen':
         partes.push(imagenXhtml(b, ctx.libro, seccion?.tipo === 'ilustracion' ? 'ilustracion' : 'imagen', ctx.rutaImg));
@@ -193,10 +191,13 @@ export function seccionXhtml(libro: Libro, s: Seccion): string {
   let encabezado = '';
   if (s.mostrarTitulo && s.titulo) {
     atributos.push(`aria-labelledby="${idTitulo}"`);
-    encabezado = `<h1 id="${idTitulo}">${esc(s.titulo)}</h1>\n`;
+    encabezado = `<h1 id="${idTitulo}">${contenidoTitulo(s.titulo)}</h1>\n`;
   } else if (s.titulo) {
     atributos.push(`aria-label="${escAttr(s.titulo)}"`);
   }
+
+  const cabecera = s.imagenCabecera ? libro.recursos.find((r) => r.id === s.imagenCabecera) : undefined;
+  if (cabecera) encabezado = `<div class="cabecera-capitulo"><img src="${escAttr(rutaImagen(cabecera.nombre))}" alt="" role="presentation"/></div>\n` + encabezado;
 
   let contenido: string;
   if (s.tipo === 'portada') {
@@ -263,14 +264,16 @@ ${marcas.join('\n')}
 }
 
 export function cssLibro(libro: Libro): string {
-  const t = libro.tema;
-  const familia = (f: string) => (f === 'sans-serif' ? 'sans-serif' : 'serif');
+  const t = temaCompleto(libro);
+  const f = fuentesTema(t);
+  const caras = f.archivos.map((a) => caraFuente(a, 'fuentes/')).join('\n');
   return `@charset "UTF-8";
-/* Generado por Obi Studio. Medidas relativas para que el lector pueda cambiar letra y tamaño. */
+/* Generado por Obi Studio (tema «${(t.nombre ?? 'personalizado').replace(/\*\//g, '')}»). Medidas relativas para que el lector pueda cambiar letra y tamaño. */
+${caras}
 html { margin: 0; padding: 0; }
-body { margin: 0 5%; font-family: ${familia(t.fuenteTexto)}; line-height: ${t.interlineado}; orphans: 2; widows: 2; }
-h1, h2, h3 { font-family: ${familia(t.fuenteTitulos)}; font-weight: bold; text-align: center; line-height: 1.3; page-break-after: avoid; break-after: avoid; }
-h1 { font-size: 1.5em; margin: 2em 0 1.5em; }
+body { margin: 0 5%; font-family: ${familiaCss(f.texto)}; line-height: ${t.interlineado}; orphans: 2; widows: 2; }
+h1, h2, h3 { font-weight: bold; line-height: 1.3; page-break-after: avoid; break-after: avoid; }
+h1 { margin: ${t.tituloEspacio}em 0 1.5em; }
 h2 { font-size: 1.25em; margin: 1.5em 0 1em; }
 h3 { font-size: 1.1em; margin: 1.2em 0 0.8em; }
 p { margin: ${t.espacioParrafos}em 0 0; text-indent: ${t.sangria}em; text-align: ${t.alinear === 'justificado' ? 'justify' : 'left'}; }
@@ -283,7 +286,7 @@ p.carta { margin: 0 2em; text-indent: 0; font-style: italic; }
 p.cita { margin: 0.5em 2em; text-indent: 0; }
 .escena { text-align: center; margin: 1em 0; text-indent: 0; }
 .escena.espacio { height: 1.5em; margin: 0; }
-hr.escena { border: 0; border-top: 1px solid currentColor; width: 25%; margin: 1.5em auto; }
+hr.escena { width: 25%; margin: 1.5em auto; }
 .vs { font-variant: small-caps; }
 figure { margin: 1em 0; text-align: center; page-break-inside: avoid; break-inside: avoid; }
 figure img { max-width: 100%; max-height: 95vh; }
@@ -299,6 +302,7 @@ aside[epub|type~="footnote"] { font-size: 0.9em; margin-top: 1em; }
 aside p { text-indent: 0; }
 a[epub|type~="noteref"] { text-decoration: none; }
 ruby rt { font-size: 0.5em; }
+${cssTema(t, familiaCss(f.texto), familiaCss(f.titulos))}
 `;
 }
 
@@ -425,9 +429,19 @@ export function compilarArchivos(libro: Libro): Map<string, string | Uint8Array>
   manifiesto.push({ href: 'estilos.css', id: 'css', tipo: 'text/css' });
   archivos.set('estilos.css', cssLibro(libro));
 
+  const tema = temaCompleto(libro);
+  for (const a of fuentesTema(tema).archivos) {
+    const datos = leerFuente(a.archivo);
+    if (!datos) continue;
+    archivos.set(`fuentes/${a.archivo}`, datos);
+    manifiesto.push({ href: `fuentes/${a.archivo}`, id: `f-${a.archivo.replace(/\.woff2$/, '').replace(/[^\w-]/g, '-')}`, tipo: 'font/woff2' });
+  }
+
   const usadas = new Set<string>();
   if (libro.metadatos.portada) usadas.add(libro.metadatos.portada);
+  if (tema.separador === 'imagen' && tema.separadorImagen) usadas.add(tema.separadorImagen);
   for (const s of libro.secciones) {
+    if (s.imagenCabecera) usadas.add(s.imagenCabecera);
     for (const b of s.bloques) if (b.tipo === 'imagen') usadas.add(b.recurso);
     const xhtml = seccionXhtml(libro, s);
     archivos.set(archivoSeccion(s), xhtml);

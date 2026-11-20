@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import type { Metadatos, Seccion, Tema, Tipografia, RolCredito } from '../../../src/model';
 import { ROLES, TIPOS_SECCION } from '../../../src/model';
 import type { Estado, Resultado } from '../api';
+import { urlRecurso } from '../api';
 
 export type Pestana = 'seccion' | 'libro' | 'tema' | 'impresion' | 'validacion';
 
@@ -20,6 +21,9 @@ interface Props {
   onValidar: () => void;
   onIrA: (seccion: string) => void;
   panelImpresion: React.ReactNode;
+  panelTema: React.ReactNode;
+  onImagenCabecera: (archivo: File | null) => void;
+  version: number;
 }
 
 /** Campo de texto que guarda al salir (o tras una pausa), no en cada tecla. */
@@ -82,6 +86,29 @@ export function Inspector(p: Props) {
               <input type="checkbox" checked={p.seccion.enIndice} onChange={(e) => p.onSeccion({ enIndice: e.target.checked })} />
               Incluir en el índice
             </label>
+            {!['portada', 'ilustracion', 'indice', 'creditos'].includes(p.seccion.tipo) && (
+              <div className="campo">
+                <span>Imagen de cabecera</span>
+                {p.seccion.imagenCabecera ? (
+                  <div className="fila-ornamento">
+                    <img src={urlRecurso(p.seccion.imagenCabecera, p.version)} alt="Imagen de cabecera" />
+                    <button className="pequeno" onClick={() => p.onImagenCabecera(null)}>Quitar</button>
+                  </div>
+                ) : (
+                  <label className="boton-archivo">
+                    Elegir imagen…
+                    <input type="file" hidden accept="image/png,image/jpeg,image/webp,image/svg+xml" onChange={(e) => { const f = e.target.files?.[0]; if (f) p.onImagenCabecera(f); e.target.value = ''; }} />
+                  </label>
+                )}
+                <small>Imagen decorativa sobre el título (una viñeta, un emblema…).</small>
+              </div>
+            )}
+            {p.seccion.tipo === 'ilustracion' && (
+              <label className="casilla">
+                <input type="checkbox" checked={!!p.seccion.doblePagina} onChange={(e) => p.onSeccion({ doblePagina: e.target.checked || undefined })} />
+                Doble página enfrentada en el PDF de impresión
+              </label>
+            )}
             <p className="dato">{(p.estado.palabras[p.seccion.id] ?? 0).toLocaleString('es')} palabras · {p.seccion.notas.length} notas</p>
             <button onClick={() => p.onAplicarTipografia(false)}>Aplicar tipografía a esta sección</button>
           </>
@@ -156,82 +183,7 @@ export function Inspector(p: Props) {
           </>
         )}
 
-        {p.pestana === 'tema' && (
-          <>
-            <div className="muestra-tema" style={{ fontFamily: t.fuenteTexto, lineHeight: t.interlineado }}>
-              <h3 style={{ fontFamily: t.fuenteTitulos }}>Capítulo 1</h3>
-              <p style={{ textIndent: 0, textAlign: t.alinear === 'justificado' ? 'justify' : 'left' }}>—¿De verdad crees que el gremio nos aceptará? —preguntó Aria, mirando el cartel.</p>
-              <p style={{ textIndent: `${t.sangria}em`, marginTop: `${t.espacioParrafos}em`, textAlign: t.alinear === 'justificado' ? 'justify' : 'left' }}>
-                El viento movía las banderas de la ciudad mientras el sol se ocultaba tras las murallas.
-              </p>
-            </div>
-            <div className="fila-dos">
-              <label className="campo">
-                <span>Letra del texto</span>
-                <select value={t.fuenteTexto} onChange={(e) => p.onTema({ fuenteTexto: e.target.value as Tema['fuenteTexto'] })}>
-                  <option value="serif">Con remate (serif)</option>
-                  <option value="sans-serif">Sin remate (sans)</option>
-                </select>
-              </label>
-              <label className="campo">
-                <span>Letra de los títulos</span>
-                <select value={t.fuenteTitulos} onChange={(e) => p.onTema({ fuenteTitulos: e.target.value as Tema['fuenteTitulos'] })}>
-                  <option value="serif">Con remate (serif)</option>
-                  <option value="sans-serif">Sin remate (sans)</option>
-                </select>
-              </label>
-            </div>
-            <label className="campo">
-              <span>Interlineado: {t.interlineado.toFixed(2)}</span>
-              <input type="range" min={1.1} max={2} step={0.05} value={t.interlineado} onChange={(e) => p.onTema({ interlineado: Number(e.target.value) })} />
-            </label>
-            <label className="campo">
-              <span>Sangría: {t.sangria.toFixed(1)} em</span>
-              <input type="range" min={0} max={3} step={0.1} value={t.sangria} onChange={(e) => p.onTema({ sangria: Number(e.target.value) })} />
-            </label>
-            <label className="campo">
-              <span>Espacio entre párrafos: {t.espacioParrafos.toFixed(1)} em</span>
-              <input type="range" min={0} max={1.5} step={0.1} value={t.espacioParrafos} onChange={(e) => p.onTema({ espacioParrafos: Number(e.target.value) })} />
-            </label>
-            <div className="fila-dos">
-              <label className="campo">
-                <span>Alineación</span>
-                <select value={t.alinear} onChange={(e) => p.onTema({ alinear: e.target.value as Tema['alinear'] })}>
-                  <option value="justificado">Justificado</option>
-                  <option value="izquierda">A la izquierda</option>
-                </select>
-              </label>
-              <label className="campo">
-                <span>Separador de escena</span>
-                <select value={t.separador} onChange={(e) => p.onTema({ separador: e.target.value as Tema['separador'] })}>
-                  <option value="asteriscos">* * *</option>
-                  <option value="linea">Línea</option>
-                  <option value="espacio">Espacio en blanco</option>
-                </select>
-              </label>
-            </div>
-            <fieldset className="grupo">
-              <legend>Tipografía española</legend>
-              <label className="casilla">
-                <input type="checkbox" checked={tip.raya} onChange={(e) => p.onTipografia({ raya: e.target.checked })} />
-                Raya de diálogo (— en vez de -)
-              </label>
-              <label className="casilla">
-                <input type="checkbox" checked={tip.suspensivos} onChange={(e) => p.onTipografia({ suspensivos: e.target.checked })} />
-                Puntos suspensivos (… en vez de ...)
-              </label>
-              <label className="campo">
-                <span>Comillas</span>
-                <select value={tip.comillas} onChange={(e) => p.onTipografia({ comillas: e.target.value as Tipografia['comillas'] })}>
-                  <option value="latinas">Latinas « »</option>
-                  <option value="inglesas">Inglesas “ ”</option>
-                  <option value="sin-cambio">No cambiar</option>
-                </select>
-              </label>
-              <button onClick={() => p.onAplicarTipografia(true)}>Aplicar a todo el libro</button>
-            </fieldset>
-          </>
-        )}
+        {p.pestana === 'tema' && p.panelTema}
 
         {p.pestana === 'impresion' && p.panelImpresion}
 

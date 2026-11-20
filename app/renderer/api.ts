@@ -50,6 +50,8 @@ export const api = {
   codigo: (id: string) => pedir<{ xhtml: string }>('GET', `/api/codigo/${id}`),
   aplicarCodigo: (id: string, xhtml: string) => pedir<{ secciones: string[]; estado: Estado }>('PUT', `/api/codigo/${id}`, { xhtml }),
   validar: () => pedir<Resultado>('POST', '/api/validar'),
+  temaGaleria: (id: string) => pedir<Estado>('POST', '/api/tema/galeria', { id }),
+  muestraTema: (modo: 'lector' | 'pagina') => pedir<{ url: string }>('GET', `/api/tema/muestra?modo=${modo}`),
   impresion: (cambios: object) => pedir<Estado>('PUT', '/api/impresion', cambios),
   revisionImpresion: () => pedir<{ avisos: AvisoImpresion[]; paginas?: number }>('GET', '/api/impresion/revision'),
   visorImpresion: () => pedir<{ url: string }>('GET', '/api/impresion/visor'),
