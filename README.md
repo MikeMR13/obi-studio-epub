@@ -23,6 +23,17 @@ Maquetador visual de novelas ligeras para Windows, macOS y Linux. Escribes y das
 - **Proyecto `.obi`:** un ZIP con `libro.json` y las imágenes. Copia de recuperación automática cada minuto con cambios.
 - EPUBCheck y un Java mínimo (jlink, 56 MB) van **dentro del instalador**.
 
+## Publicación, imágenes y fuentes (F6)
+
+- **Publicar en tiendas** (Más → Publicar en tiendas…): revisión con las reglas oficiales de Kindle (KDP), Apple Books, Kobo, Google Play e IngramSpark (portada, peso y píxeles de las imágenes, página fija…), descarga de la portada aparte y EPUB ajustado a cada una y validado: reduce las imágenes que superan el límite, quita la página fija para IngramSpark y añade `com.apple.ibooks.display-options.xml` para Apple si hay fuentes incrustadas.
+- **Muestra gratuita** (Más → Muestra gratuita…): EPUB con las secciones elegidas (por defecto, hasta el primer capítulo), una página final «Fin de la muestra» con el enlace de compra, identificador propio y «(muestra)» en el título, validado con EPUBCheck. Y una **página web de una sola pieza** (portada, sinopsis, créditos, botón de compra y capítulos, con imágenes y fuentes dentro) para colgarla en cualquier sitio.
+- **Páginas a color:** tras crear el PDF de imprenta, la revisión previa dice qué páginas llevan color (imágenes y colores del texto, leídos del PDF real) para elegir bien la impresión.
+- **Marcas de corte** opcionales en el PDF de imprenta, fuera del sangrado y en color de registro, para imprentas tradicionales (KDP e IngramSpark las rechazan, y se avisa).
+- **Girar y recortar ilustraciones** en la vista de la ilustración; antes de cada cambio se guarda una versión con la imagen original.
+- **Optimizar las imágenes del EPUB** (pestaña Libro): al exportar, las de más de 4 Mpx se reducen y los PNG grandes sin transparencia pasan a JPEG. El proyecto y el PDF conservan las originales.
+- **Fuentes propias** (Tema → Fuentes propias…): sube un .ttf u .otf o elige una fuente instalada en el sistema. Se respeta su licencia de incrustación (`fsType`: las restringidas o solo de mapa de bits no se admiten) y se incrusta solo el subconjunto de letras que usa el libro (HarfBuzz en WebAssembly), en el EPUB, el PDF y la muestra web. Se guardan dentro del `.obi`; las versiones no las duplican.
+- **Configuración** (Más → Configuración…): idioma de la interfaz y la colaboración en la red local, que viene **desactivada** y solo aparece en el menú al activarla.
+
 ## Pendientes cerrados antes de la siguiente fase
 
 - **Buscar y reemplazar** (Ctrl+F / Ctrl+H) en todo el libro o en una sección, en párrafos, listas y notas: mayúsculas, palabra completa y expresiones regulares con grupos. Respeta el formato, el furigana y las llamadas a notas.
@@ -82,7 +93,7 @@ Requisitos: Node.js 22, Java 21 con `jlink` (solo para preparar los recursos) y 
 
 ```bash
 npm install
-node scripts/preparar-recursos.mjs   # EPUBCheck, Java mínimo, visor de Vivliostyle, fuentes y patrones en recursos/
+node scripts/preparar-recursos.mjs   # EPUBCheck, Java mínimo, visor de Vivliostyle, fuentes, HarfBuzz y patrones en recursos/
 npm run dev:web                      # interfaz en el navegador: http://127.0.0.1:5180
 npm run app                          # compila y abre la app de escritorio
 npm test                             # pruebas del motor (incluye EPUBCheck)
@@ -134,6 +145,12 @@ En local: `npm run instaladores` construye el del sistema actual en `instaladore
 | `src/preflight.ts`, `src/division.ts`, `src/recursos.ts` | Revisión previa, división silábica, ubicación de los recursos |
 | `src/buscar.ts`, `src/versiones.ts`, `src/cambios.ts`, `src/diferencias.ts` | Buscar y reemplazar, versiones, control de cambios y diferencias palabra por palabra |
 | `src/pdfx.ts`, `src/catalogo.ts` | PDF/X-1a con Ghostscript; catálogos de plugins |
+| `src/tiendas-lista.ts`, `src/tiendas.ts` | Reglas de cada tienda, revisión y EPUB ajustado |
+| `src/muestra.ts` | Muestra gratuita: EPUB y página web de una sola pieza |
+| `src/color-pdf.ts` | Páginas a color de un PDF (operadores de color e imágenes) |
+| `src/procesar-imagen.ts` | Reducir, girar, recortar y optimizar imágenes (jimp, JavaScript puro) |
+| `src/fuentes-propias.ts`, `src/fuentes-sistema.ts` | Fuentes del usuario: nombre, licencia `fsType`, subconjuntos con HarfBuzz; fuentes instaladas en el sistema |
+| `src/configuracion.ts` | Configuración de la app (colaboración desactivada por defecto) |
 | `app/colaboracion.ts`, `app/renderer/colaborar.tsx` | Servidor de colaboración (Yjs) y página de invitados |
 | `app/renderer/i18n.ts`, `app/renderer/i18n-en.ts` | Idioma de la interfaz y catálogo inglés |
 | `src/plugins.ts` | Plugins: manifiesto, ejecución aislada, validación de lo que devuelven, plugins instalados |
@@ -152,5 +169,5 @@ En local: `npm run instaladores` construye el del sistema actual en `instaladore
 
 - Probar los instaladores en un Windows y un macOS reales, con certificados de firma.
 - Colaboración por internet (hoy, solo en la red local) y comentarios y control de cambios para los invitados.
-- Fuentes del sistema incrustadas (subconjunto con HarfBuzz) y recorte y giro de ilustraciones.
+- Ofuscación de fuentes (IDPF) para fuentes comerciales y conversión de las ilustraciones a escala de grises para imprimir en blanco y negro.
 - Más idiomas de interfaz (el sistema ya admite añadir catálogos).
