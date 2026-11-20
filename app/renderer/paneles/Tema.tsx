@@ -205,6 +205,10 @@ export function PanelTema({ estado, version, onTema, onGaleria, onTipografia, on
           <span>{t('Espacio encima: {0} em', { 0: tm.tituloEspacio.toFixed(1) })}</span>
           <input type="range" min={0} max={10} step={0.5} value={tm.tituloEspacio} onChange={(e) => onTema({ tituloEspacio: Number(e.target.value) })} />
         </label>
+        <label className="campo">
+          <span>{t('Espacio debajo: {0} em', { 0: (tm.tituloEspacioDebajo ?? 1.5).toFixed(2) })}</span>
+          <input type="range" min={0} max={4} step={0.05} value={tm.tituloEspacioDebajo ?? 1.5} onChange={(e) => onTema({ tituloEspacioDebajo: Number(e.target.value) })} />
+        </label>
         <label className="casilla">
           <input type="checkbox" checked={tm.tituloMayusculas} onChange={(e) => onTema({ tituloMayusculas: e.target.checked })} />
           {t('Títulos en versalitas')}

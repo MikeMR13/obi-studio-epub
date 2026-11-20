@@ -793,4 +793,5 @@ export const EN: Record<string, string> = {
   "sangría también tras el título": "indent also after the title",
   "sin sangría tras el título": "no indent after the title",
   "Sangría también tras títulos y escenas": "Indent also after titles and scenes",
+  "Espacio debajo: {0} em": "Space below: {0} em",
 };
