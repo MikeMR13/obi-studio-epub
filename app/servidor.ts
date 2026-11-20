@@ -156,6 +156,14 @@ export async function iniciarServidor(op: OpcionesServidor = {}) {
       backend.reemplazarRecurso(m[1], await cuerpo(q));
       enviar(r, 200, backend.estado());
     }],
+    ['POST', /^\/api\/recursos\/([\w-]+)\/editar$/, async (q, r, m) => {
+      await backend.editarImagen(m[1], await json(q));
+      enviar(r, 200, backend.estado());
+    }],
+    ['PUT', /^\/api\/optimizar-imagenes$/, async (q, r) => {
+      backend.optimizarImagenes(!!(await json(q)).activo);
+      enviar(r, 200, backend.estado());
+    }],
     ['GET', /^\/api\/recursos\/([\w-]+)$/, async (_q, r, m) => {
       const rec = backend.recurso(m[1]);
       r.writeHead(200, { 'Content-Type': rec.tipoMime, 'Cache-Control': 'no-cache' });

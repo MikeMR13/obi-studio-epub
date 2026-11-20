@@ -432,6 +432,8 @@ export interface Libro {
   impresion?: Impresion;
   /** Dirección del texto: horizontal (predeterminada) o vertical japonesa (tategaki), de derecha a izquierda. */
   escritura?: 'horizontal' | 'vertical';
+  /** Reducir y recomprimir las imágenes al exportar el EPUB (el proyecto y el PDF conservan las originales). */
+  optimizarImagenes?: boolean;
   /** Versiones guardadas con nombre (ver src/versiones.ts). No salen en el EPUB. */
   versiones?: Version[];
   /** Imágenes que solo usan las versiones guardadas, por huella. */

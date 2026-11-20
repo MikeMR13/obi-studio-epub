@@ -534,6 +534,7 @@ export function App() {
         }}
         version={version}
         onEscritura={(v) => llamar(async () => aplicar(await api.escritura(v)))}
+        onOptimizar={(v) => llamar(async () => aplicar(await api.optimizarImagenes(v)))}
         onImagenCabecera={(archivo) =>
           seccion &&
           llamar(async () => {

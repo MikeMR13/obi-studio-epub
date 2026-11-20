@@ -101,6 +101,29 @@ with sync_playwright() as p:
     ilus = [s for s in estado["libro"]["secciones"] if s["tipo"] == "ilustracion"]
     paso("Página de ilustración con descripción", any(b.get("alt") == "Aria y el dragón frente al castillo" for s in ilus for b in s["bloques"]))
 
+    # Girar y recortar la ilustración.
+    def tam_ilustracion():
+        e = pagina.evaluate("fetch('/api/estado').then(r => r.json())")
+        rid = pagina.locator(".lienzo-ilustracion img").get_attribute("src").split("/api/recursos/")[1].split("?")[0]
+        r = [x for x in e["libro"]["recursos"] if x["id"] == rid][0]
+        return r["ancho"], r["alto"], len(e.get("versiones") or [])
+    w0, h0, v0 = tam_ilustracion()
+    pagina.get_by_role("button", name="Girar a la derecha").click()
+    expect(pagina.locator(".toast", has_text="Versiones").first).to_be_visible(timeout=15000)
+    w1, h1, v1 = tam_ilustracion()
+    pagina.get_by_role("button", name="Recortar…").click()
+    caja = pagina.locator(".marco-recorte img").bounding_box()
+    pagina.mouse.move(caja["x"] + caja["width"] * 0.1, caja["y"] + caja["height"] * 0.1)
+    pagina.mouse.down()
+    pagina.mouse.move(caja["x"] + caja["width"] * 0.6, caja["y"] + caja["height"] * 0.6, steps=5)
+    pagina.mouse.up()
+    pagina.screenshot(path=f"{CAPTURAS}/33-recorte.png")
+    pagina.get_by_role("button", name="Aplicar recorte").click()
+    expect(pagina.get_by_role("button", name="Recortar…")).to_be_visible(timeout=15000)
+    pagina.wait_for_timeout(300)
+    w2, h2, v2 = tam_ilustracion()
+    paso("Girar y recortar una ilustración", (w1, h1) == (h0, w0) and abs(w2 - w1 * 0.5) <= 2 and abs(h2 - h1 * 0.5) <= 2 and v2 == v0 + 2, f"{w0}×{h0} → {w1}×{h1} → {w2}×{h2}")
+
     # Metadatos y tema.
     pagina.get_by_role("tab", name="Libro").click()
     serie = pagina.get_by_label("Serie")
@@ -453,16 +476,17 @@ with sync_playwright() as p:
     pagina.get_by_role("menuitem", name="Versiones…").click()
     versiones = pagina.locator(".panel-plugins")
     expect(versiones).to_contain_text("Antes de importar «corregido.docx»")
+    n_versiones = versiones.locator(".lista-plugins > li").count()
     versiones.get_by_label("Nombre de la versión").fill("Después de buscar")
     versiones.get_by_role("button", name="Guardar versión").click()
-    expect(versiones.locator(".lista-plugins > li")).to_have_count(3)
+    expect(versiones.locator(".lista-plugins > li")).to_have_count(n_versiones + 1)
     auto = versiones.locator(".lista-plugins > li").filter(has_text="Antes de importar").last
     auto.get_by_role("button", name="Comparar con ahora").click()
     expect(auto.locator(".tabla-comparacion")).to_contain_text("Cambiada")
     pagina.screenshot(path=f"{CAPTURAS}/21-versiones.png")
     auto.get_by_role("button", name="Restaurar").click()
     pagina.get_by_role("dialog").filter(has_text="Restaurar versión").get_by_role("button", name="Restaurar").click()
-    expect(versiones.locator(".lista-plugins > li")).to_have_count(4)
+    expect(versiones.locator(".lista-plugins > li")).to_have_count(n_versiones + 2)
     estado = pagina.evaluate("fetch('/api/estado').then(r => r.json())")
     texto_libro = str(estado["libro"]["secciones"])
     paso("Versiones: guardar, comparar y restaurar", "bosque" in texto_libro and "Final corregido" not in texto_libro, ", ".join(v["nombre"] for v in estado["versiones"]))

@@ -10,6 +10,7 @@ import { TEMAS } from '../src/temas.js';
 import { libroMuestra, sitioMuestra as crearSitioMuestra, type OpcionesMuestra } from '../src/muestra.js';
 import { TIENDAS, compilarParaTienda, revisarTienda, type AvisoTienda, type IdTienda } from '../src/tiendas.js';
 import { buscarGhostscript } from '../src/pdfx.js';
+import { ErrorImagen, girar, libroConImagenesOptimizadas, recortar } from '../src/procesar-imagen.js';
 import { ArchivoConfiguracion } from '../src/configuracion.js';
 import { CATALOGO_INTEGRADO, ListaCatalogos, archivoCatalogos, leerCatalogo, normalizarUrlCatalogo, paqueteDeCatalogo, versionMayor, type EntradaCatalogo } from '../src/catalogo.js';
 import { ErrorCambio, aceptarCambio, aceptarTodos, rechazarCambio } from '../src/cambios.js';
@@ -438,8 +439,44 @@ export class Backend {
   }
 
   /** Exportar valida primero y bloquea si hay errores. */
+  /** El libro tal como va al EPUB: con las imágenes optimizadas si se pidió. */
+  private async libroEpub(libro = this.libro): Promise<Libro> {
+    return libro.optimizarImagenes ? (await libroConImagenesOptimizadas(libro)).libro : libro;
+  }
+
+  optimizarImagenes(activo: boolean) {
+    if (activo) this.libro.optimizarImagenes = true;
+    else delete this.libro.optimizarImagenes;
+    this.marcar();
+  }
+
+  /** Gira o recorta una imagen del libro. Antes guarda una versión para poder volver a la original. */
+  async editarImagen(id: string, op: { girar?: number; recorte?: { x: number; y: number; ancho: number; alto: number } }) {
+    const r = this.recurso(id);
+    let nuevo: Recurso;
+    try {
+      if (op.girar !== undefined) {
+        if (![90, 180, 270].includes(op.girar)) throw new ErrorUsuario('Solo se puede girar 90, 180 o 270 grados.');
+        nuevo = await girar(r, op.girar as 90 | 180 | 270);
+      } else if (op.recorte) {
+        const c = op.recorte;
+        nuevo = await recortar(r, Number(c.x), Number(c.y), Number(c.ancho), Number(c.alto));
+      } else throw new ErrorUsuario('Indica cómo girar o recortar la imagen.');
+    } catch (e) {
+      if (e instanceof ErrorImagen) throw new ErrorUsuario(e.message);
+      throw e;
+    }
+    this.conVersion(() => crearVersion(this.libro, op.girar !== undefined ? `Antes de girar «${r.nombre}»` : `Antes de recortar «${r.nombre}»`));
+    // El nombre puede cambiar (GIF → PNG): se actualizan las citas en bloques XHTML.
+    if (nuevo.nombre !== r.nombre) {
+      for (const s of this.libro.secciones) for (const b of s.bloques) if (b.tipo === 'crudo') b.xhtml = b.xhtml.split(`img/${r.nombre}`).join(`img/${nuevo.nombre}`);
+    }
+    Object.assign(r, nuevo);
+    this.marcar();
+  }
+
   async exportar(): Promise<{ nombre: string; datos: Uint8Array }> {
-    const datos = await compilar(this.libro);
+    const datos = await compilar(await this.libroEpub());
     const r = await validarDatos(datos);
     this.ultimaValidacion = r;
     if (!r.valido) throw new ErrorUsuario('El EPUB tiene errores. Corrígelos antes de exportar.', 409, r);
@@ -742,7 +779,7 @@ export class Backend {
 
   /** KEPUB para Kobo: valida igual que el EPUB y bloquea si hay errores. */
   async exportarKepub(): Promise<{ nombre: string; datos: Uint8Array }> {
-    const datos = await compilarKepub(this.libro);
+    const datos = await compilarKepub(await this.libroEpub());
     const r = await validarDatos(datos);
     if (!r.valido) throw new ErrorUsuario('El KEPUB tiene errores. Corrígelos antes de exportar (pestaña Validación).', 409, r);
     return { nombre: nombreDeArchivo(this.libro.metadatos.titulo) + '.kepub.epub', datos };
@@ -792,7 +829,7 @@ export class Backend {
     } catch (e) {
       throw e instanceof ErrorUsuario ? e : new ErrorUsuario((e as Error).message);
     }
-    const datos = await compilar(libro);
+    const datos = await compilar(await this.libroEpub(libro));
     const r = await validarDatos(datos);
     if (!r.valido) throw new ErrorUsuario('El EPUB tiene errores. Corrígelos antes de exportar (pestaña Validación).', 409, r);
     return { nombre: `${nombreDeArchivo(this.libro.metadatos.titulo)}-muestra.epub`, datos };

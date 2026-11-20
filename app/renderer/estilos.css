@@ -450,3 +450,10 @@ p.error { font-weight: 600; }
 .secciones-muestra label span { flex: 1; min-width: 0; }
 .secciones-muestra label small { margin-left: auto; color: var(--tenue); font-size: 11.5px; }
 .campo .error-campo { color: var(--error); }
+.marco-recorte { position: relative; display: inline-block; line-height: 0; max-width: 100%; touch-action: none; }
+.marco-recorte.activo { cursor: crosshair; user-select: none; }
+.marco-recorte.activo img { opacity: 0.75; }
+.seleccion-recorte { position: absolute; border: 2px dashed #fff; outline: 1px solid rgba(0,0,0,.6); box-shadow: 0 0 0 9999px rgba(0,0,0,.35); pointer-events: none; }
+.marco-recorte { overflow: hidden; }
+.herramientas-imagen { display: flex; flex-wrap: wrap; gap: 6px; }
+.herramientas-imagen button[aria-label] { min-width: 36px; font-size: 16px; }

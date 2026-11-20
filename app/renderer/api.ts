@@ -56,6 +56,8 @@ export const api = {
       undefined,
       archivo,
     ),
+  editarImagen: (id: string, op: { girar?: number; recorte?: { x: number; y: number; ancho: number; alto: number } }) => pedir<Estado>('POST', `/api/recursos/${id}/editar`, op),
+  optimizarImagenes: (activo: boolean) => pedir<Estado>('PUT', '/api/optimizar-imagenes', { activo }),
   reemplazarImagen: (id: string, archivo: File) => pedir<Estado>('PUT', `/api/recursos/${id}`, undefined, archivo),
   codigo: (id: string) => pedir<{ xhtml: string }>('GET', `/api/codigo/${id}`),
   aplicarCodigo: (id: string, xhtml: string) => pedir<{ secciones: string[]; estado: Estado }>('PUT', `/api/codigo/${id}`, { xhtml }),

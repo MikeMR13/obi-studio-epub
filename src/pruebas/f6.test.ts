@@ -119,3 +119,53 @@ test('Muestra gratuita: EPUB válido con página final y web de una sola pieza',
   assert.ok(html.includes('Una sinopsis.') && html.includes('Autora') && html.includes('href="https://tienda.example/libro"'));
   assert.throws(() => sitioMuestra(l, { secciones: [portada.id] }), /al menos una sección/);
 });
+
+test('Imágenes: girar y recortar desde la app, y EPUB con imágenes optimizadas', async () => {
+  const { Backend } = await import('../../app/backend.js');
+  const { optimizar, libroConImagenesOptimizadas } = await import('../procesar-imagen.js');
+  const { mkdtemp } = await import('node:fs/promises');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+
+  // PNG grande y opaco con ruido (no comprime bien): pasa a JPEG y se reduce a 4 Mpx.
+  const ruido = new Jimp({ width: 2600, height: 1800, color: 0x000000ff });
+  for (let i = 0; i < ruido.bitmap.data.length; i += 4) {
+    ruido.bitmap.data[i] = (i * 2654435761) % 251;
+    ruido.bitmap.data[i + 1] = (i * 40503) % 241;
+    ruido.bitmap.data[i + 2] = (i * 9973) % 239;
+  }
+  const png: Recurso = { id: 'ruido', nombre: 'ruido.png', tipoMime: 'image/png', datos: new Uint8Array(await ruido.getBuffer('image/png')), ancho: 2600, alto: 1800 };
+  const o = await optimizar(png);
+  assert.equal(o.tipoMime, 'image/jpeg');
+  assert.equal(o.nombre, 'ruido.jpg');
+  assert.ok(o.ancho! * o.alto! <= 4_000_000 && o.datos.length < png.datos.length);
+  assert.equal((await optimizar(png, false)).tipoMime, 'image/png', 'citada por nombre: no cambia de formato');
+  const pequena = await imagen(400, 600, 'image/png');
+  assert.equal(await optimizar(pequena), pequena, 'sin cambios si no se gana nada');
+
+  const l = await libroTienda();
+  l.recursos.push(png);
+  l.secciones.find((s) => s.tipo === 'capitulo')!.bloques.push({ tipo: 'imagen', recurso: 'ruido', alt: 'Ruido' });
+  const { libro: opt, ahorro } = await libroConImagenesOptimizadas(l);
+  assert.ok(ahorro > 0);
+  assert.equal(l.recursos.find((r) => r.id === 'ruido')!.tipoMime, 'image/png', 'el original no cambia');
+  const datos = await (await import('../compilar.js')).compilar(opt);
+  const v = await validarDatos(datos);
+  assert.equal(v.mensajes.length, 0, JSON.stringify(v.mensajes));
+
+  const b = new Backend(await mkdtemp(join(tmpdir(), 'obi-img-')));
+  b.libro = l;
+  const versiones = l.versiones?.length ?? 0;
+  await b.editarImagen('grande', { girar: 90 });
+  const g = l.recursos.find((r) => r.id === 'grande')!;
+  assert.deepEqual([g.ancho, g.alto], [2000, 3000]);
+  await b.editarImagen('grande', { recorte: { x: 0, y: 0.5, ancho: 0.5, alto: 0.5 } });
+  assert.deepEqual([g.ancho, g.alto], [1000, 1500]);
+  assert.equal(l.versiones!.length, versiones + 2, 'una versión antes de cada cambio');
+  await assert.rejects(b.editarImagen('grande', { girar: 45 }), /90, 180 o 270/);
+  await assert.rejects(b.editarImagen('grande', { recorte: { x: 0.8, y: 0, ancho: 0.5, alto: 1 } }), /fuera de la imagen/);
+  b.optimizarImagenes(true);
+  const { datos: epub } = await b.exportar();
+  const zip = await JSZip.loadAsync(epub);
+  assert.ok(zip.file('EPUB/img/ruido.jpg') && !zip.file('EPUB/img/ruido.png'));
+});

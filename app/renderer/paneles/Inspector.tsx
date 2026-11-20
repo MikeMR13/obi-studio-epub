@@ -27,6 +27,7 @@ interface Props {
   panelComentarios: React.ReactNode;
   onImagenCabecera: (archivo: File | null) => void;
   onEscritura: (v: 'horizontal' | 'vertical') => void;
+  onOptimizar: (activo: boolean) => void;
   version: number;
 }
 
@@ -187,6 +188,11 @@ export function Inspector(p: Props) {
               </select>
               <small>{t('En vertical, los números de una o dos cifras y «!?» se ponen en horizontal automáticamente, y se incrusta Noto Serif JP con solo los caracteres que usa el libro. El editor, la vista previa y el PDF se ven en vertical.')}</small>
             </label>
+            <label className="casilla">
+              <input type="checkbox" checked={!!p.estado.libro.optimizarImagenes} onChange={(e) => p.onOptimizar(e.target.checked)} />
+              {t('Optimizar las imágenes del EPUB')}
+            </label>
+            <small className="ayuda">{t('Al exportar, las imágenes de más de 4 Mpx se reducen y los PNG grandes sin transparencia pasan a JPEG. El proyecto y el PDF de impresión conservan las originales.')}</small>
             <Texto etiqueta={t('ISBN o identificador')} valor={m.identificador} onGuardar={(v) => p.onMetadatos({ identificador: v })} ayuda={t('Si no tienes ISBN, deja el UUID que se generó.')} />
             <div className="fila-dos">
               <Texto etiqueta={t('Fecha')} tipo="date" valor={m.fecha} onGuardar={(v) => p.onMetadatos({ fecha: v })} />
