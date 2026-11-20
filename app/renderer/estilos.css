@@ -535,3 +535,6 @@ p.error { font-weight: 600; }
 .opcion-asistente { text-align: left; justify-content: flex-start; }
 .opcion-asistente input { width: auto; flex: none; }
 .opcion-asistente span { flex: 1; min-width: 0; }
+.lista-estilos-propios { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.lista-estilos-propios li { display: flex; gap: 6px; align-items: center; }
+.lista-estilos-propios input { flex: 1; min-width: 0; }

@@ -38,6 +38,13 @@ export const ParrafoObi = Paragraph.extend({
         parseHTML: (el) => (el.dataset.antes ? Number(el.dataset.antes) : null),
         renderHTML: (a) => (a.espacioAntes != null ? { 'data-antes': a.espacioAntes, style: `margin-top: ${a.espacioAntes}em` } : {}),
       },
+      // Estilo de párrafo propio (Tema.estilosParrafo); se pinta como clase ep-<id>.
+      clase: {
+        default: null,
+        keepOnSplit: true,
+        parseHTML: (el) => [...el.classList].find((c) => c.startsWith('ep-'))?.slice(3) ?? null,
+        renderHTML: (a) => (a.clase ? { class: `ep-${a.clase}` } : {}),
+      },
       espacioDespues: {
         default: null,
         keepOnSplit: false,
@@ -177,6 +184,26 @@ export const Crudo = Node.create({
     const resumen = String(node.attrs.xhtml).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 140);
     const tipo = String(node.attrs.xhtml).match(/^<(\w+)/)?.[1] ?? 'XHTML';
     return ['div', { 'data-crudo': '1', class: 'bloque-crudo', title: t('Este bloque se edita en la pestaña Código') }, `⟨${tipo}⟩ ${resumen || t('(sin texto)')}`];
+  },
+});
+
+/** Tamaño, color y fondo propios de un fragmento (los del original). */
+export const AspectoObi = Mark.create({
+  name: 'aspecto',
+  addAttributes: () => ({ tamano: { default: null }, color: { default: null }, fondo: { default: null } }),
+  parseHTML: () => [
+    {
+      tag: 'span[data-aspecto]',
+      getAttrs: (el) => {
+        const d = (el as HTMLElement).dataset;
+        return { tamano: d.tamano ? Number(d.tamano) : null, color: d.color || null, fondo: d.fondo || null };
+      },
+    },
+  ],
+  renderHTML: ({ mark }) => {
+    const a = mark.attrs;
+    const estilo = [a.tamano != null ? `font-size: ${a.tamano}em` : '', a.color ? `color: ${a.color}` : '', a.fondo ? `background-color: ${a.fondo}` : ''].filter(Boolean).join('; ');
+    return ['span', { 'data-aspecto': '1', 'data-tamano': a.tamano ?? '', 'data-color': a.color ?? '', 'data-fondo': a.fondo ?? '', style: estilo }, 0];
   },
 });
 
@@ -398,5 +425,6 @@ export function extensiones(op: { colaborativo?: boolean } = {}) {
     Crudo,
     RecuadroObi,
     LineaRecuadroObi,
+    AspectoObi,
   ];
 }

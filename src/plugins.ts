@@ -348,6 +348,12 @@ function comprobarInlines(v: unknown, donde: string, notas: Set<string>): Inline
       throw new ErrorPlugin(`${donde}: marca de formato desconocida.`);
     if (i.tipo === 'texto') {
       if (typeof i.texto !== 'string') throw new ErrorPlugin(`${donde}: un texto no es una cadena.`);
+      if (i.aspecto !== undefined) {
+        const a = i.aspecto as Record<string, unknown>;
+        const color = (c: unknown) => c === undefined || (typeof c === 'string' && /^#[0-9a-f]{6}$/i.test(c));
+        if (!a || typeof a !== 'object' || (a.tamano !== undefined && (typeof a.tamano !== 'number' || a.tamano < 0.3 || a.tamano > 5)) || !color(a.color) || !color(a.fondo))
+          throw new ErrorPlugin(`${donde}: tamaño o color de texto no válido.`);
+      }
     } else if (i.tipo === 'ruby') {
       if (typeof i.base !== 'string' || typeof i.lectura !== 'string') throw new ErrorPlugin(`${donde}: furigana incompleto.`);
     } else if (i.tipo === 'nota') {
@@ -364,6 +370,7 @@ function comprobarBloque(b: Record<string, unknown>, donde: string, notas: Set<s
       for (const k of ['espacioAntes', 'espacioDespues'] as const) {
         if (b[k] !== undefined && (typeof b[k] !== 'number' || !Number.isFinite(b[k]) || (b[k] as number) < -5 || (b[k] as number) > 20)) throw new ErrorPlugin(`${donde}: espacio de párrafo no válido.`);
       }
+      if (b.clase !== undefined && (typeof b.clase !== 'string' || !/^[a-z0-9-]{1,40}$/.test(b.clase))) throw new ErrorPlugin(`${donde}: estilo propio no válido.`);
       comprobarInlines(b.contenido, donde, notas);
       break;
     case 'subtitulo':

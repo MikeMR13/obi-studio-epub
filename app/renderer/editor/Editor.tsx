@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { EditorContent, useEditor, useEditorState, type Editor as TEditor } from '@tiptap/react';
 import { NodeSelection } from '@tiptap/pm/state';
-import type { Bloque, Nota, Seccion, Inline } from '../../../src/model';
+import type { Bloque, EstiloPropio, Nota, Seccion, Inline } from '../../../src/model';
+import { cssEstilosPropios } from '../../../src/estilo-tema';
 import { ESTILOS_PARRAFO, VARIANTES_RECUADRO, nuevoId, textoPlano } from '../../../src/model';
 import { bloquesAPM, pmABloques } from '../../../src/editor-modelo';
 import { extensiones } from './extensiones';
@@ -27,6 +28,8 @@ interface Props {
   vertical?: boolean;
   /** Idioma del libro, para la ortografía y la tipografía. */
   idioma?: string;
+  /** Estilos de párrafo propios del libro (los del original en la conversión sencilla). */
+  estilosPropios?: EstiloPropio[];
   /** Colaboración en tiempo real: sala de esta sección en el servidor de colaboración. */
   sala?: { url: string; codigo: string; nombre: string; color: string };
 }
@@ -42,7 +45,7 @@ function idsNotas(bloques: Bloque[]): Set<string> {
   return ids;
 }
 
-export function Editor({ seccion, onCambio, onEstado, onComentar, vertical, idioma: idiomaLibro, sala }: Props) {
+export function Editor({ seccion, onCambio, onEstado, onComentar, vertical, idioma: idiomaLibro, sala, estilosPropios }: Props) {
   const [notas, setNotas] = useState<Nota[]>(seccion.notas);
   const notasRef = useRef(notas);
   notasRef.current = notas;
@@ -239,7 +242,13 @@ export function Editor({ seccion, onCambio, onEstado, onComentar, vertical, idio
       const sel = e.state.selection;
       const nodo = sel instanceof NodeSelection ? sel.node : null;
       return {
-        estilo: e.isActive('heading', { level: 2 }) ? 'h2' : e.isActive('heading', { level: 3 }) ? 'h3' : (e.getAttributes('paragraph').estilo ?? 'cuerpo'),
+        estilo: e.isActive('heading', { level: 2 })
+          ? 'h2'
+          : e.isActive('heading', { level: 3 })
+            ? 'h3'
+            : e.getAttributes('paragraph').clase
+              ? `ep:${e.getAttributes('paragraph').clase}`
+              : (e.getAttributes('paragraph').estilo ?? 'cuerpo'),
         negrita: e.isActive('bold'),
         cursiva: e.isActive('italic'),
         subrayado: e.isActive('underline'),
@@ -364,7 +373,8 @@ export function Editor({ seccion, onCambio, onEstado, onComentar, vertical, idio
   const estiloSelect = (v: string) => {
     if (!editor) return;
     if (v === 'h2' || v === 'h3') editor.chain().focus().setHeading({ level: v === 'h2' ? 2 : 3 }).run();
-    else editor.chain().focus().setParagraph().setEstilo(v).run();
+    else if (v.startsWith('ep:')) editor.chain().focus().setParagraph().updateAttributes('paragraph', { clase: v.slice(3) }).run();
+    else editor.chain().focus().setParagraph().setEstilo(v).updateAttributes('paragraph', { clase: null }).run();
   };
 
   const editarNota = (id: string, texto: string) => {
@@ -417,7 +427,15 @@ export function Editor({ seccion, onCambio, onEstado, onComentar, vertical, idio
           ))}
           <option value="h2">{t('Subtítulo')}</option>
           <option value="h3">{t('Subtítulo menor')}</option>
+          {estilosPropios && estilosPropios.length > 0 && (
+            <optgroup label={t('Estilos del libro')}>
+              {estilosPropios.map((e) => (
+                <option key={e.id} value={`ep:${e.id}`}>{e.nombre}</option>
+              ))}
+            </optgroup>
+          )}
         </select>
+        {estilosPropios && estilosPropios.length > 0 && <style>{cssEstilosPropios(estilosPropios, () => undefined, '.ProseMirror p')}</style>}
         <span className="sep" />
         <B titulo={t('Negrita')} atajo="Ctrl+B" activo={estado.negrita} onClick={() => c().toggleBold().run()}><b>{LETRAS.negrita}</b></B>
         <B titulo={t('Cursiva')} atajo="Ctrl+I" activo={estado.cursiva} onClick={() => c().toggleItalic().run()}><i>{LETRAS.cursiva}</i></B>

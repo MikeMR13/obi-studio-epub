@@ -8,7 +8,7 @@ import { esc, escAttr } from './xml.js';
 import { temaCompleto, esVertical } from './model.js';
 import { fuentesTema, caraFuente, familiaCss } from './fuentes.js';
 import { cssPropioSeguro } from './css-propio.js';
-import { cssTema, contenidoTitulo } from './estilo-tema.js';
+import { cssTema, cssEstilosPropios, contenidoTitulo } from './estilo-tema.js';
 
 export const MM_POR_PULGADA = 25.4;
 
@@ -100,6 +100,7 @@ section.texto > .cabecera-capitulo { margin: 8mm 0 0; }
 section.texto > .cabecera-capitulo img { max-height: 45mm; }
 section.texto > .cabecera-capitulo + h1 { padding-top: 6mm; }
 ${cssTema(tema, familiaTexto, familiaTitulos)}
+${cssEstilosPropios(tema.estilosParrafo, (id) => fuentesTema(tema, true, libro).familias[id])}
 .pagina-imagen.doble-izq img, .pagina-imagen.doble-der img { width: ${2 * a.ancho + 2 * b}mm; height: ${alto}mm; max-width: none; max-height: none; object-fit: cover; }
 .pagina-imagen.doble-izq { justify-content: flex-start; }
 .pagina-imagen.doble-der { justify-content: flex-end; }

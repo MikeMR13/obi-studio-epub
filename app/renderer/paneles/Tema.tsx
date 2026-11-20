@@ -27,6 +27,7 @@ const SEPARADORES: { id: Tema['separador']; nombre: string }[] = [
   { id: 'linea', nombre: t('Línea') },
   { id: 'espacio', nombre: t('Espacio en blanco') },
   { id: 'imagen', nombre: t('Imagen propia…') },
+  { id: 'texto', nombre: t('Texto propio') },
 ];
 
 const ESTILOS_TITULO: { id: Tema['tituloEstilo']; nombre: string }[] = [
@@ -261,6 +262,12 @@ export function PanelTema({ estado, version, onTema, onGaleria, onTipografia, on
             <button className="pequeno" onClick={() => entradaOrnamento.current?.click()}>{t('Cambiar imagen…')}</button>
           </div>
         )}
+        {tm.separador === 'texto' && (
+          <label className="campo">
+            <span>{t('Texto del separador')}</span>
+            <input defaultValue={tm.separadorTexto ?? ''} placeholder="◆◆◆" maxLength={40} onBlur={(e) => onTema({ separadorTexto: e.target.value })} />
+          </label>
+        )}
         <input ref={entradaOrnamento} type="file" hidden accept="image/png,image/svg+xml,image/webp,image/jpeg" onChange={(e) => { const f = e.target.files?.[0]; if (f) void subirOrnamento(f); e.target.value = ''; }} />
         <label className="campo color">
           <span>{t('Color de acento (separador, capitular, número)')}</span>
@@ -288,6 +295,50 @@ export function PanelTema({ estado, version, onTema, onGaleria, onTipografia, on
         </label>
         <button onClick={onAplicarTipografia}>{t('Aplicar a todo el libro')}</button>
       </details>
+
+      <details className="seccion-tema">
+        <summary>{t('Subtítulos')}</summary>
+        <label className="campo">
+          <span>{t('Alineación')}</span>
+          <select value={tm.subtitulo?.alinear ?? ''} onChange={(e) => onTema({ subtitulo: { ...(tm.subtitulo ?? {}), alinear: (e.target.value || undefined) as never } })}>
+            <option value="">{t('Como el texto')}</option>
+            <option value="izquierda">{t('Izquierda')}</option>
+            <option value="centro">{t('Centrado')}</option>
+            <option value="derecha">{t('Derecha')}</option>
+          </select>
+        </label>
+        <label className="campo">
+          <span>{t('Tamaño: {0} em', { 0: (tm.subtitulo?.tamano ?? 1.25).toFixed(2) })}</span>
+          <input type="range" min={0.8} max={2.5} step={0.05} value={tm.subtitulo?.tamano ?? 1.25} onChange={(e) => onTema({ subtitulo: { ...(tm.subtitulo ?? {}), tamano: Number(e.target.value) } })} />
+        </label>
+        <label className="campo color">
+          <span>{t('Color de los subtítulos')}</span>
+          <input type="color" value={tm.subtitulo?.color ?? '#000000'} onChange={(e) => onTema({ subtitulo: { ...(tm.subtitulo ?? {}), color: e.target.value } })} />
+        </label>
+        <label className="casilla">
+          <input type="checkbox" checked={!!tm.subtitulo?.mayusculas} onChange={(e) => onTema({ subtitulo: { ...(tm.subtitulo ?? {}), mayusculas: e.target.checked } })} />
+          {t('Subtítulos en mayúsculas')}
+        </label>
+      </details>
+
+      {(tm.estilosParrafo?.length ?? 0) > 0 && (
+        <details className="seccion-tema">
+          <summary>{t('Estilos de párrafo del libro ({0})', { 0: tm.estilosParrafo!.length })}</summary>
+          <p className="ayuda">{t('Se aplican desde el menú de estilos del editor. Al quitar uno, sus párrafos vuelven al estilo normal.')}</p>
+          <ul className="lista-estilos-propios">
+            {tm.estilosParrafo!.map((e) => (
+              <li key={e.id}>
+                <input
+                  aria-label={t('Nombre del estilo')}
+                  defaultValue={e.nombre}
+                  onBlur={(ev) => ev.target.value.trim() && ev.target.value !== e.nombre && onTema({ estilosParrafo: tm.estilosParrafo!.map((x) => (x.id === e.id ? { ...x, nombre: ev.target.value.trim() } : x)) })}
+                />
+                <button className="pequeno" onClick={() => onTema({ estilosParrafo: tm.estilosParrafo!.filter((x) => x.id !== e.id) })} aria-label={t('Quitar el estilo «{0}»', { 0: e.nombre })}>✕</button>
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
 
       <CssPropio estado={estado} onEstado={onEstado} />
 

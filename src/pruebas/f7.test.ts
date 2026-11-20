@@ -348,3 +348,54 @@ test('Espacio propio y líneas en blanco: editor, PDF y Word de corrección', as
   assert.ok(b[2].tipo === 'parrafo' && b[2].espacioAntes === 2, 'el espacio propio se recupera');
   assert.match(JSON.stringify(b[3]), /corregido/);
 });
+
+test('Estilos propios, tamaño y color de fragmentos, subtítulos y separador de texto: EPUB, ida y vuelta, editor y Word', async () => {
+  const { bloquesAPM, pmABloques } = await import('../editor-modelo.js');
+  const { exportarWord, importarCorrecciones } = await import('../formatos/word.js');
+  const l = libroNuevo('Estilos', 'A');
+  l.tema = {
+    ...l.tema,
+    separador: 'texto',
+    separadorTexto: '◆◆◆',
+    subtitulo: { alinear: 'derecha', color: '#884422', tamano: 1.3 },
+    estilosParrafo: [{ id: 'carta', nombre: 'Original: carta', cursiva: true, izquierda: 2, derecha: 2, sangria: 0, tamano: 0.9, color: '#553311' }],
+  };
+  const cap = l.secciones.find((s) => s.tipo === 'capitulo')!;
+  cap.bloques = [
+    { tipo: 'parrafo', estilo: 'cuerpo', contenido: [{ tipo: 'texto', texto: 'Texto con ' }, { tipo: 'texto', texto: 'GRITO', aspecto: { tamano: 1.5, color: '#cc0000' } }, { tipo: 'texto', texto: ' y ' }, { tipo: 'texto', texto: 'subrayado amarillo', aspecto: { fondo: '#ffee00' } }, { tipo: 'texto', texto: '.' }] },
+    { tipo: 'separador' },
+    { tipo: 'subtitulo', nivel: 2, contenido: [{ tipo: 'texto', texto: 'Parte dos' }] },
+    { tipo: 'parrafo', estilo: 'cuerpo', clase: 'carta', contenido: [{ tipo: 'texto', texto: 'Querida Hina: te escribo.' }] },
+  ];
+  const datos = await compilar(l);
+  const v = await validarDatos(datos);
+  assert.equal(v.mensajes.length, 0, JSON.stringify(v.mensajes));
+  const zip = await JSZip.loadAsync(datos);
+  const css = await zip.file('EPUB/estilos.css')!.async('string');
+  assert.match(css, /p\.ep-carta \{ text-indent: 0em; margin-left: 2em; margin-right: 2em; font-size: 0\.9em; font-style: italic; color: #553311; \}/);
+  assert.match(css, /h2 \{ text-align: right; color: #884422; font-size: 1\.3em; \}/);
+  const xhtml = (await Promise.all(Object.keys(zip.files).filter((x) => x.endsWith('.xhtml')).map((x) => zip.file(x)!.async('string')))).find((x) => x.includes('GRITO'))!;
+  assert.match(xhtml, /<span style="font-size: 1\.5em; color: #cc0000">GRITO<\/span>/);
+  assert.match(xhtml, /<div class="escena texto" role="separator">◆◆◆<\/div>/);
+  assert.match(xhtml, /<p class="ep-carta">Querida/);
+  // Ida y vuelta.
+  const { libro } = await importarEpub(datos);
+  const vuelta = libro.secciones.find((s) => s.tipo === 'capitulo')!.bloques;
+  assert.deepEqual(vuelta[0], cap.bloques[0]);
+  assert.deepEqual(vuelta[3], cap.bloques[3]);
+  // Editor.
+  assert.deepEqual(pmABloques(bloquesAPM(cap.bloques)), cap.bloques);
+  // Word: estilo propio con nombre, tamaño y color; al volver se conservan aunque se corrija otro párrafo.
+  const w = await JSZip.loadAsync(await exportarWord(l));
+  const estilos = await w.file('word/styles.xml')!.async('string');
+  assert.match(estilos, /w:styleId="EP-carta"/);
+  let doc = await w.file('word/document.xml')!.async('string');
+  assert.match(doc, /<w:color w:val="cc0000"\/>/);
+  doc = doc.replace('te escribo', 'te escribo hoy');
+  w.file('word/document.xml', doc);
+  const copia = structuredClone(l);
+  await importarCorrecciones(copia, await w.generateAsync({ type: 'uint8array' }));
+  const c2 = copia.secciones.find((s) => s.tipo === 'capitulo')!.bloques;
+  assert.deepEqual(c2[0], cap.bloques[0], 'el párrafo sin cambios se queda igual, con su tamaño y color');
+  assert.ok(c2[3].tipo === 'parrafo' && c2[3].clase === 'carta' && JSON.stringify(c2[3]).includes('hoy'));
+});

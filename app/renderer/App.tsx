@@ -571,6 +571,7 @@ export function App() {
             }
             vertical={estado.libro.escritura === 'vertical'}
             idioma={estado.libro.metadatos.idioma}
+            estilosPropios={estado.libro.tema.estilosParrafo}
             onCambio={(b, n) => guardarTexto(seccion.id, b, n)}
             onEstado={() => api.estado().then((e) => aplicar(e))}
             onComentar={(c) => {

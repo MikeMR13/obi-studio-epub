@@ -122,6 +122,8 @@ export interface FuentesLibro {
   /** Valores de font-family listos para el CSS. */
   familiaTexto: string;
   familiaTitulos: string;
+  /** font-family de las fuentes que citan los estilos de párrafo propios, por id. */
+  familias: Record<string, string>;
 }
 
 /**
@@ -144,12 +146,24 @@ export function fuentesTema(tema: Tema, impresion = false, libro?: Libro): Fuent
   const texto = elegir(tema.fuenteTexto);
   const titulos = elegir(tema.fuenteTitulos);
   const archivos = [...archivosDe(texto), ...(titulos.id === texto.id ? [] : archivosDe(titulos, true))];
+  // Fuentes de los estilos de párrafo propios.
+  const familias: Record<string, string> = {};
+  const vistas = new Set([texto.id, titulos.id]);
+  for (const e of tema.estilosParrafo ?? []) {
+    if (!e.fuente) continue;
+    const f = elegir(e.fuente);
+    familias[e.fuente] = familiaCss(f);
+    if (vistas.has(f.id)) continue;
+    vistas.add(f.id);
+    archivos.push(...archivosDe(f));
+  }
   const jp = libro ? archivosJaponeses(libro) : [];
-  if (!jp.length) return { texto, titulos, archivos, familiaTexto: familiaCss(texto), familiaTitulos: familiaCss(titulos) };
+  if (!jp.length) return { texto, titulos, archivos, familiaTexto: familiaCss(texto), familiaTitulos: familiaCss(titulos), familias };
   const vertical = !!libro && esVertical(libro);
   return {
     texto,
     titulos,
+    familias,
     archivos: [...archivos, ...jp],
     familiaTexto: conJapones(familiaCss(texto), texto, vertical),
     familiaTitulos: conJapones(familiaCss(titulos), titulos, vertical),

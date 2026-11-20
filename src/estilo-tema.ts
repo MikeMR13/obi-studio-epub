@@ -1,7 +1,7 @@
 // CSS del tema compartido por el EPUB y el PDF: títulos, aperturas, capitulares, ornamentos y colores.
 // El EPUB y la impresión añaden encima solo lo propio de cada medio.
 
-import type { Tema } from './model.js';
+import type { EstiloPropio, Tema } from './model.js';
 import { escAttr } from './xml.js';
 import { esc } from './xml.js';
 import { partesTitulo } from './model.js';
@@ -23,6 +23,8 @@ export function separadorXhtml(tema: Tema, rutaImagenSeparador?: string): string
     case 'imagen':
       if (rutaImagenSeparador) return `<div class="escena imagen" role="separator"><img src="${escAttr(rutaImagenSeparador)}" alt="" role="presentation"/></div>`;
       return `<div class="escena" role="separator">${ORNAMENTOS.asteriscos}</div>`;
+    case 'texto':
+      return `<div class="escena texto" role="separator">${esc(tema.separadorTexto || ORNAMENTOS.asteriscos)}</div>`;
     default:
       return `<div class="escena ${tema.separador}" role="separator">${ORNAMENTOS[tema.separador] ?? ORNAMENTOS.asteriscos}</div>`;
   }
@@ -33,6 +35,32 @@ export function contenidoTitulo(titulo: string): string {
   const p = partesTitulo(titulo);
   if (!p) return `<span class="nombre">${esc(titulo)}</span>`;
   return `<span class="etiqueta">${esc(p.etiqueta)}</span><span class="sep">${esc(p.sep)}</span><span class="nombre">${esc(p.nombre)}</span>`;
+}
+
+/** CSS de los estilos de párrafo propios (p.ep-<id>). `familia` traduce el id de fuente a font-family. */
+export function cssEstilosPropios(estilos: EstiloPropio[] = [], familia: (id: string) => string | undefined = () => undefined, prefijo = 'p'): string {
+  return estilos
+    .map((e) => {
+      const d: string[] = [];
+      if (e.sangria !== undefined) d.push(`text-indent: ${e.sangria}em`);
+      if (e.alinear) d.push(`text-align: ${{ izquierda: 'left', centro: 'center', derecha: 'right', justificado: 'justify' }[e.alinear]}`);
+      if (e.antes !== undefined) d.push(`margin-top: ${e.antes}em`);
+      if (e.despues !== undefined) d.push(`margin-bottom: ${e.despues}em`);
+      if (e.izquierda !== undefined) d.push(`margin-left: ${e.izquierda}em`);
+      if (e.derecha !== undefined) d.push(`margin-right: ${e.derecha}em`);
+      if (e.interlineado !== undefined) d.push(`line-height: ${e.interlineado}`);
+      if (e.tamano !== undefined) d.push(`font-size: ${e.tamano}em`);
+      if (e.cursiva !== undefined) d.push(`font-style: ${e.cursiva ? 'italic' : 'normal'}`);
+      if (e.negrita !== undefined) d.push(`font-weight: ${e.negrita ? 'bold' : 'normal'}`);
+      if (e.versalitas) d.push('font-variant: small-caps');
+      if (e.mayusculas) d.push('text-transform: uppercase');
+      if (e.color) d.push(`color: ${e.color}`);
+      const f = e.fuente ? familia(e.fuente) : undefined;
+      if (f) d.push(`font-family: ${f}`);
+      return d.length ? `${prefijo}.ep-${e.id} { ${d.join('; ')}; }` : '';
+    })
+    .filter(Boolean)
+    .join('\n');
 }
 
 export function cssTema(tema: Tema, familiaTexto: string, familiaTitulos: string): string {
@@ -68,6 +96,11 @@ export function cssTema(tema: Tema, familiaTexto: string, familiaTitulos: string
     `.cabecera-capitulo { text-align: center; margin: 0 0 1em; text-indent: 0; }`,
     `.cabecera-capitulo img { max-width: 100%; max-height: 30vh; }`,
   );
+  if (tema.subtitulo) {
+    const st = tema.subtitulo;
+    const al = st.alinear === 'centro' ? 'center' : st.alinear === 'derecha' ? 'right' : st.alinear === 'izquierda' ? 'left' : '';
+    reglas.push(`h2 { ${al ? `text-align: ${al}; ` : ''}${st.color ? `color: ${st.color}; ` : ''}${st.tamano ? `font-size: ${st.tamano}em; ` : ''}${st.mayusculas ? 'text-transform: uppercase; ' : ''}}`);
+  }
   if (tema.espaciadoLetras) reglas.push(`p { letter-spacing: ${tema.espaciadoLetras}em; }`);
   if (tema.espaciadoPalabras) reglas.push(`p { word-spacing: ${tema.espaciadoPalabras}em; }`);
   reglas.push(cssRecuadros(tema));

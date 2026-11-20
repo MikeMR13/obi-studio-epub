@@ -10,7 +10,7 @@ import JSZip from 'jszip';
 import type { Bloque, Inline, Libro, Nota, Recuadro, Recurso, Seccion } from '../model.js';
 import { proponerCambios } from '../cambios.js';
 import { anclarComentario, fundirComentarios, leerComentariosWord, textosComentados } from '../comentarios.js';
-import { TIPOS_SECCION, VARIANTES_RECUADRO, normalizarInlines, nuevoId } from '../model.js';
+import { TIPOS_SECCION, VARIANTES_RECUADRO, normalizarInlines, nuevoId, temaCompleto } from '../model.js';
 import { importarDocx } from './docx.js';
 export { rubiesDeTexto } from './docx.js';
 
@@ -94,6 +94,10 @@ function runs(lista: Inline[], notas: Map<string, number>, cc?: ContextoComentar
         superScript: m.includes('superindice') || undefined,
         subScript: m.includes('subindice') || undefined,
         style: m.includes('enfasis') ? 'Enfasis' : undefined,
+        // Tamaño (12 pt de base, en medios puntos), color y fondo propios del fragmento.
+        ...(i.tipo === 'texto' && i.aspecto?.tamano ? { size: Math.round(24 * i.aspecto.tamano) } : {}),
+        ...(i.tipo === 'texto' && i.aspecto?.color ? { color: i.aspecto.color.slice(1) } : {}),
+        ...(i.tipo === 'texto' && i.aspecto?.fondo ? { shading: { fill: i.aspecto.fondo.slice(1) } } : {}),
       };
       if (i.tipo === 'texto' && i.enlace) salida.push(new ExternalHyperlink({ link: i.enlace, children: [new TextRun({ ...opciones, style: 'Hyperlink' })] }));
       else salida.push(new TextRun(opciones));
@@ -122,6 +126,27 @@ export async function exportarWord(libro: Libro): Promise<Uint8Array> {
   const cc: ContextoComentarios = { numeros: new Map(), cerrados: new Set() };
   const comentariosWord: { id: number; author: string; date: Date; children: Paragraph[]; parentId?: number; resolved?: boolean }[] = [];
   const parrafosComentario = (t: string) => t.split('\n').map((l) => new Paragraph({ children: [new TextRun(l)] }));
+  const estilosLibro = temaCompleto(libro).estilosParrafo ?? [];
+  const propios = new Set(estilosLibro.map((e) => e.id));
+  // 1 em = 12 pt = 240 vigésimos de punto = 24 medios puntos.
+  const propiosWord = estilosLibro.map((e) => ({
+    id: `EP-${e.id}`,
+    name: e.nombre,
+    basedOn: 'Normal',
+    run: {
+      ...(e.cursiva !== undefined ? { italics: e.cursiva } : {}),
+      ...(e.negrita !== undefined ? { bold: e.negrita } : {}),
+      ...(e.versalitas ? { smallCaps: true } : {}),
+      ...(e.mayusculas ? { allCaps: true } : {}),
+      ...(e.tamano ? { size: Math.round(24 * e.tamano) } : {}),
+      ...(e.color ? { color: e.color.slice(1) } : {}),
+    },
+    paragraph: {
+      ...(e.alinear ? { alignment: { izquierda: AlignmentType.LEFT, centro: AlignmentType.CENTER, derecha: AlignmentType.RIGHT, justificado: AlignmentType.JUSTIFIED }[e.alinear] } : {}),
+      indent: { firstLine: Math.max(0, Math.round((e.sangria ?? 1.5) * 240)), ...(e.izquierda ? { left: Math.round(e.izquierda * 240) } : {}), ...(e.derecha ? { right: Math.round(e.derecha * 240) } : {}) },
+      ...(e.antes !== undefined || e.despues !== undefined ? { spacing: { ...(e.antes !== undefined ? { before: Math.round(e.antes * 240) } : {}), ...(e.despues !== undefined ? { after: Math.round(e.despues * 240) } : {}) } } : {}),
+    },
+  }));
   const fechaValida = (f: string) => (isNaN(new Date(f).getTime()) ? new Date() : new Date(f));
   for (const s of seccionesDeTexto(libro)) {
     const anclados = textosComentados(s.bloques);
@@ -156,7 +181,7 @@ export async function exportarWord(libro: Libro): Promise<Uint8Array> {
       if (b.tipo === 'recuadro') b.lineas.forEach((l) => registrar(l.contenido));
       switch (b.tipo) {
         case 'parrafo': {
-          const estilo = ESTILO_WORD[b.estilo];
+          const estilo = b.clase && propios.has(b.clase) ? `EP-${b.clase}` : ESTILO_WORD[b.estilo];
           hijos.push(
             new Paragraph({
               style: estilo,
@@ -244,6 +269,8 @@ export async function exportarWord(libro: Libro): Promise<Uint8Array> {
         { id: 'Carta', name: 'Carta', basedOn: 'Normal', run: { italics: true }, paragraph: { indent: { left: 720, right: 720, firstLine: 0 } } },
         { id: 'Cita', name: 'Cita', basedOn: 'Normal', paragraph: { indent: { left: 720, right: 720, firstLine: 0 } } },
         { id: 'SinSangria', name: 'Sin sangría', basedOn: 'Normal', paragraph: { indent: { firstLine: 0 } } },
+        // Estilos de párrafo propios del libro.
+        ...propiosWord,
         { id: 'Recuadro', name: 'Recuadro', basedOn: 'Normal', run: { font: 'Arial', size: 22 }, paragraph: { indent: { left: 567, right: 567, firstLine: 0 }, shading: { fill: 'EEF2F7' } } },
       ],
       characterStyles: [{ id: 'Enfasis', name: 'Énfasis', run: { emphasisMark: { type: 'dot' } } }],
@@ -404,17 +431,28 @@ export async function importarCorrecciones(libro: Libro, datos: Uint8Array, opci
       bloques.push(b);
     }
     cerrarRecuadro();
-    // El espacio propio de cada párrafo no viaja por el importador de Word: se recupera por orden.
+    // Lo que no viaja por el importador de Word (espacio propio, estilo propio, tamaño y color de fragmentos)
+    // se recupera por orden: si el párrafo no cambió se queda el original entero; si cambió, su espacio y estilo.
+    const sinAspecto = (b: Bloque) => {
+      const [x] = sinComentarios([b]);
+      return JSON.stringify(x.tipo === 'parrafo' ? { ...x, espacioAntes: undefined, espacioDespues: undefined, clase: undefined, contenido: normalizarInlines(x.contenido.map((i) => (i.tipo === 'texto' ? { ...i, aspecto: undefined } : i))) } : x);
+    };
     const vacioP = (b: Bloque) => b.tipo === 'parrafo' && !b.contenido.length;
     const originales = { lleno: s.bloques.filter((b) => b.tipo === 'parrafo' && !vacioP(b)), vacio: s.bloques.filter(vacioP) };
     const cuenta = { lleno: 0, vacio: 0 };
-    for (const b of bloques) {
+    for (let k = 0; k < bloques.length; k++) {
+      const b = bloques[k];
       if (b.tipo !== 'parrafo') continue;
-      const k = vacioP(b) ? 'vacio' : 'lleno';
-      const o = originales[k][cuenta[k]++];
+      const tipo = vacioP(b) ? 'vacio' : 'lleno';
+      const o = originales[tipo][cuenta[tipo]++];
       if (o?.tipo !== 'parrafo') continue;
+      if (sinAspecto(o) === sinAspecto(b)) {
+        bloques[k] = o;
+        continue;
+      }
       if (o.espacioAntes !== undefined) b.espacioAntes = o.espacioAntes;
       if (o.espacioDespues !== undefined) b.espacioDespues = o.espacioDespues;
+      if (o.clase) b.clase = o.clase;
     }
     const notas: Nota[] = nueva.notas;
     // Los párrafos vacíos no viajan por Word: no cuentan como cambio.

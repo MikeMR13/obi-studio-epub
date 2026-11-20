@@ -7,7 +7,7 @@ import JSZip from 'jszip';
 import type { Bloque, Imagen, Inline, Libro, Marca, Nota, Recuadro, Recurso, Seccion, TipoSeccion, VarianteRecuadro } from './model.js';
 import { esc, escAttr, limpiarXml } from './xml.js';
 import { temaCompleto, esVertical, VARIANTES_RECUADRO } from './model.js';
-import { cssTema, separadorXhtml as separadorTema, contenidoTitulo } from './estilo-tema.js';
+import { cssTema, cssEstilosPropios, separadorXhtml as separadorTema, contenidoTitulo } from './estilo-tema.js';
 import { cssPropioSeguro } from './css-propio.js';
 import { fuentesTema, caraFuente, familiaCss, datosArchivoFuente, MIME_FUENTE } from './fuentes.js';
 
@@ -85,6 +85,11 @@ export function inlinesXhtml(lista: Inline[], ctx?: Contexto): string {
     if (i.tipo === 'texto') {
       const escapado = esc(limpiarXml(i.texto));
       let h = envolverMarcas(ctx?.vertical && !i.idioma ? tateChuYoko(escapado) : escapado, i.marcas);
+      if (i.aspecto) {
+        const a = i.aspecto;
+        const est = [a.tamano !== undefined ? `font-size: ${a.tamano}em` : '', a.color ? `color: ${a.color}` : '', a.fondo ? `background-color: ${a.fondo}` : ''].filter(Boolean).join('; ');
+        if (est) h = `<span style="${est}">${h}</span>`;
+      }
       if (i.idioma) h = `<span lang="${escAttr(i.idioma)}" xml:lang="${escAttr(i.idioma)}">${h}</span>`;
       if (i.enlace) h = `<a href="${escAttr(i.enlace)}">${h}</a>`;
       salida += h;
@@ -105,9 +110,6 @@ export function inlinesXhtml(lista: Inline[], ctx?: Contexto): string {
   return salida;
 }
 
-function claseParrafo(estilo: string): string {
-  return estilo === 'cuerpo' ? '' : ` class="${estilo}"`;
-}
 
 function imagenXhtml(img: Imagen, libro: Libro, clase = 'imagen', rutaImg = rutaImagen): string {
   const r = libro.recursos.find((x) => x.id === img.recurso);
@@ -133,7 +135,8 @@ export function bloquesXhtml(bloques: Bloque[], ctx: Contexto, seccion?: Seccion
         const espacio = [b.espacioAntes !== undefined ? `margin-top: ${b.espacioAntes}em` : '', b.espacioDespues !== undefined ? `margin-bottom: ${b.espacioDespues}em` : '']
           .filter(Boolean)
           .join('; ');
-        partes.push(`<p${claseParrafo(b.estilo)}${espacio ? ` style="${espacio}"` : ''}>${contenido || '<br/>'}</p>`);
+        const clases = [b.estilo !== 'cuerpo' ? b.estilo : '', b.clase && temaCompleto(ctx.libro).estilosParrafo?.some((e) => e.id === b.clase) ? `ep-${b.clase}` : ''].filter(Boolean).join(' ');
+        partes.push(`<p${clases ? ` class="${clases}"` : ''}${espacio ? ` style="${espacio}"` : ''}>${contenido || '<br/>'}</p>`);
         break;
       }
       case 'subtitulo':
@@ -392,6 +395,7 @@ body.fija img.fija { display: block; width: 100%; height: 100%; max-width: none;
 body.fija.doble img.fija { width: 200%; }
 body.fija.doble img.mitad-der { margin-left: -100%; }
 ${cssTema(t, f.familiaTexto, f.familiaTitulos)}
+${cssEstilosPropios(t.estilosParrafo, (id) => f.familias[id])}
 ${esVertical(libro) ? cssVertical(t.colorAcento) : ''}${cssPropioSeguro(libro)}`;
 }
 

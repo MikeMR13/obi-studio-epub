@@ -1,7 +1,7 @@
 // Conversión de HTML/XHTML (de un EPUB o de Word) a bloques del modelo.
 // Lo que el editor visual no sabe representar se guarda como bloque «crudo» para no perder nada.
 
-import type { Bloque, EstiloParrafo, Inline, LineaRecuadro, Marca, Nota, Recuadro } from '../model.js';
+import type { AspectoTexto, Bloque, EstiloParrafo, Inline, LineaRecuadro, Marca, Nota, Recuadro } from '../model.js';
 import { ESTILOS_PARRAFO, VARIANTES_RECUADRO, nuevoId, normalizarInlines } from '../model.js';
 
 const VARIANTES = VARIANTES_RECUADRO.map((v) => v.id);
@@ -19,6 +19,35 @@ export interface EstiloCss {
   /** Márgenes del párrafo en em (solo si se pueden pasar a em). */
   margenArriba?: number;
   margenAbajo?: number;
+  /** Tamaño relativo (em), color y fondo. */
+  tamano?: number;
+  color?: string;
+  fondo?: string;
+}
+
+/** Color CSS a #rrggbb (hex, rgb() o negro/blanco); undefined si no se reconoce. */
+export function colorCss(v?: string): string | undefined {
+  if (!v) return undefined;
+  const t = v.trim().toLowerCase();
+  if (/^#[0-9a-f]{6}$/.test(t)) return t;
+  if (/^#[0-9a-f]{3}$/.test(t)) return '#' + [...t.slice(1)].map((c) => c + c).join('');
+  const m = t.match(/^rgba?\(\s*(\d+)[\s,]+(\d+)[\s,]+(\d+)(?:[\s,/]+([\d.]+%?))?/);
+  if (m) {
+    if (m[4] !== undefined && parseFloat(m[4]) === 0) return undefined;
+    return '#' + m.slice(1, 4).map((x) => Math.min(255, Number(x)).toString(16).padStart(2, '0')).join('');
+  }
+  return ({ black: '#000000', white: '#ffffff', red: '#ff0000', blue: '#0000ff', green: '#008000', gray: '#808080', grey: '#808080' } as Record<string, string>)[t];
+}
+
+/** Tamaño de letra relativo (em) a partir de em, %, rem, px o pt (16 px = 12 pt = 1 em). */
+function tamanoRelativo(v: string): number | undefined {
+  const m = v.trim().match(/^(\d*\.?\d+)(em|rem|%|px|pt)$/);
+  if (m) {
+    const n = parseFloat(m[1]);
+    const r = { em: n, rem: n, '%': n / 100, px: n / 16, pt: n / 12 }[m[2] as 'em'];
+    return Math.round(r * 100) / 100;
+  }
+  return ({ 'xx-small': 0.6, 'x-small': 0.75, small: 0.89, medium: 1, large: 1.2, 'x-large': 1.5, 'xx-large': 2, smaller: 0.83, larger: 1.2 } as Record<string, number>)[v.trim()];
 }
 
 /** Longitud CSS en em (16 px = 1 em, 12 pt = 1 em); undefined si no se puede convertir. */
@@ -68,6 +97,9 @@ export function estiloDeDeclaraciones(decl: string): EstiloCss {
     } else if (p === 'vertical-align') e.superindice = v === 'super';
     else if (p === 'text-align' && ['center', 'right', 'left', 'justify'].includes(v)) e.alinear = v as EstiloCss['alinear'];
     else if (p === 'display' && v === 'none') e.oculto = true;
+    else if (p === 'font-size') e.tamano = tamanoRelativo(v);
+    else if (p === 'color') e.color = colorCss(v);
+    else if (p === 'background-color' || (p === 'background' && !/url\(/.test(v))) e.fondo = colorCss(v.split(/\s+/)[0]);
     else if (p === 'margin-top') e.margenArriba = longitudEnEm(v);
     else if (p === 'margin-bottom') e.margenAbajo = longitudEnEm(v);
     else if (p === 'margin') {
@@ -76,6 +108,7 @@ export function estiloDeDeclaraciones(decl: string): EstiloCss {
       e.margenAbajo = longitudEnEm(partes[2] ?? partes[0]);
     }
   }
+  for (const k of ['tamano', 'color', 'fondo'] as const) if (e[k] === undefined) delete e[k];
   if (e.margenArriba === undefined) delete e.margenArriba;
   if (e.margenAbajo === undefined) delete e.margenAbajo;
   for (const k of Object.keys(e) as (keyof EstiloCss)[]) if (e[k] === false) delete e[k];
@@ -96,6 +129,10 @@ export interface OpcionesConversion {
   esEnlaceVuelta?: (a: Nodo) => boolean;
   /** Conservar los párrafos vacíos (líneas en blanco del original). */
   vacios?: boolean;
+  /** Conservar el tamaño, color y fondo que dan las clases CSS a los fragmentos (el del atributo style se lee siempre). */
+  aspectos?: boolean;
+  /** Estilo de párrafo propio que corresponde a este párrafo del original (conversión sencilla). */
+  estiloPropio?: (n: Nodo) => string | undefined;
   /**
    * Conservar el espacio propio de cada párrafo que se aparte del general (márgenes de sus clases CSS).
    * El margen escrito en el propio párrafo (atributo style, como lo escribe Obi Studio) se lee siempre.
@@ -127,7 +164,7 @@ const CLASES_PROPIAS = new Set<string>(ESTILOS_PARRAFO.map((e) => e.id));
 function estiloDeNodo(n: Nodo, o: OpcionesConversion): EstiloCss {
   let e: EstiloCss = {};
   // Las clases de estilo de párrafo de Obi Studio ya se traducen a estilos; no se convierten en marcas.
-  for (const c of clases(n)) if (!CLASES_PROPIAS.has(c)) e = { ...e, ...(o.css.get(c) ?? {}) };
+  for (const c of clases(n)) if (!CLASES_PROPIAS.has(c) && !c.startsWith('ep-')) e = { ...e, ...(o.css.get(c) ?? {}) };
   const enLinea = attr(n, 'style');
   if (enLinea) e = { ...e, ...estiloDeDeclaraciones(enLinea) };
   return e;
@@ -163,14 +200,17 @@ interface EstadoInline {
   marcas: Marca[];
   enlace?: string;
   idioma?: string;
+  aspecto?: AspectoTexto;
 }
+
+const conAspecto = (e: EstadoInline) => (e.aspecto && Object.keys(e.aspecto).length ? { aspecto: { ...e.aspecto } } : {});
 
 export function convertirInlines(nodos: Nodo[], o: OpcionesConversion, estado: EstadoInline = { marcas: [] }): Inline[] {
   const salida: Inline[] = [];
   for (const n of nodos) {
     if (n.nodeType === TEXTO || n.nodeType === CDATA) {
       const t = (n.nodeValue ?? '').replace(/[\r\n\t ]+/g, ' ');
-      if (t) salida.push({ tipo: 'texto', texto: t, marcas: [...estado.marcas], enlace: estado.enlace, idioma: estado.idioma });
+      if (t) salida.push({ tipo: 'texto', texto: t, marcas: [...estado.marcas], enlace: estado.enlace, idioma: estado.idioma, ...conAspecto(estado) });
       continue;
     }
     if (n.nodeType !== ELEMENTO) continue;
@@ -206,10 +246,25 @@ export function convertirInlines(nodos: Nodo[], o: OpcionesConversion, estado: E
         .join('')
         .trim();
       if (base && lectura) salida.push({ tipo: 'ruby', base, lectura, ...(estado.marcas.length ? { marcas: [...estado.marcas] } : {}) });
-      else if (base) salida.push({ tipo: 'texto', texto: base, marcas: [...estado.marcas], enlace: estado.enlace, idioma: estado.idioma });
+      else if (base) salida.push({ tipo: 'texto', texto: base, marcas: [...estado.marcas], enlace: estado.enlace, idioma: estado.idioma, ...conAspecto(estado) });
       continue;
     }
-    const nuevo: EstadoInline = { marcas: [...estado.marcas], enlace: estado.enlace, idioma: estado.idioma };
+    const nuevo: EstadoInline = { marcas: [...estado.marcas], enlace: estado.enlace, idioma: estado.idioma, aspecto: estado.aspecto ? { ...estado.aspecto } : undefined };
+    // Tamaño, color y fondo: los del atributo style siempre; los de las clases, si se pide.
+    const fuenteAspecto = o.aspectos ? est : attr(n, 'style') ? estiloDeDeclaraciones(attr(n, 'style')) : {};
+    if (fuenteAspecto.tamano !== undefined || fuenteAspecto.color || fuenteAspecto.fondo) {
+      const a: AspectoTexto = { ...(nuevo.aspecto ?? {}) };
+      if (fuenteAspecto.tamano !== undefined) {
+        const t = Math.round((a.tamano ?? 1) * fuenteAspecto.tamano * 100) / 100;
+        if (Math.abs(t - 1) > 0.02) a.tamano = t;
+        else delete a.tamano;
+      }
+      // El negro del texto y el blanco del fondo son los de siempre: no se fijan (el lector puede estar en modo oscuro).
+      const canales = (c: string) => [1, 3, 5].map((k) => parseInt(c.slice(k, k + 2), 16));
+      if (fuenteAspecto.color && Math.max(...canales(fuenteAspecto.color)) > 0x22) a.color = fuenteAspecto.color;
+      if (fuenteAspecto.fondo && Math.min(...canales(fuenteAspecto.fondo)) < 0xf6) a.fondo = fuenteAspecto.fondo;
+      nuevo.aspecto = a;
+    }
     if (clases(n).includes('boten') && !nuevo.marcas.includes('enfasis')) nuevo.marcas.push('enfasis');
     if (clases(n).includes('vs') && !nuevo.marcas.includes('versalitas')) nuevo.marcas.push('versalitas');
     const m = MARCA_ETIQUETA[et];
@@ -344,7 +399,8 @@ export function convertirBloques(raiz: Nodo, o: OpcionesConversion, idiomaLibro?
       actual().bloques.push({ tipo: 'separador' });
       return;
     }
-    actual().bloques.push({ tipo: 'parrafo', estilo, contenido, ...espacioDe(nodo) });
+    const propia = nodo ? (clases(nodo).find((c) => c.startsWith('ep-'))?.slice(3) ?? o.estiloPropio?.(nodo)) : undefined;
+    actual().bloques.push({ tipo: 'parrafo', estilo, contenido, ...espacioDe(nodo), ...(propia ? { clase: propia } : {}) });
   };
 
   const recorrer = (n: Nodo, estiloHeredado?: EstiloParrafo, base: EstadoInline = { marcas: [] }) => {

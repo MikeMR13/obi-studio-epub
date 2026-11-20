@@ -23,6 +23,18 @@ export interface Texto {
   idioma?: string;
   /** Comentarios de revisión anclados a este fragmento (ids de `Seccion.comentarios`). No salen en el EPUB ni en el PDF. */
   comentarios?: string[];
+  /** Tamaño (em, relativo al párrafo), color y fondo propios del fragmento (los del original). */
+  aspecto?: AspectoTexto;
+}
+
+export interface AspectoTexto {
+  tamano?: number;
+  color?: string;
+  fondo?: string;
+}
+
+export function mismoAspecto(a?: AspectoTexto, b?: AspectoTexto): boolean {
+  return (a?.tamano ?? null) === (b?.tamano ?? null) && (a?.color ?? null) === (b?.color ?? null) && (a?.fondo ?? null) === (b?.fondo ?? null);
 }
 
 /** Furigana u otra anotación ruby sobre un texto base. */
@@ -72,6 +84,8 @@ export interface Parrafo {
   /** Espacio propio antes o después de este párrafo, en em (el del original en la conversión sencilla). */
   espacioAntes?: number;
   espacioDespues?: number;
+  /** Estilo de párrafo propio del libro (id de `Tema.estilosParrafo`), por ejemplo uno copiado del original. */
+  clase?: string;
 }
 
 export interface Subtitulo {
@@ -345,7 +359,37 @@ export function fuente(id: string): Fuente {
 }
 
 export type EstiloTitulo = 'centrado' | 'izquierda' | 'numero-grande' | 'linea';
-export type SeparadorEscena = 'asteriscos' | 'linea' | 'espacio' | 'flor' | 'rombos' | 'puntos' | 'imagen';
+export type SeparadorEscena = 'asteriscos' | 'linea' | 'espacio' | 'flor' | 'rombos' | 'puntos' | 'imagen' | 'texto';
+
+/** Estilo de párrafo propio del libro. Todas las medidas en em. */
+export interface EstiloPropio {
+  id: string;
+  nombre: string;
+  sangria?: number;
+  alinear?: 'izquierda' | 'centro' | 'derecha' | 'justificado';
+  antes?: number;
+  despues?: number;
+  interlineado?: number;
+  /** Tamaño relativo al texto (1 = igual). */
+  tamano?: number;
+  cursiva?: boolean;
+  negrita?: boolean;
+  versalitas?: boolean;
+  mayusculas?: boolean;
+  color?: string;
+  /** Fuente (id de FUENTES o «propia-…»). */
+  fuente?: string;
+  /** Márgenes laterales (sangría de bloque), en em. */
+  izquierda?: number;
+  derecha?: number;
+}
+
+export interface EstiloSubtitulo {
+  alinear?: 'izquierda' | 'centro' | 'derecha';
+  color?: string;
+  tamano?: number;
+  mayusculas?: boolean;
+}
 
 export interface Tema {
   /** Nombre del tema (para guardarlo y reconocerlo en la galería). */
@@ -362,6 +406,12 @@ export interface Tema {
   separador: SeparadorEscena;
   /** Imagen del separador cuando separador = 'imagen'. */
   separadorImagen?: string;
+  /** Texto del separador cuando separador = 'texto' (el ornamento del original, p. ej. «◆◆◆»). */
+  separadorTexto?: string;
+  /** Estilos de párrafo propios (los tipos de párrafo del original en la conversión sencilla). */
+  estilosParrafo?: EstiloPropio[];
+  /** Estilo de los subtítulos (h2). */
+  subtitulo?: EstiloSubtitulo;
   tituloEstilo: EstiloTitulo;
   tituloMayusculas: boolean;
   /** Títulos en mayúsculas (text-transform), distinto de las versalitas. */
@@ -411,6 +461,31 @@ export function temaCompleto(libro: Pick<Libro, 'tema'>): Tema {
 const COLOR = /^#[0-9a-f]{6}$/i;
 
 /** Valida un tema que llega de fuera (archivo .obitema o la interfaz) y devuelve solo los campos correctos. */
+const COLOR_HEX = /^#[0-9a-f]{6}$/i;
+
+export function validarEstiloPropio(e: unknown): EstiloPropio | undefined {
+  if (!e || typeof e !== 'object') return undefined;
+  const x = e as Record<string, unknown>;
+  if (typeof x.id !== 'string' || !/^[a-z0-9-]{1,40}$/.test(x.id)) return undefined;
+  const r: EstiloPropio = { id: x.id, nombre: typeof x.nombre === 'string' && x.nombre.trim() ? x.nombre.slice(0, 60) : x.id };
+  const num = (k: keyof EstiloPropio, min: number, max: number) => {
+    const v = x[k];
+    if (typeof v === 'number' && Number.isFinite(v)) (r as unknown as Record<string, number>)[k] = Math.min(max, Math.max(min, Math.round(v * 1000) / 1000));
+  };
+  num('sangria', -4, 6);
+  num('antes', 0, 10);
+  num('despues', 0, 10);
+  num('interlineado', 0.8, 3);
+  num('tamano', 0.5, 3);
+  num('izquierda', 0, 10);
+  num('derecha', 0, 10);
+  if (['izquierda', 'centro', 'derecha', 'justificado'].includes(x.alinear as string)) r.alinear = x.alinear as EstiloPropio['alinear'];
+  for (const k of ['cursiva', 'negrita', 'versalitas', 'mayusculas'] as const) if (typeof x[k] === 'boolean') r[k] = x[k] as boolean;
+  if (typeof x.color === 'string' && COLOR_HEX.test(x.color)) r.color = x.color;
+  if (typeof x.fuente === 'string' && /^[\w-]{1,60}$/.test(x.fuente)) r.fuente = x.fuente;
+  return r;
+}
+
 export function validarTema(entrada: unknown, propias: string[] = []): Partial<Tema> {
   const e = (entrada && typeof entrada === 'object' ? entrada : {}) as Record<string, unknown>;
   const t: Partial<Tema> = {};
@@ -428,7 +503,7 @@ export function validarTema(entrada: unknown, propias: string[] = []): Partial<T
   numero('sangria', 0, 4);
   numero('espacioParrafos', 0, 2);
   opcion('alinear', ['justificado', 'izquierda'] as const);
-  opcion('separador', ['asteriscos', 'linea', 'espacio', 'flor', 'rombos', 'puntos', 'imagen'] as const);
+  opcion('separador', ['asteriscos', 'linea', 'espacio', 'flor', 'rombos', 'puntos', 'imagen', 'texto'] as const);
   if (typeof e.separadorImagen === 'string') t.separadorImagen = e.separadorImagen;
   opcion('tituloEstilo', ['centrado', 'izquierda', 'numero-grande', 'linea'] as const);
   if (typeof e.tituloMayusculas === 'boolean') t.tituloMayusculas = e.tituloMayusculas;
@@ -441,6 +516,17 @@ export function validarTema(entrada: unknown, propias: string[] = []): Partial<T
   if (typeof e.primeraLinea === 'boolean') t.primeraLinea = e.primeraLinea;
   if (typeof e.colorTitulos === 'string' && COLOR.test(e.colorTitulos)) t.colorTitulos = e.colorTitulos;
   if (typeof e.colorAcento === 'string' && COLOR.test(e.colorAcento)) t.colorAcento = e.colorAcento;
+  if (typeof e.separadorTexto === 'string') t.separadorTexto = e.separadorTexto.replace(/[<>&]/g, '').slice(0, 40);
+  if (Array.isArray(e.estilosParrafo)) t.estilosParrafo = e.estilosParrafo.map(validarEstiloPropio).filter((x): x is EstiloPropio => !!x).slice(0, 40);
+  if (e.subtitulo && typeof e.subtitulo === 'object') {
+    const x = e.subtitulo as Record<string, unknown>;
+    const sub: EstiloSubtitulo = {};
+    if (x.alinear === 'izquierda' || x.alinear === 'centro' || x.alinear === 'derecha') sub.alinear = x.alinear;
+    if (typeof x.color === 'string' && COLOR.test(x.color)) sub.color = x.color;
+    if (typeof x.tamano === 'number' && x.tamano >= 0.8 && x.tamano <= 2.5) sub.tamano = x.tamano;
+    if (typeof x.mayusculas === 'boolean') sub.mayusculas = x.mayusculas;
+    t.subtitulo = sub;
+  }
   numero('espaciadoLetras', -0.1, 0.5);
   numero('espaciadoPalabras', -0.2, 1);
   return t;
@@ -668,7 +754,8 @@ export function normalizarInlines(lista: Inline[]): Inline[] {
       prev.enlace === i.enlace &&
       prev.idioma === i.idioma &&
       mismasMarcas(prev.marcas, i.marcas) &&
-      mismosComentarios(prev.comentarios, i.comentarios)
+      mismosComentarios(prev.comentarios, i.comentarios) &&
+      mismoAspecto(prev.aspecto, i.aspecto)
     ) {
       prev.texto += i.texto;
       continue;
@@ -683,6 +770,7 @@ export function normalizarInlines(lista: Inline[]): Inline[] {
     if (i.tipo !== 'texto') continue;
     if (!i.marcas) delete i.marcas;
     if (!i.comentarios) delete i.comentarios;
+    if (i.aspecto && !Object.values(i.aspecto).some((v) => v !== undefined)) delete i.aspecto;
   }
   return salida;
 }

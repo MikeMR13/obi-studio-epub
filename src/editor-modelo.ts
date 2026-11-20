@@ -1,7 +1,7 @@
 // Conversión entre el JSON de ProseMirror (editor visual) y los bloques del modelo.
 // Es la única puerta entre el editor y el libro: el editor nunca guarda HTML.
 
-import type { Bloque, EstiloParrafo, Inline, LineaRecuadro, Marca, VarianteRecuadro } from './model.js';
+import type { AspectoTexto, Bloque, EstiloParrafo, Inline, LineaRecuadro, Marca, VarianteRecuadro } from './model.js';
 import { ESTILOS_PARRAFO, VARIANTES_RECUADRO, normalizarInlines } from './model.js';
 
 const VARIANTES = new Set<string>(VARIANTES_RECUADRO.map((v) => v.id));
@@ -31,9 +31,10 @@ const MARCA_A_PM: Record<Marca, string> = {
 };
 const PM_A_MARCA: Record<string, Marca> = Object.fromEntries(Object.entries(MARCA_A_PM).map(([k, v]) => [v, k as Marca]));
 
-function marcasPM(i: { marcas?: Marca[]; enlace?: string; idioma?: string; comentarios?: string[] }): PMMark[] | undefined {
+function marcasPM(i: { marcas?: Marca[]; enlace?: string; idioma?: string; comentarios?: string[]; aspecto?: AspectoTexto }): PMMark[] | undefined {
   const m: PMMark[] = (i.marcas ?? []).map((x) => ({ type: MARCA_A_PM[x] }));
   if (i.enlace) m.push({ type: 'link', attrs: { href: i.enlace } });
+  if (i.aspecto) m.push({ type: 'aspecto', attrs: { tamano: i.aspecto.tamano ?? null, color: i.aspecto.color ?? null, fondo: i.aspecto.fondo ?? null } });
   if (i.idioma) m.push({ type: 'idioma', attrs: { lang: i.idioma } });
   for (const id of i.comentarios ?? []) m.push({ type: 'comentario', attrs: { id } });
   return m.length ? m : undefined;
@@ -65,7 +66,12 @@ export function bloquesAPM(bloques: Bloque[]): PMNodo {
       case 'parrafo':
         content.push({
           type: 'paragraph',
-          attrs: { estilo: b.estilo, ...(b.espacioAntes !== undefined ? { espacioAntes: b.espacioAntes } : {}), ...(b.espacioDespues !== undefined ? { espacioDespues: b.espacioDespues } : {}) },
+          attrs: {
+            estilo: b.estilo,
+            ...(b.espacioAntes !== undefined ? { espacioAntes: b.espacioAntes } : {}),
+            ...(b.espacioDespues !== undefined ? { espacioDespues: b.espacioDespues } : {}),
+            ...(b.clase ? { clase: b.clase } : {}),
+          },
           content: inlinesAPM(b.contenido),
         });
         break;
@@ -101,8 +107,8 @@ export function bloquesAPM(bloques: Bloque[]): PMNodo {
   return { type: 'doc', content };
 }
 
-function datosMarcas(marks: PMMark[] = []): { marcas?: Marca[]; enlace?: string; idioma?: string; comentarios?: string[] } {
-  const r: { marcas?: Marca[]; enlace?: string; idioma?: string; comentarios?: string[] } = {};
+function datosMarcas(marks: PMMark[] = []): { marcas?: Marca[]; enlace?: string; idioma?: string; comentarios?: string[]; aspecto?: AspectoTexto } {
+  const r: { marcas?: Marca[]; enlace?: string; idioma?: string; comentarios?: string[]; aspecto?: AspectoTexto } = {};
   const marcas: Marca[] = [];
   const comentarios: string[] = [];
   for (const m of marks) {
@@ -110,6 +116,14 @@ function datosMarcas(marks: PMMark[] = []): { marcas?: Marca[]; enlace?: string;
     else if (m.type === 'link' && m.attrs?.href) r.enlace = String(m.attrs.href);
     else if (m.type === 'idioma' && m.attrs?.lang) r.idioma = String(m.attrs.lang);
     else if (m.type === 'comentario' && m.attrs?.id) comentarios.push(String(m.attrs.id));
+    else if (m.type === 'aspecto') {
+      const a: AspectoTexto = {};
+      const t = Number(m.attrs?.tamano);
+      if (m.attrs?.tamano != null && Number.isFinite(t)) a.tamano = t;
+      if (typeof m.attrs?.color === 'string' && m.attrs.color) a.color = m.attrs.color;
+      if (typeof m.attrs?.fondo === 'string' && m.attrs.fondo) a.fondo = m.attrs.fondo;
+      if (Object.keys(a).length) r.aspecto = a;
+    }
   }
   if (marcas.length) r.marcas = marcas;
   if (comentarios.length) r.comentarios = comentarios;
@@ -146,6 +160,7 @@ export function pmABloques(doc: PMNodo): Bloque[] {
           contenido: pmAInlines(n.content),
           ...(antes !== undefined ? { espacioAntes: antes } : {}),
           ...(despues !== undefined ? { espacioDespues: despues } : {}),
+          ...(typeof n.attrs?.clase === 'string' && /^[a-z0-9-]{1,40}$/.test(n.attrs.clase) ? { clase: n.attrs.clase } : {}),
         });
         break;
       }
