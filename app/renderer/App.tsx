@@ -9,14 +9,17 @@ import { Inspector } from './paneles/Inspector';
 import { VistaPrevia } from './paneles/VistaPrevia';
 import { Codigo } from './paneles/Codigo';
 import { Ilustracion } from './paneles/Ilustracion';
+import { PanelImpresion, VistaImpresion } from './paneles/Impresion';
+import type { Pestana } from './paneles/Inspector';
 
-type Vista = 'editor' | 'codigo' | 'vista';
+type Vista = 'editor' | 'codigo' | 'vista' | 'impresion';
 
 export function App() {
   const [estado, setEstado] = useState<Estado | null>(null);
   const [actual, setActual] = useState('');
   const [vista, setVista] = useState<Vista>('editor');
-  const [pestana, setPestana] = useState<'seccion' | 'libro' | 'tema' | 'validacion'>('seccion');
+  const [pestana, setPestana] = useState<Pestana>('seccion');
+  const [exportandoPdf, setExportandoPdf] = useState(false);
   const [validacion, setValidacion] = useState<Resultado | null>(null);
   const [validando, setValidando] = useState(false);
   const [version, setVersion] = useState(0);
@@ -111,6 +114,21 @@ export function App() {
         aviso('No se exportó: el EPUB tiene errores. Revisa la pestaña Validación.', 'error');
       } else aviso((e as Error).message, 'error');
     } finally {
+      setOcupado('');
+    }
+  };
+
+  const exportarPdf = async (tipo: 'impresion' | 'digital') => {
+    setExportandoPdf(true);
+    setOcupado(tipo === 'impresion' ? 'Compaginando el PDF para imprenta…' : 'Compaginando el PDF digital…');
+    try {
+      await descargar(`/api/exportar-pdf?tipo=${tipo}`);
+      aviso(tipo === 'impresion' ? 'PDF para imprenta creado.' : 'PDF digital creado.');
+      setVersion((v) => v + 1);
+    } catch (e) {
+      aviso((e as Error).message, 'error');
+    } finally {
+      setExportandoPdf(false);
       setOcupado('');
     }
   };
@@ -231,6 +249,7 @@ export function App() {
           <button onClick={() => entradaArchivo.current?.click()} title="Abrir o importar (Ctrl+O)">Abrir…</button>
           <button onClick={guardarProyecto} title="Guardar el proyecto .obi (Ctrl+S)">Guardar</button>
           <button onClick={validar} disabled={validando}>Validar</button>
+          <button onClick={() => setPestana('impresion')} title="PDF para imprenta o digital">PDF…</button>
           <button className="principal" onClick={exportar} title="Exportar EPUB (Ctrl+E)">Exportar EPUB</button>
         </div>
       </header>
@@ -262,9 +281,9 @@ export function App() {
       />
       <main className="centro">
         <div className="pestanas-centro" role="tablist" aria-label="Modo">
-          {(['editor', 'codigo', 'vista'] as Vista[]).map((v) => (
+          {(['editor', 'codigo', 'vista', 'impresion'] as Vista[]).map((v) => (
             <button key={v} role="tab" aria-selected={vista === v} className={vista === v ? 'activa' : ''} onClick={() => setVista(v)}>
-              {v === 'editor' ? 'Escribir' : v === 'codigo' ? 'Código' : 'Vista previa'}
+              {v === 'editor' ? 'Escribir' : v === 'codigo' ? 'Código' : v === 'vista' ? 'Vista previa' : 'Impresión'}
             </button>
           ))}
           <span className="tipo-actual">{tipoSeccion}</span>
@@ -291,6 +310,7 @@ export function App() {
             }}
           />
         )}
+        {vista === 'impresion' && <VistaImpresion version={version} />}
         {seccion && vista === 'vista' && <VistaPrevia libro={estado.libro} seccionId={seccion.id} version={version} onSeccion={setActual} />}
       </main>
       <Inspector
@@ -316,6 +336,19 @@ export function App() {
           setActual(id);
           setVista('codigo');
         }}
+        panelImpresion={
+          <PanelImpresion
+            estado={estado}
+            version={version}
+            exportando={exportandoPdf}
+            onCambiar={(c) => llamar(async () => aplicar(await api.impresion(c)))}
+            onExportar={exportarPdf}
+            onIrA={(id) => {
+              setActual(id);
+              setVista('editor');
+            }}
+          />
+        }
       />
       {ocupado && <div className="ocupado-flotante" role="status">{ocupado}</div>}
       <ZonaSoltar onArchivo={importar} />

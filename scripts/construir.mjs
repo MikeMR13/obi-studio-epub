@@ -14,8 +14,11 @@ const comun = {
   format: 'esm',
   sourcemap: false,
   // Los paquetes CommonJS empaquetados necesitan require() en un módulo ES.
-  banner: { js: "import { createRequire as __cr } from 'node:module'; const require = __cr(import.meta.url);" },
-  external: ['electron', 'vite'],
+  banner: {
+    js: "import { createRequire as __cr } from 'node:module'; import { fileURLToPath as __fu } from 'node:url'; import { dirname as __dn } from 'node:path'; const require = __cr(import.meta.url); const __filename = __fu(import.meta.url); const __dirname = __dn(__filename);",
+  },
+  // playwright-core solo se usa fuera de Electron (línea de comandos), desde node_modules.
+  external: ['electron', 'vite', 'playwright-core'],
   logLevel: 'warning',
 };
 await esbuild({ ...comun, entryPoints: ['app/main.ts'], outfile: 'dist/main.mjs' });

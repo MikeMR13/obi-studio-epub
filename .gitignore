@@ -5,3 +5,6 @@ recursos/java/
 *.log
 /salida/
 instaladores/
+recursos/vivliostyle/
+recursos/fuentes/
+recursos/hyphenopoly/

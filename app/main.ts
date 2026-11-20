@@ -6,10 +6,38 @@ import { Backend } from './backend.js';
 import { join } from 'node:path';
 
 let ventana: BrowserWindow | null = null;
+
+/** Imprime a PDF con el Chromium de Electron: ventana oculta con el visor de Vivliostyle. */
+async function renderizadorElectron(url: string): Promise<Uint8Array> {
+  const oculta = new BrowserWindow({ show: false, width: 1200, height: 900, webPreferences: { sandbox: true, contextIsolation: true, offscreen: false } });
+  try {
+    await oculta.loadURL(url);
+    const limite = Date.now() + 300_000;
+    for (;;) {
+      const estado = await oculta.webContents.executeJavaScript(
+        `document.querySelector('[data-vivliostyle-viewer-status]')?.getAttribute('data-vivliostyle-viewer-status')`,
+      );
+      if (estado === 'complete') break;
+      if (Date.now() > limite) throw new Error('La compaginación tardó demasiado.');
+      await new Promise((ok) => setTimeout(ok, 250));
+    }
+    await oculta.webContents.executeJavaScript('document.fonts.ready.then(() => true)');
+    const pdf = await oculta.webContents.printToPDF({
+      preferCSSPageSize: true,
+      printBackground: true,
+      generateTaggedPDF: true,
+      generateDocumentOutline: true,
+    });
+    return new Uint8Array(pdf);
+  } finally {
+    oculta.destroy();
+  }
+}
 let salirConfirmado = false;
 
 async function crearVentana() {
   const backend = new Backend(join(app.getPath('userData'), 'recuperacion'));
+  backend.renderizador = renderizadorElectron;
   const { url, puerto } = await iniciarServidor({ backend });
   const origen = `http://127.0.0.1:${puerto}`;
 
@@ -41,12 +69,14 @@ async function crearVentana() {
   // Descargas (exportar EPUB, guardar proyecto): diálogo nativo de guardar.
   ventana.webContents.session.on('will-download', (_e, item) => {
     const nombre = item.getFilename();
-    const esEpub = nombre.endsWith('.epub');
-    item.setSaveDialogOptions({
-      title: esEpub ? 'Exportar EPUB' : 'Guardar proyecto',
-      defaultPath: join(app.getPath('documents'), nombre),
-      filters: esEpub ? [{ name: 'Libro EPUB', extensions: ['epub'] }] : [{ name: 'Proyecto de Obi Studio', extensions: ['obi'] }],
-    });
+    const tipo = nombre.split('.').pop();
+    const filtros: Record<string, { titulo: string; filtro: { name: string; extensions: string[] } }> = {
+      epub: { titulo: 'Exportar EPUB', filtro: { name: 'Libro EPUB', extensions: ['epub'] } },
+      pdf: { titulo: 'Exportar PDF', filtro: { name: 'PDF', extensions: ['pdf'] } },
+      obi: { titulo: 'Guardar proyecto', filtro: { name: 'Proyecto de Obi Studio', extensions: ['obi'] } },
+    };
+    const f = filtros[tipo ?? 'obi'] ?? filtros.obi;
+    item.setSaveDialogOptions({ title: f.titulo, defaultPath: join(app.getPath('documents'), nombre), filters: [f.filtro] });
   });
 
   // Aviso de cambios sin guardar al cerrar.

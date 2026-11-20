@@ -1,7 +1,9 @@
 import type { Estado } from '../backend';
 import type { Resultado } from '../../src/validar';
 
-export type { Estado, Resultado };
+import type { AvisoImpresion } from '../../src/preflight';
+
+export type { Estado, Resultado, AvisoImpresion };
 
 export class ErrorApi extends Error {
   constructor(mensaje: string, public estado: number, public datos?: unknown) {
@@ -48,6 +50,9 @@ export const api = {
   codigo: (id: string) => pedir<{ xhtml: string }>('GET', `/api/codigo/${id}`),
   aplicarCodigo: (id: string, xhtml: string) => pedir<{ secciones: string[]; estado: Estado }>('PUT', `/api/codigo/${id}`, { xhtml }),
   validar: () => pedir<Resultado>('POST', '/api/validar'),
+  impresion: (cambios: object) => pedir<Estado>('PUT', '/api/impresion', cambios),
+  revisionImpresion: () => pedir<{ avisos: AvisoImpresion[]; paginas?: number }>('GET', '/api/impresion/revision'),
+  visorImpresion: () => pedir<{ url: string }>('GET', '/api/impresion/visor'),
 };
 
 export function urlRecurso(id: string, version = 0): string {

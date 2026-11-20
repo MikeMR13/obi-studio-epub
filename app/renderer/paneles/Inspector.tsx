@@ -3,7 +3,7 @@ import type { Metadatos, Seccion, Tema, Tipografia, RolCredito } from '../../../
 import { ROLES, TIPOS_SECCION } from '../../../src/model';
 import type { Estado, Resultado } from '../api';
 
-type Pestana = 'seccion' | 'libro' | 'tema' | 'validacion';
+export type Pestana = 'seccion' | 'libro' | 'tema' | 'impresion' | 'validacion';
 
 interface Props {
   estado: Estado;
@@ -19,6 +19,7 @@ interface Props {
   validando: boolean;
   onValidar: () => void;
   onIrA: (seccion: string) => void;
+  panelImpresion: React.ReactNode;
 }
 
 /** Campo de texto que guarda al salir (o tras una pausa), no en cada tecla. */
@@ -47,6 +48,7 @@ export function Inspector(p: Props) {
     ['seccion', 'Sección'],
     ['libro', 'Libro'],
     ['tema', 'Tema'],
+    ['impresion', 'Impresión'],
     ['validacion', 'Validación'],
   ];
   return (
@@ -230,6 +232,8 @@ export function Inspector(p: Props) {
             </fieldset>
           </>
         )}
+
+        {p.pestana === 'impresion' && p.panelImpresion}
 
         {p.pestana === 'validacion' && (
           <>

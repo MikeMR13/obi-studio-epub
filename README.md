@@ -1,6 +1,6 @@
 # Obi Studio EPUB
 
-Maquetador visual de novelas ligeras para Windows, macOS y Linux. Escribes y das formato como en un procesador de textos, y el programa genera un EPUB 3.3 válido (EPUBCheck) y accesible (EPUB Accessibility 1.1). Gratuito y de código cerrado.
+Maquetador visual de novelas ligeras para Windows, macOS y Linux. Escribes y das formato como en un procesador de textos, y el programa genera un EPUB 3.3 válido (EPUBCheck) y accesible (EPUB Accessibility 1.1) y, del mismo libro, el PDF para imprenta y el PDF digital. Gratuito y de código cerrado.
 
 > Esta es la reconstrucción desde cero (noviembre de 2026), empezando por el núcleo. El plan completo está en el documento «Estudio de mercado y plan técnico» del proyecto de Claude.
 
@@ -23,13 +23,26 @@ Maquetador visual de novelas ligeras para Windows, macOS y Linux. Escribes y das
 - **Proyecto `.obi`:** un ZIP con `libro.json` y las imágenes. Copia de recuperación automática cada minuto con cambios.
 - EPUBCheck y un Java mínimo (jlink, 56 MB) van **dentro del instalador**.
 
+## PDF de impresión (F2)
+
+- **Compaginación con Vivliostyle** (CSS Paged Media) en el Chromium de Electron, o en Chrome/Edge desde la línea de comandos. El PDF sale del mismo modelo y del mismo tema que el EPUB.
+- **Tamaños de imprenta:** 5 × 8, 5,25 × 8, 5,5 × 8,5 y 6 × 9 in, A5, B6 (tankōbon) y A6 (bunkobon), o personalizado. El PDF mide exactamente el tamaño de corte (más el sangrado).
+- **Margen interior automático** según el número de páginas (tabla de KDP Print): se compagina, se cuentan las páginas y, si cambia el tramo, se vuelve a compaginar.
+- **Sangrado:** ninguno, KDP Print (3,175 mm arriba, abajo y en el borde exterior; se recorta el interior página a página) o IngramSpark/Lulu (3 mm por lado). Cajas `TrimBox` y `BleedBox` en cada página. Ilustraciones de página completa a sangre opcionales.
+- **Composición de libro:** capítulos en página impar, páginas en blanco sin cabecera ni folio, aperturas sin cabecera, cabeceras con el título del libro (izquierda) y del capítulo (derecha), folios, **notas al pie en la misma página**, índice con números de página, viudas y huérfanas.
+- **División silábica española** con Hyphenopoly (patrones TeX): igual en cualquier sistema.
+- **Fuentes incrustadas:** Literata y Noto Sans (licencia OFL) van con la app.
+- **Revisión previa:** resolución efectiva de cada ilustración (300 ppp), páginas mínimas y máximas, márgenes mínimos de KDP, proporción de las ilustraciones y bloques XHTML a revisar.
+- **PDF digital:** sin sangrado, márgenes simétricos, enlaces, marcadores y PDF etiquetado.
+- Pendiente: conversión a PDF/X-1a y CMYK (requiere Ghostscript; KDP Print no la exige).
+
 ## Desarrollo
 
-Requisitos: Node.js 22 y Java 21 con `jlink` (solo para preparar los recursos).
+Requisitos: Node.js 22, Java 21 con `jlink` (solo para preparar los recursos) y Chrome o Edge para generar PDF fuera de la app de escritorio (pruebas y línea de comandos; o la variable `OBI_CHROME`).
 
 ```bash
 npm install
-node scripts/preparar-recursos.mjs   # descarga EPUBCheck y crea el Java mínimo en recursos/
+node scripts/preparar-recursos.mjs   # EPUBCheck, Java mínimo, visor de Vivliostyle, fuentes y patrones en recursos/
 npm run dev:web                      # interfaz en el navegador: http://127.0.0.1:5180
 npm run app                          # compila y abre la app de escritorio
 npm test                             # pruebas del motor (incluye EPUBCheck)
@@ -48,6 +61,7 @@ Línea de comandos del motor (después de `npm run build`):
 node dist/cli.mjs importar libro.epub libro.obi      # también .docx
 node dist/cli.mjs compilar libro.obi libro.epub
 node dist/cli.mjs validar libro.epub
+node dist/cli.mjs pdf libro.obi libro.pdf           # PDF para imprenta (--digital para el de pantalla)
 ```
 
 ## Instaladores
@@ -75,6 +89,8 @@ En local: `npm run instaladores` construye el del sistema actual en `instaladore
 | `src/formatos/` | Importadores: `epub.ts`, `docx.ts`, conversión HTML → bloques (`convertir.ts`) y utilidades DOM |
 | `src/editor-modelo.ts` | Puente entre el JSON de ProseMirror y los bloques del modelo |
 | `src/validar.ts` | EPUBCheck con mensajes en español |
+| `src/impresion.ts`, `src/pdf.ts`, `src/servicio-impresion.ts` | HTML y CSS de impresión, generación y posproceso del PDF, servicio del visor |
+| `src/preflight.ts`, `src/division.ts`, `src/recursos.ts` | Revisión previa, división silábica, ubicación de los recursos |
 | `src/proyecto.ts`, `src/tipografia.ts`, `src/imagen.ts`, `src/cli.ts` | Proyecto .obi, tipografía española, tamaño de imágenes, línea de comandos |
 | `src/pruebas/` | Pruebas del motor y documentos de prueba generados al vuelo |
 | `app/backend.ts` | Operaciones sobre el libro abierto |
@@ -89,4 +105,5 @@ En local: `npm run instaladores` construye el del sistema actual en `instaladore
 - Interfaz en inglés.
 - Fuentes del sistema incrustadas (subconjunto con HarfBuzz), recorte y giro de ilustraciones, dobles páginas.
 - Buscar y reemplazar, versiones con nombre, revisión de accesibilidad con axe-core.
-- PDF de impresión con Vivliostyle (F2).
+- PDF/X-1a y CMYK con Ghostscript.
+- Constructor visual de temas (F3).

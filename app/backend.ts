@@ -4,7 +4,12 @@ import JSZip from 'jszip';
 import { mkdir } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import type { Libro, Metadatos, Recurso, Seccion, Tema, TipoSeccion, Tipografia } from '../src/model.js';
+import type { Impresion, Libro, Metadatos, Recurso, Seccion, Tema, TipoSeccion, Tipografia } from '../src/model.js';
+import { ajustesImpresion, TAMANOS_IMPRESION } from '../src/model.js';
+import { archivosImpresion, margenInteriorAutomatico } from '../src/impresion.js';
+import { generarPdf, renderizadorChrome, urlVisor, type Renderizador, type TipoPdf } from '../src/pdf.js';
+import { libroParaImprimir } from '../src/servicio-impresion.js';
+import { revisarImpresion, type AvisoImpresion } from '../src/preflight.js';
 import { libroNuevo, nuevaSeccion, nuevoId, contarPalabras } from '../src/model.js';
 import { compilar, compilarArchivos, archivoSeccion, rutaImagen, cssLibro, CONTAINER } from '../src/compilar.js';
 import { importarEpub } from '../src/formatos/epub.js';
@@ -40,6 +45,14 @@ export class Backend {
   avisos: string[] = [];
   ultimaValidacion?: Resultado;
   private temporizador?: NodeJS.Timeout;
+  /** Dirección del servidor local y clave de las rutas de impresión (la fija el servidor). */
+  base = '';
+  clave = '-';
+  /** Cómo se imprime a PDF: Electron inyecta el suyo; si no, Chrome/Edge del sistema. */
+  renderizador: Renderizador = renderizadorChrome();
+  ultimasPaginas?: number;
+  private paquetes = new Map<string, Map<string, string | Uint8Array>>();
+  private contadorImpresion = 0;
 
   constructor(private carpetaRecuperacion = join(homedir(), '.obi-studio')) {}
 
@@ -260,6 +273,63 @@ export class Backend {
     this.ultimaValidacion = r;
     if (!r.valido) throw new ErrorUsuario('El EPUB tiene errores. Corrígelos antes de exportar.', 409, r);
     return { nombre: nombreDeArchivo(this.libro.metadatos.titulo) + '.epub', datos };
+  }
+
+  impresion(cambios: Partial<Impresion>) {
+    const actual = ajustesImpresion(this.libro);
+    const nuevo = { ...actual, ...cambios };
+    const tam = TAMANOS_IMPRESION.find((t) => t.id === nuevo.tamano);
+    if (cambios.tamano && tam) {
+      nuevo.ancho = tam.ancho;
+      nuevo.alto = tam.alto;
+    }
+    if (cambios.ancho !== undefined || cambios.alto !== undefined) {
+      const coincide = TAMANOS_IMPRESION.find((t) => Math.abs(t.ancho - nuevo.ancho) < 0.1 && Math.abs(t.alto - nuevo.alto) < 0.1);
+      nuevo.tamano = coincide?.id ?? 'libre';
+    }
+    if (nuevo.ancho < 76 || nuevo.alto < 101 || nuevo.ancho > 216 || nuevo.alto > 297) {
+      throw new ErrorUsuario('Tamaño fuera de lo que admiten las imprentas (entre 7,6 × 10,1 cm y 21,6 × 29,7 cm).');
+    }
+    this.libro.impresion = nuevo;
+    this.marcar();
+  }
+
+  revisionImpresion(): AvisoImpresion[] {
+    return revisarImpresion(this.libro, this.ultimasPaginas);
+  }
+
+  /** Archivos de impresión de una versión ya preparada (los pide el visor). */
+  async paqueteImpresion(version: string): Promise<Map<string, string | Uint8Array>> {
+    return this.paquetes.get(version) ?? new Map();
+  }
+
+  private async prepararVersion(interior: number, digital: boolean): Promise<string> {
+    const v = String(++this.contadorImpresion);
+    this.paquetes.set(v, archivosImpresion(await libroParaImprimir(this.libro), { interior, digital }));
+    // Solo se guardan las últimas versiones.
+    for (const k of [...this.paquetes.keys()]) if (Number(k) < this.contadorImpresion - 4) this.paquetes.delete(k);
+    return urlVisor(this.base, this.clave, Number(v));
+  }
+
+  /** URL del visor para la vista previa de impresión. */
+  async vistaImpresion(): Promise<string> {
+    const a = ajustesImpresion(this.libro);
+    const interior = a.margenInterior > 0 ? a.margenInterior : margenInteriorAutomatico(this.ultimasPaginas ?? 200);
+    return (await this.prepararVersion(interior, false)).replace('spread=false', 'spread=auto');
+  }
+
+  async exportarPdf(tipo: TipoPdf): Promise<{ nombre: string; datos: Uint8Array; paginas: number; avisos: AvisoImpresion[] }> {
+    const errores = revisarImpresion(this.libro, this.ultimasPaginas).filter((a) => a.gravedad === 'error' && !a.seccion);
+    if (errores.length) throw new ErrorUsuario(`No se puede crear el PDF: ${errores.map((e) => e.mensaje).join(' ')}`);
+    let r;
+    try {
+      r = await generarPdf(this.libro, tipo, (interior) => this.prepararVersion(interior, tipo === 'digital'), this.renderizador);
+    } catch (e) {
+      throw new ErrorUsuario(`No se pudo crear el PDF: ${(e as Error).message}`);
+    }
+    if (tipo === 'impresion') this.ultimasPaginas = r.paginas;
+    const sufijo = tipo === 'impresion' ? '-impresion' : '-digital';
+    return { nombre: nombreDeArchivo(this.libro.metadatos.titulo) + sufijo + '.pdf', datos: r.datos, paginas: r.paginas, avisos: revisarImpresion(this.libro, r.paginas) };
   }
 
   async proyecto(): Promise<{ nombre: string; datos: Uint8Array }> {

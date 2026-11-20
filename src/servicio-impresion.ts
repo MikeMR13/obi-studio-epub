@@ -1,0 +1,102 @@
+// Entrega por HTTP lo que necesita el visor de Vivliostyle: el libro de impresión, sus imágenes, las fuentes y el visor.
+
+import { createServer } from 'node:http';
+import { readFile } from 'node:fs/promises';
+import { extname, join, normalize } from 'node:path';
+import type { Libro } from './model.js';
+import { archivosImpresion } from './impresion.js';
+import { dividirLibro } from './division.js';
+import { ajustesImpresion } from './model.js';
+import { rutaRecurso } from './recursos.js';
+import { generarPdf, urlVisor, renderizadorChrome, type Renderizador, type TipoPdf, type ResultadoPdf } from './pdf.js';
+
+const TIPOS: Record<string, string> = {
+  '.html': 'text/html; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.js': 'text/javascript; charset=utf-8',
+  '.json': 'application/json',
+  '.svg': 'image/svg+xml',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.gif': 'image/gif',
+  '.webp': 'image/webp',
+  '.woff2': 'font/woff2',
+  '.woff': 'font/woff',
+  '.ttf': 'font/ttf',
+  '.map': 'application/json',
+};
+
+export interface Respuesta {
+  tipo: string;
+  datos: string | Uint8Array;
+}
+
+/** Libro preparado para compaginar (con división silábica si está activada). */
+export async function libroParaImprimir(libro: Libro): Promise<Libro> {
+  return ajustesImpresion(libro).division ? dividirLibro(libro) : libro;
+}
+
+/**
+ * Resuelve una ruta del servicio de impresión:
+ *   /vivliostyle/…                     visor (público)
+ *   /impresion/<clave>/<v>/fuentes/…   fuentes
+ *   /impresion/<clave>/<v>/…           libro.html, impresion.css, img/…
+ */
+export async function resolverImpresion(
+  ruta: string,
+  clave: string,
+  archivos: (version: string) => Promise<Map<string, string | Uint8Array>>,
+): Promise<Respuesta | undefined> {
+  if (ruta.startsWith('/vivliostyle/')) {
+    const base = rutaRecurso('vivliostyle');
+    if (!base) return undefined;
+    const relativa = normalize(decodeURIComponent(ruta.slice('/vivliostyle/'.length))).replace(/^(\.\.[/\\])+/, '');
+    try {
+      return { tipo: TIPOS[extname(relativa)] ?? 'application/octet-stream', datos: new Uint8Array(await readFile(join(base, relativa))) };
+    } catch {
+      return undefined;
+    }
+  }
+  const m = ruta.match(/^\/impresion\/([^/]+)\/([^/]+)\/(.+)$/);
+  if (!m || m[1] !== clave) return undefined;
+  const archivo = decodeURIComponent(m[3]);
+  if (archivo.startsWith('fuentes/')) {
+    const f = rutaRecurso('fuentes', archivo.slice('fuentes/'.length).replace(/[/\\]/g, ''));
+    return f ? { tipo: 'font/woff2', datos: new Uint8Array(await readFile(f)) } : undefined;
+  }
+  const d = (await archivos(m[2])).get(archivo);
+  return d === undefined ? undefined : { tipo: TIPOS[extname(archivo)] ?? 'application/octet-stream', datos: d };
+}
+
+/** PDF desde la línea de comandos o las pruebas: levanta un servidor temporal y usa Chrome. */
+export async function pdfDesdeLibro(libro: Libro, tipo: TipoPdf, renderizar: Renderizador = renderizadorChrome()): Promise<ResultadoPdf> {
+  const preparado = await libroParaImprimir(libro);
+  const clave = globalThis.crypto.randomUUID();
+  const versiones = new Map<string, Map<string, string | Uint8Array>>();
+  let contador = 0;
+  const servidor = createServer(async (req, res) => {
+    const r = await resolverImpresion(new URL(req.url ?? '/', 'http://x').pathname, clave, async (v) => versiones.get(v) ?? new Map());
+    if (!r) {
+      res.writeHead(404).end();
+      return;
+    }
+    res.writeHead(200, { 'Content-Type': r.tipo });
+    res.end(typeof r.datos === 'string' ? r.datos : Buffer.from(r.datos));
+  });
+  await new Promise<void>((ok) => servidor.listen(0, '127.0.0.1', ok));
+  const puerto = (servidor.address() as { port: number }).port;
+  try {
+    return await generarPdf(
+      libro,
+      tipo,
+      async (interior) => {
+        const v = String(++contador);
+        versiones.set(v, archivosImpresion(preparado, { interior, digital: tipo === 'digital' }));
+        return urlVisor(`http://127.0.0.1:${puerto}`, clave, Number(v));
+      },
+      renderizar,
+    );
+  } finally {
+    servidor.close();
+  }
+}

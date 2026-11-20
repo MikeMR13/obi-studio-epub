@@ -48,10 +48,14 @@ export function rutaImagen(nombre: string): string {
   return `img/${nombre}`;
 }
 
-interface Contexto {
+export interface Contexto {
   libro: Libro;
   numeroNota: Map<string, number>;
   notasPorId: Map<string, Nota>;
+  /** Si se da, sustituye la llamada de nota (la impresión pone el texto de la nota en su sitio). */
+  renderNota?: (nota: Nota | undefined, numero: number) => string;
+  /** Si se da, sustituye la ruta de las imágenes. */
+  rutaImg?: (nombre: string) => string;
 }
 
 function envolverMarcas(html: string, marcas: Marca[] = []): string {
@@ -77,6 +81,10 @@ export function inlinesXhtml(lista: Inline[], ctx?: Contexto): string {
     } else if (i.tipo === 'nota') {
       const n = ctx?.numeroNota.get(i.id);
       if (n === undefined) continue;
+      if (ctx?.renderNota) {
+        salida += ctx.renderNota(ctx.notasPorId.get(i.id), n);
+        continue;
+      }
       salida += `<sup><a href="#${i.id}" id="r-${i.id}" epub:type="noteref" role="doc-noteref">${n}</a></sup>`;
     }
   }
@@ -87,13 +95,13 @@ function claseParrafo(estilo: string): string {
   return estilo === 'cuerpo' ? '' : ` class="${estilo}"`;
 }
 
-function imagenXhtml(img: Imagen, libro: Libro, clase = 'imagen'): string {
+function imagenXhtml(img: Imagen, libro: Libro, clase = 'imagen', rutaImg = rutaImagen): string {
   const r = libro.recursos.find((x) => x.id === img.recurso);
   if (!r) return '';
   const alt = img.decorativa ? '' : img.alt;
   const extra = img.decorativa ? ' role="presentation"' : '';
   const pie = img.pie ? `<figcaption>${esc(img.pie)}</figcaption>` : '';
-  return `<figure class="${clase}"><img src="${escAttr(rutaImagen(r.nombre))}" alt="${escAttr(alt)}"${extra}/>${pie}</figure>`;
+  return `<figure class="${clase}"><img src="${escAttr(rutaImg(r.nombre))}" alt="${escAttr(alt)}"${extra}/>${pie}</figure>`;
 }
 
 function separadorXhtml(libro: Libro): string {
@@ -123,7 +131,7 @@ export function bloquesXhtml(bloques: Bloque[], ctx: Contexto, seccion?: Seccion
         partes.push(separadorXhtml(ctx.libro));
         break;
       case 'imagen':
-        partes.push(imagenXhtml(b, ctx.libro, seccion?.tipo === 'ilustracion' ? 'ilustracion' : 'imagen'));
+        partes.push(imagenXhtml(b, ctx.libro, seccion?.tipo === 'ilustracion' ? 'ilustracion' : 'imagen', ctx.rutaImg));
         break;
       case 'lista': {
         const t = b.ordenada ? 'ol' : 'ul';
@@ -138,7 +146,7 @@ export function bloquesXhtml(bloques: Bloque[], ctx: Contexto, seccion?: Seccion
   return partes.join('\n');
 }
 
-function numerarNotas(s: Seccion): Map<string, number> {
+export function numerarNotas(s: Seccion): Map<string, number> {
   const mapa = new Map<string, number>();
   const ver = (lista: Inline[]) => {
     for (const i of lista) if (i.tipo === 'nota' && !mapa.has(i.id)) mapa.set(i.id, mapa.size + 1);

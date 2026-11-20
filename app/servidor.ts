@@ -8,6 +8,7 @@ import { dirname, extname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { randomBytes } from 'node:crypto';
 import { Backend, ErrorUsuario } from './backend.js';
+import { resolverImpresion } from '../src/servicio-impresion.js';
 
 const aqui = dirname(fileURLToPath(import.meta.url));
 
@@ -151,6 +152,18 @@ export async function iniciarServidor(op: OpcionesServidor = {}) {
       const { nombre, datos } = await backend.proyecto();
       descarga(r, nombre, 'application/octet-stream', datos);
     }],
+    ['PUT', /^\/api\/impresion$/, async (q, r) => {
+      backend.impresion(await json(q));
+      enviar(r, 200, backend.estado());
+    }],
+    ['GET', /^\/api\/impresion\/revision$/, async (_q, r) => enviar(r, 200, { avisos: backend.revisionImpresion(), paginas: backend.ultimasPaginas })],
+    ['GET', /^\/api\/impresion\/visor$/, async (_q, r) => enviar(r, 200, { url: await backend.vistaImpresion() })],
+    ['GET', /^\/api\/exportar-pdf$/, async (_q, r, _m, url) => {
+      const tipo = url.searchParams.get('tipo') === 'digital' ? 'digital' : 'impresion';
+      const { nombre, datos, paginas } = await backend.exportarPdf(tipo);
+      r.setHeader('X-Obi-Paginas', String(paginas));
+      descarga(r, nombre, 'application/pdf', datos);
+    }],
     ['GET', /^\/vista\/(.+)$/, async (_q, r, m) => {
       const archivos = backend.archivosVista();
       const ruta = decodeURIComponent(m[1]);
@@ -164,6 +177,13 @@ export async function iniciarServidor(op: OpcionesServidor = {}) {
   const servidor = createServer(async (req, res) => {
     try {
       const url = new URL(req.url ?? '/', 'http://127.0.0.1');
+      // Visor de Vivliostyle y libro de impresión: la clave va en la ruta (el visor no envía cabeceras).
+      if (url.pathname.startsWith('/vivliostyle/') || url.pathname.startsWith('/impresion/')) {
+        const respuesta = await resolverImpresion(url.pathname, backend.clave, (v) => backend.paqueteImpresion(v));
+        if (!respuesta) return enviar(res, 404, { error: 'No encontrado' });
+        res.writeHead(200, { 'Content-Type': respuesta.tipo, 'Cache-Control': 'no-store' });
+        return res.end(typeof respuesta.datos === 'string' ? respuesta.datos : Buffer.from(respuesta.datos));
+      }
       const esApi = url.pathname.startsWith('/api/') || url.pathname.startsWith('/vista/');
       if (esApi && token) {
         const t = req.headers['x-obi-token'] ?? url.searchParams.get('t') ?? leerCookie(req.headers.cookie, 'obi');
@@ -198,6 +218,8 @@ export async function iniciarServidor(op: OpcionesServidor = {}) {
   await new Promise<void>((ok) => servidor.listen(op.puerto ?? 0, '127.0.0.1', ok));
   const direccion = servidor.address();
   const puerto = typeof direccion === 'object' && direccion ? direccion.port : 0;
+  backend.base = `http://127.0.0.1:${puerto}`;
+  backend.clave = token || '-';
   return { servidor, puerto, token, backend, url: `http://127.0.0.1:${puerto}/${token ? `?t=${token}` : ''}` };
 }
 

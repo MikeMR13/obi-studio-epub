@@ -37,7 +37,7 @@ with sync_playwright() as p:
     expect(pagina.locator(".titulo-libro strong")).to_have_text("Mi vida en otro mundo")
     secciones = pagina.locator(".lista-secciones > li")
     paso("Importar EPUB ajeno", secciones.count() == 3, f"{secciones.count()} secciones")
-    pagina.get_by_role("button", name="Capítulo 1 – La llegada").click()
+    pagina.locator(".lista-secciones").get_by_role("button", name="Capítulo 1 – La llegada").click()
     editor = pagina.locator(".pagina-editor")
     expect(editor).to_contain_text("Desperté en un bosque")
     paso("Furigana visible en el editor", editor.locator("ruby").count() == 1)
@@ -110,7 +110,7 @@ with sync_playwright() as p:
     pagina.screenshot(path=f"{CAPTURAS}/05-tema.png")
 
     # Vista previa.
-    pagina.get_by_role("button", name="Capítulo 1 – La llegada").click()
+    pagina.locator(".lista-secciones").get_by_role("button", name="Capítulo 1 – La llegada").click()
     pagina.get_by_role("tab", name="Vista previa").click()
     marco = pagina.frame_locator(".dispositivo iframe")
     expect(marco.locator("h1")).to_have_text("Capítulo 1 – La llegada")
@@ -139,7 +139,7 @@ with sync_playwright() as p:
     paso("XHTML mal formado se rechaza", True)
     pagina.get_by_role("button", name="Descartar").click()
     pagina.get_by_role("tab", name="Escribir").click()
-    pagina.get_by_role("button", name="Capítulo 1 – La llegada").click()
+    pagina.locator(".lista-secciones").get_by_role("button", name="Capítulo 1 – La llegada").click()
     expect(pagina.locator(".pagina-editor")).to_contain_text("editado en código")
     paso("El editor visual refleja el código", True)
 
@@ -156,6 +156,29 @@ with sync_playwright() as p:
     r = subprocess.run(["java", "-jar", "recursos/epubcheck/epubcheck.jar", ruta_epub], capture_output=True, text=True)
     paso("EPUB exportado pasa EPUBCheck", "No errors or warnings detected" in r.stdout, r.stdout.strip().splitlines()[-1] if r.stdout else r.stderr[-200:])
 
+    # Impresión: ajustes, vista previa compaginada y PDF.
+    pagina.locator(".inspector").get_by_role("tab", name="Impresión").click()
+    pagina.get_by_label("Tamaño de corte").select_option("6x9")
+    pagina.wait_for_timeout(500)
+    estado = pagina.evaluate("fetch('/api/estado').then(r => r.json())")
+    paso("Ajustes de impresión guardados", abs(estado["libro"]["impresion"]["ancho"] - 152.4) < 0.01)
+    pagina.screenshot(path=f"{CAPTURAS}/10-ajustes-impresion.png")
+    pagina.locator(".pestanas-centro").get_by_role("tab", name="Impresión").click()
+    visor = pagina.frame_locator(".vista-impresion iframe")
+    expect(visor.locator('[data-vivliostyle-viewer-status="complete"]').first).to_be_attached(timeout=90000)
+    pagina.wait_for_timeout(800)
+    pagina.screenshot(path=f"{CAPTURAS}/11-vista-impresion.png")
+    paso("Vista previa de impresión compaginada", True)
+    with pagina.expect_download(timeout=180000) as d:
+        pagina.get_by_role("button", name="PDF para imprenta").click()
+    ruta_pdf = f"{CAPTURAS}/impresion.pdf"
+    d.value.save_as(ruta_pdf)
+    info = subprocess.run(["pdfinfo", ruta_pdf], capture_output=True, text=True).stdout
+    tam = [l for l in info.splitlines() if l.startswith("Page size")]
+    paso("PDF para imprenta 6 × 9 in", bool(tam) and "432 x 648" in tam[0], tam[0] if tam else info[:200])
+    expect(pagina.locator(".revision-impresion h3")).to_contain_text("páginas")
+    paso("Revisión previa con número de páginas", True, pagina.locator(".revision-impresion h3").inner_text())
+
     # Guardar el proyecto.
     with pagina.expect_download() as d:
         pagina.get_by_role("button", name="Guardar", exact=True).click()
@@ -169,7 +192,7 @@ with sync_playwright() as p:
     expect(pagina.locator(".titulo-libro strong")).to_have_text("La espada del alba")
     nombres = pagina.locator(".titulo-seccion").all_inner_texts()
     paso("Importar Word", nombres == ["Prólogo", "Capítulo 1: El despertar"], ", ".join(nombres))
-    pagina.get_by_role("button", name="Capítulo 1: El despertar").click()
+    pagina.locator(".lista-secciones").get_by_role("button", name="Capítulo 1: El despertar").click()
     expect(pagina.locator(".pagina-editor img")).to_be_visible()
     pagina.screenshot(path=f"{CAPTURAS}/08-word-importado.png")
 

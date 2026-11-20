@@ -213,8 +213,8 @@ textarea { resize: vertical; }
 
 /* ---------- Inspector ---------- */
 .inspector { grid-area: ins; background: var(--panel); border-left: 1px solid var(--linea); display: flex; flex-direction: column; min-height: 0; }
-.pestanas { display: flex; padding: 8px 6px 0; border-bottom: 1px solid var(--linea); overflow: hidden; }
-.pestanas button { padding: 7px 9px; font-size: 13px; position: relative; flex: 1 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pestanas { display: flex; flex-wrap: wrap; padding: 8px 6px 0; border-bottom: 1px solid var(--linea); row-gap: 2px; }
+.pestanas button { padding: 7px 7px; font-size: 12.5px; position: relative; flex: 1 0 auto; white-space: nowrap; }
 .punto-error { position: absolute; top: 4px; right: 2px; width: 7px; height: 7px; background: var(--error); border-radius: 50%; }
 .contenido-inspector { padding: 14px; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; }
 .campo { display: flex; flex-direction: column; gap: 4px; }
@@ -254,9 +254,21 @@ p.error { font-weight: 600; }
 @media (max-width: 1100px) {
   .acciones button:not(.principal) { padding: 6px 9px; }
   .cabecera-panel h2 { font-size: 11px; letter-spacing: 0.04em; }
-  .pestanas button { padding: 7px 5px; font-size: 12.5px; }
+  .pestanas button { padding: 6px 5px; font-size: 12px; }
   .barra-editor .sep { margin: 0 1px; }
   .pagina-editor { padding: 40px 36px 60px; }
   .titulo-pagina { padding: 40px 36px 0; }
   .ilustracion-panel { grid-template-columns: 1fr; }
 }
+
+/* ---------- Impresión ---------- */
+.con-unidad { display: flex; align-items: center; gap: 6px; }
+.con-unidad input { width: 100%; }
+.con-unidad em { color: var(--tenue); font-style: normal; font-size: 12px; }
+.botones-exportar { display: flex; gap: 8px; flex-wrap: wrap; }
+.botones-exportar button { flex: 1; }
+.revision-impresion h3 { font-size: 13px; margin: 4px 0 8px; color: var(--tinta-suave); }
+.revision-impresion .ok { color: var(--ok); font-weight: 600; margin: 0; }
+.mensajes li.info { border-color: #6a86b8; }
+.vista-impresion { flex: 1; display: flex; flex-direction: column; min-height: 0; padding: 10px 16px; gap: 6px; }
+.vista-impresion iframe { flex: 1; border: 1px solid var(--linea); border-radius: var(--radio); background: #d9d4cb; width: 100%; }

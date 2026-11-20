@@ -208,6 +208,56 @@ export interface Tipografia {
   suspensivos: boolean;
 }
 
+/** Tamaños de corte habituales (milímetros). */
+export const TAMANOS_IMPRESION: { id: string; nombre: string; ancho: number; alto: number }[] = [
+  { id: '5x8', nombre: '12,7 × 20,32 cm (5 × 8 in)', ancho: 127, alto: 203.2 },
+  { id: '5.25x8', nombre: '13,34 × 20,32 cm (5,25 × 8 in)', ancho: 133.35, alto: 203.2 },
+  { id: '5.5x8.5', nombre: '13,97 × 21,59 cm (5,5 × 8,5 in)', ancho: 139.7, alto: 215.9 },
+  { id: '6x9', nombre: '15,24 × 22,86 cm (6 × 9 in)', ancho: 152.4, alto: 228.6 },
+  { id: 'a5', nombre: 'A5 · 14,8 × 21 cm', ancho: 148, alto: 210 },
+  { id: 'b6', nombre: 'B6 japonés (tankōbon) · 12,8 × 18,2 cm', ancho: 128, alto: 182 },
+  { id: 'a6', nombre: 'A6 (bunkobon) · 10,5 × 14,8 cm', ancho: 105, alto: 148 },
+];
+
+export interface Impresion {
+  tamano: string;
+  /** Medidas de corte en mm (se copian del tamaño elegido o son libres). */
+  ancho: number;
+  alto: number;
+  /** ninguno · uniforme (3 mm por lado: IngramSpark, Lulu) · kdp (3,175 mm solo arriba, abajo y exterior). */
+  sangrado: 'ninguno' | 'uniforme' | 'kdp';
+  margenSuperior: number;
+  margenInferior: number;
+  margenExterior: number;
+  /** 0 = automático según el número de páginas (tabla de KDP). */
+  margenInterior: number;
+  cuerpo: number;
+  cabeceras: boolean;
+  folios: boolean;
+  capituloEnImpar: boolean;
+  division: boolean;
+  incluirPortada: boolean;
+  ilustracionesASangre: boolean;
+}
+
+export const IMPRESION_PREDETERMINADA: Impresion = {
+  tamano: '5.5x8.5',
+  ancho: 139.7,
+  alto: 215.9,
+  sangrado: 'ninguno',
+  margenSuperior: 18,
+  margenInferior: 18,
+  margenExterior: 14,
+  margenInterior: 0,
+  cuerpo: 10.5,
+  cabeceras: true,
+  folios: true,
+  capituloEnImpar: true,
+  division: true,
+  incluirPortada: false,
+  ilustracionesASangre: false,
+};
+
 export interface Libro {
   formato: 'obi-studio';
   version: 1;
@@ -216,6 +266,12 @@ export interface Libro {
   recursos: Recurso[];
   tema: Tema;
   tipografia: Tipografia;
+  /** Ajustes del PDF de impresión (opcional en proyectos antiguos). */
+  impresion?: Impresion;
+}
+
+export function ajustesImpresion(libro: Libro): Impresion {
+  return { ...IMPRESION_PREDETERMINADA, ...(libro.impresion ?? {}) };
 }
 
 export const TEMA_PREDETERMINADO: Tema = {
