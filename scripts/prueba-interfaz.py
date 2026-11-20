@@ -8,6 +8,7 @@ import json
 import os
 import subprocess
 import sys
+import re
 import zipfile
 
 from playwright.sync_api import expect, sync_playwright
@@ -459,6 +460,55 @@ with sync_playwright() as p:
     texto_libro = str(estado["libro"]["secciones"])
     paso("Versiones: guardar, comparar y restaurar", "bosque" in texto_libro and "Final corregido" not in texto_libro, ", ".join(v["nombre"] for v in estado["versiones"]))
     versiones.get_by_role("button", name="Cerrar").click()
+
+    # Colaboración en tiempo real en la red local.
+    pagina.get_by_role("tab", name="Escribir").click()
+    pagina.locator(".lista-secciones").get_by_role("button", name="Capítulo 2 – Desde el código").click()
+    pagina.get_by_role("button", name="Más ▾").click()
+    pagina.get_by_role("menuitem", name="Colaborar en la red local…").click()
+    colab = pagina.locator(".panel-plugins")
+    colab.get_by_label("Tu nombre").fill("Mike")
+    colab.get_by_role("button", name="Empezar a colaborar").click()
+    enlace = colab.locator(".enlace-invitacion").first
+    expect(enlace).to_contain_text("colaborar.html?c=")
+    # En la prueba se entra por 127.0.0.1 (la dirección de red del contenedor no es accesible desde el navegador).
+    url_invitada = re.sub(r"//[^:/]+:", "//127.0.0.1:", enlace.inner_text().strip())
+    invitada = navegador.new_page(viewport={"width": 1100, "height": 760}, locale="es-MX")
+    invitada.goto(url_invitada)
+    invitada.get_by_label("Tu nombre").fill("Ana")
+    invitada.get_by_role("button", name="Entrar").click()
+    invitada.locator(".lista-secciones").get_by_role("button", name="Capítulo 2 – Desde el código").click()
+    expect(invitada.locator(".estado-conexion")).to_have_text("Conectado", timeout=15000)
+    expect(colab).to_contain_text("Conectados (2)", timeout=10000)
+    pagina.screenshot(path=f"{CAPTURAS}/26-colaborar.png")
+    colab.get_by_role("button", name="Cerrar").click()
+    parrafo_inv = invitada.locator(".pagina-editor p").last
+    parrafo_inv.click()
+    invitada.keyboard.press("End")
+    invitada.keyboard.press("Enter")
+    invitada.keyboard.type("Escrito por Ana.")
+    expect(pagina.locator(".pagina-editor")).to_contain_text("Escrito por Ana.", timeout=10000)
+    pagina.locator(".pagina-editor p").first.click()
+    pagina.keyboard.press("Home")
+    pagina.keyboard.type("Mike: ")
+    expect(invitada.locator(".pagina-editor")).to_contain_text("Mike: ", timeout=10000)
+    expect(invitada.locator(".collaboration-carets__label")).to_contain_text("Mike", timeout=10000)
+    invitada.wait_for_timeout(500)
+    invitada.screenshot(path=f"{CAPTURAS}/27-invitada.png")
+    pagina.wait_for_timeout(1200)
+    estado = pagina.evaluate("fetch('/api/estado').then(r => r.json())")
+    cap2 = [x for x in estado["libro"]["secciones"] if x["titulo"] == "Capítulo 2 – Desde el código"][0]
+    texto_cap2 = str(cap2["bloques"])
+    paso("Colaboración: dos personas escriben a la vez y el texto llega al libro", "Escrito por Ana." in texto_cap2 and "Mike: " in texto_cap2, texto_cap2[:160])
+    pagina.get_by_role("button", name="Más ▾").click()
+    pagina.get_by_role("menuitem", name="Colaborar en la red local…").click()
+    colab.get_by_role("button", name="Terminar la colaboración").click()
+    pagina.get_by_role("dialog").filter(has_text="Las personas conectadas").get_by_role("button", name="Terminar").click()
+    expect(colab.get_by_role("button", name="Empezar a colaborar")).to_be_visible(timeout=10000)
+    expect(invitada.locator(".estado-conexion")).to_have_text("Conectando…", timeout=10000)
+    paso("Terminar la colaboración desconecta a los invitados", True)
+    colab.get_by_role("button", name="Cerrar").click()
+    invitada.close()
 
     # Ventana pequeña (1024 px).
     pagina.set_viewport_size({"width": 1024, "height": 700})

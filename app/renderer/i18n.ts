@@ -2,7 +2,7 @@
 // está en i18n-en.ts. Un texto sin traducción se muestra en español, nunca vacío.
 // Los marcadores {nombre} se sustituyen por los valores que se pasan.
 
-import { EN } from './i18n-en';
+import { EN } from './i18n-en.js';
 
 export type IdiomaInterfaz = 'es' | 'en';
 
@@ -46,7 +46,7 @@ export function t(es: string, valores?: Record<string, string | number | undefin
   if (actual === 'en') {
     const en = EN[es];
     if (en !== undefined) texto = en;
-    else if (import.meta.env?.DEV && !faltan.has(es)) {
+    else if ((import.meta as { env?: { DEV?: boolean } }).env?.DEV && !faltan.has(es)) {
       faltan.add(es);
       console.warn('[i18n] Falta traducción:', es);
     }

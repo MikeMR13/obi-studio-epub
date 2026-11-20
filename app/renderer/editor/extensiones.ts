@@ -5,8 +5,8 @@ import StarterKit from '@tiptap/starter-kit';
 import Paragraph from '@tiptap/extension-paragraph';
 import Superscript from '@tiptap/extension-superscript';
 import Subscript from '@tiptap/extension-subscript';
-import { ESTILOS_PARRAFO } from '../../../src/model';
-import { t } from '../i18n';
+import { ESTILOS_PARRAFO } from '../../../src/model.js';
+import { t } from '../i18n.js';
 
 declare module '@tiptap/core' {
   interface Commands<ReturnType> {
@@ -165,9 +165,11 @@ export const Crudo = Node.create({
   },
 });
 
-export function extensiones() {
+/** Extensiones del editor. En modo colaborativo el historial lo lleva Yjs (deshacer solo lo propio). */
+export function extensiones(op: { colaborativo?: boolean } = {}) {
   return [
     StarterKit.configure({
+      ...(op.colaborativo ? { undoRedo: false } : {}),
       paragraph: false,
       heading: { levels: [2, 3] },
       codeBlock: false,

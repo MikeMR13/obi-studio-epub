@@ -11,11 +11,12 @@ import { Codigo } from './paneles/Codigo';
 import { Ilustracion } from './paneles/Ilustracion';
 import { PanelImpresion, VistaImpresion } from './paneles/Impresion';
 import { PanelTema } from './paneles/Tema';
-import { Comentarios } from './paneles/Comentarios';
+import { Comentarios, nombreRevisor } from './paneles/Comentarios';
 import { Cambios } from './paneles/Cambios';
 import { Plugins } from './paneles/Plugins';
 import { Buscar } from './paneles/Buscar';
 import { Versiones } from './paneles/Versiones';
+import { Colaborar } from './paneles/Colaborar';
 import type { Pestana } from './paneles/Inspector';
 import { cambiarIdioma, idiomaInterfaz, t } from './i18n';
 
@@ -30,6 +31,7 @@ export function App() {
   const [menuMas, setMenuMas] = useState(false);
   const [verPlugins, setVerPlugins] = useState(false);
   const [verVersiones, setVerVersiones] = useState(false);
+  const [verColaborar, setVerColaborar] = useState(false);
   const [busqueda, setBusqueda] = useState<{ reemplazo: boolean } | null>(null);
   const entradaCorrecciones = useRef<HTMLInputElement>(null);
   const [validacion, setValidacion] = useState<Resultado | null>(null);
@@ -325,6 +327,7 @@ export function App() {
 
   return (
     <div className="app">
+      {verColaborar && <Colaborar onCerrar={() => setVerColaborar(false)} onEstado={(e) => aplicar(e)} />}
       {verVersiones && <Versiones estado={estado} onCerrar={() => setVerVersiones(false)} onEstado={(e) => aplicar(e)} />}
       {verPlugins && (
         <Plugins
@@ -361,6 +364,7 @@ export function App() {
                 <li><button role="menuitem" onClick={() => { setMenuMas(false); setPestana('impresion'); }}>{t('PDF…')}<small>{t('Para imprenta o digital')}</small></button></li>
                 <li><button role="menuitem" onClick={() => descargarFormato('/api/exportar-word', t('Word para corrección exportado.'), t('Creando el Word…'))}>{t('Word para corrección')}<small>{t('Para enviar a correctores; vuelve con «Importar correcciones»')}</small></button></li>
                 <li><button role="menuitem" onClick={() => { setMenuMas(false); entradaCorrecciones.current?.click(); }}>{t('Importar correcciones de Word…')}<small>{t('Funde los cambios y los comentarios capítulo a capítulo')}</small></button></li>
+                <li><button role="menuitem" onClick={() => { setMenuMas(false); setVerColaborar(true); }}>{t('Colaborar en la red local…')}<small>{t('Escribir a la vez con otras personas')}</small></button></li>
                 <li><button role="menuitem" onClick={() => { setMenuMas(false); setVerVersiones(true); }}>{t('Versiones…')}<small>{t('Guardar, comparar y restaurar versiones del libro')}</small></button></li>
                 <li className="idioma-menu"><SelectorIdioma /></li>
                 <li><button role="menuitem" onClick={() => { setMenuMas(false); setVerPlugins(true); }}>{t('Plugins…')}<small>{t('Revisiones, transformaciones y otros formatos')}</small></button></li>
@@ -437,8 +441,13 @@ export function App() {
           />
         ) : (
           <Editor
-            key={seccion.id + (estado.libro.escritura === 'vertical' ? '-v' : '')}
+            key={seccion.id + (estado.libro.escritura === 'vertical' ? '-v' : '') + (estado.colaboracion?.codigo ?? '')}
             seccion={seccion}
+            sala={
+              estado.colaboracion
+                ? { url: `ws://127.0.0.1:${estado.colaboracion.puerto}`, codigo: estado.colaboracion.codigo, nombre: nombreRevisor() || t('Anfitrión'), color: '#b5341f' }
+                : undefined
+            }
             vertical={estado.libro.escritura === 'vertical'}
             idioma={estado.libro.metadatos.idioma}
             onCambio={(b, n) => guardarTexto(seccion.id, b, n)}

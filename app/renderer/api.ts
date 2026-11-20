@@ -6,6 +6,7 @@ import type { InformeAccesibilidad } from '../../src/accesibilidad';
 import type { Coincidencia, OpcionesBusqueda } from '../../src/buscar';
 import type { DiferenciaSeccion } from '../../src/versiones';
 import type { EntradaCatalogo } from '../../src/catalogo';
+import type { EstadoColaboracion } from '../colaboracion';
 import type { Hallazgo, Manifiesto, PluginInstalado } from '../../src/plugins';
 
 export type { Coincidencia, OpcionesBusqueda, DiferenciaSeccion };
@@ -62,6 +63,9 @@ export const api = {
   compararVersion: (id: string) => pedir<DiferenciaSeccion[]>('GET', `/api/versiones/${id}/comparar`),
   restaurarVersion: (id: string) => pedir<{ avisos: string[]; estado: Estado }>('POST', `/api/versiones/${id}/restaurar`),
   eliminarVersion: (id: string) => pedir<Estado>('DELETE', `/api/versiones/${id}`),
+  colaboracion: () => pedir<EstadoColaboracion>('GET', '/api/colaboracion'),
+  iniciarColaboracion: () => pedir<EstadoColaboracion & { estado: Estado }>('POST', '/api/colaboracion'),
+  detenerColaboracion: () => pedir<EstadoColaboracion & { estado: Estado }>('DELETE', '/api/colaboracion'),
   buscar: (o: OpcionesBusqueda) => pedir<{ coincidencias: Coincidencia[]; total: number }>('POST', '/api/buscar', o),
   reemplazar: (opciones: OpcionesBusqueda, reemplazo: string, solo?: { seccion: string; lugar: string; orden: number }) =>
     pedir<{ n: number; estado: Estado }>('POST', '/api/reemplazar', { opciones, reemplazo, solo }),

@@ -10,5 +10,12 @@ export default defineConfig({
     outDir: fileURLToPath(new URL('./dist/renderer', import.meta.url)),
     emptyOutDir: true,
     chunkSizeWarningLimit: 2000,
+    rollupOptions: {
+      // La app y la página de invitados de la colaboración.
+      input: {
+        index: fileURLToPath(new URL('./app/renderer/index.html', import.meta.url)),
+        colaborar: fileURLToPath(new URL('./app/renderer/colaborar.html', import.meta.url)),
+      },
+    },
   },
 });

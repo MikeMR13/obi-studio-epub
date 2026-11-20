@@ -4,7 +4,7 @@ import JSZip from 'jszip';
 import { mkdir } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import type { Comentario, Impresion, Libro, Metadatos, Recurso, Seccion, Tema, TipoSeccion, Tipografia } from '../src/model.js';
+import type { Bloque, Comentario, Impresion, Libro, Nota, Metadatos, Recurso, Seccion, Tema, TipoSeccion, Tipografia } from '../src/model.js';
 import { ajustesImpresion, TAMANOS_IMPRESION, temaCompleto, validarTema } from '../src/model.js';
 import { TEMAS } from '../src/temas.js';
 import { buscarGhostscript } from '../src/pdfx.js';
@@ -85,6 +85,8 @@ export interface Estado {
   /** Nombre del plugin cuya transformación se puede deshacer. */
   deshacerPlugin?: string;
   versiones: ResumenVersion[];
+  /** Colaboración activa en la red local: el editor se conecta a esta sala. */
+  colaboracion?: { puerto: number; codigo: string };
   /** Hay Ghostscript para el PDF/X-1a. */
   ghostscript: boolean;
 }
@@ -108,6 +110,18 @@ export class Backend {
   private paquetes = new Map<string, Map<string, string | Uint8Array>>();
   private contadorImpresion = 0;
 
+  /** Lo pone el servidor cuando la colaboración en la red local está activa. */
+  datosColaboracion?: () => { puerto: number; codigo: string } | undefined;
+
+  /** Texto que llega de una sala de colaboración. */
+  guardarDesdeColaboracion(id: string, bloques: Bloque[], notas: Nota[]) {
+    const s = this.libro.secciones.find((x) => x.id === id);
+    if (!s) return;
+    s.bloques = bloques;
+    s.notas = notas;
+    this.marcar();
+  }
+
   /** Plugins instalados (Electron usa la carpeta de datos de la app). */
   plugins = new AlmacenPlugins(process.env.OBI_PLUGINS || join(homedir(), '.obi-studio', 'plugins'));
   /** Libro antes de la última transformación de un plugin, para deshacerla. */
@@ -124,6 +138,7 @@ export class Backend {
       libro: { ...libro, recursos },
       versiones: resumenVersiones(this.libro),
       ghostscript: hayGhostscript(),
+      ...(this.datosColaboracion?.() ? { colaboracion: this.datosColaboracion()! } : {}),
       nombreArchivo: this.nombreArchivo,
       cambiado: this.cambiado,
       palabras,

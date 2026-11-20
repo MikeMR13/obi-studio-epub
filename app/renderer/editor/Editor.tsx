@@ -9,6 +9,10 @@ import { api } from '../api';
 import { aviso, pedirDatos } from '../dialogos';
 import { guardarRevisor, nombreRevisor } from '../paneles/Comentarios';
 import { idiomaInterfaz, t } from '../i18n';
+import * as Y from 'yjs';
+import { WebsocketProvider } from 'y-websocket';
+import Collaboration from '@tiptap/extension-collaboration';
+import CollaborationCaret from '@tiptap/extension-collaboration-caret';
 
 /** Letras de los botones de formato, como en los procesadores de texto de cada idioma. */
 const LETRAS = idiomaInterfaz() === 'en' ? { negrita: 'B', cursiva: 'I', subrayado: 'U', tachado: 'S' } : { negrita: 'N', cursiva: 'C', subrayado: 'S', tachado: 'T' };
@@ -23,6 +27,8 @@ interface Props {
   vertical?: boolean;
   /** Idioma del libro, para la ortografía y la tipografía. */
   idioma?: string;
+  /** Colaboración en tiempo real: sala de esta sección en el servidor de colaboración. */
+  sala?: { url: string; codigo: string; nombre: string; color: string };
 }
 
 function idsNotas(bloques: Bloque[]): Set<string> {
@@ -35,13 +41,34 @@ function idsNotas(bloques: Bloque[]): Set<string> {
   return ids;
 }
 
-export function Editor({ seccion, onCambio, onEstado, onComentar, vertical, idioma: idiomaLibro }: Props) {
+export function Editor({ seccion, onCambio, onEstado, onComentar, vertical, idioma: idiomaLibro, sala }: Props) {
   const [notas, setNotas] = useState<Nota[]>(seccion.notas);
   const notasRef = useRef(notas);
   notasRef.current = notas;
   const temporizador = useRef<number>(undefined);
   const seccionId = useRef(seccion.id);
   const entradaImagen = useRef<HTMLInputElement>(null);
+
+  // Colaboración: documento Yjs de la sección y conexión con su sala (el texto lo guarda el servidor).
+  // El documento se crea una vez; la conexión se abre y se cierra en un efecto.
+  const colab = useMemo(() => {
+    if (!sala) return undefined;
+    const doc = new Y.Doc();
+    const proveedor = new WebsocketProvider(sala.url, seccion.id, doc, { params: { c: sala.codigo }, connect: false });
+    proveedor.awareness.setLocalStateField('user', { name: sala.nombre, color: sala.color });
+    return { doc, proveedor, notas: doc.getMap<string>('notas') };
+    // La sala es por sección: el editor se vuelve a montar al cambiar de sección o de modo.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  useEffect(() => {
+    if (!colab) return;
+    colab.proveedor.connect();
+    // La app no usa el modo estricto de React: al desmontar el editor se libera todo.
+    return () => {
+      colab.proveedor.destroy();
+      colab.doc.destroy();
+    };
+  }, [colab]);
 
   const guardar = (editor: TEditor, inmediato = false) => {
     window.clearTimeout(temporizador.current);
@@ -50,6 +77,17 @@ export function Editor({ seccion, onCambio, onEstado, onComentar, vertical, idio
       const usadas = idsNotas(bloques);
       const vivas = notasRef.current.filter((n) => usadas.has(n.id));
       if (vivas.length !== notasRef.current.length) setNotas(vivas);
+      if (colab) {
+        // El texto ya viaja por Yjs; las notas, por el mapa compartido.
+        colab.doc.transact(() => {
+          for (const n of vivas) {
+            const v = JSON.stringify(n.contenido);
+            if (colab.notas.get(n.id) !== v) colab.notas.set(n.id, v);
+          }
+        });
+        onEstado({});
+        return;
+      }
       onCambio(bloques, vivas);
     };
     if (inmediato) hacer();
@@ -57,8 +95,14 @@ export function Editor({ seccion, onCambio, onEstado, onComentar, vertical, idio
   };
 
   const editor = useEditor({
-    extensions: extensiones(),
-    content: bloquesAPM(seccion.bloques) as any,
+    extensions: colab
+      ? [
+          ...extensiones({ colaborativo: true }),
+          Collaboration.configure({ document: colab.doc, field: 'contenido' }),
+          CollaborationCaret.configure({ provider: colab.proveedor, user: { name: sala!.nombre, color: sala!.color } }),
+        ]
+      : extensiones(),
+    ...(colab ? {} : { content: bloquesAPM(seccion.bloques) as any }),
     editorProps: {
       attributes: { class: 'pagina-editor', spellcheck: 'true', lang: idiomaLibro || 'es', 'aria-label': t('Texto de la sección') },
       handleDoubleClickOn: (_view, _pos, node, nodePos) => {
@@ -83,9 +127,31 @@ export function Editor({ seccion, onCambio, onEstado, onComentar, vertical, idio
     }
   }, [seccion.id, editor]);
 
-  // Cambios externos (código, tipografía): recargar si el contenido difiere.
+  // Notas que cambian otras personas de la sala.
   useEffect(() => {
-    if (!editor || seccionId.current !== seccion.id) return;
+    if (!colab || !editor) return;
+    const leer = () => {
+      const ids = [...idsNotas(pmABloques(editor.getJSON() as any))];
+      const nuevas = ids.map((id) => {
+        try {
+          return { id, contenido: JSON.parse(colab.notas.get(id) ?? '[]') as Inline[] };
+        } catch {
+          return { id, contenido: [] as Inline[] };
+        }
+      });
+      if (document.activeElement?.tagName !== 'TEXTAREA') setNotas(nuevas);
+    };
+    colab.notas.observe(leer);
+    editor.on('update', leer);
+    return () => {
+      colab.notas.unobserve(leer);
+      editor.off('update', leer);
+    };
+  }, [colab, editor]);
+
+  // Cambios externos (código, tipografía): recargar si el contenido difiere. Con colaboración, llegan por la sala.
+  useEffect(() => {
+    if (colab || !editor || seccionId.current !== seccion.id) return;
     const actual = JSON.stringify(pmABloques(editor.getJSON() as any));
     if (actual !== JSON.stringify(seccion.bloques) && !editor.isFocused) {
       editor.commands.setContent(bloquesAPM(seccion.bloques) as any, { emitUpdate: false });

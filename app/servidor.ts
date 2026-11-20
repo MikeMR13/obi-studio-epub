@@ -7,6 +7,7 @@ import { existsSync } from 'node:fs';
 import { dirname, extname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { randomBytes } from 'node:crypto';
+import { Colaboracion } from './colaboracion.js';
 import { Backend, ErrorUsuario } from './backend.js';
 import { resolverImpresion } from '../src/servicio-impresion.js';
 import { rutaRecurso } from '../src/recursos.js';
@@ -80,6 +81,16 @@ export async function iniciarServidor(op: OpcionesServidor = {}) {
     const { createServer: crearVite } = await import('vite');
     vite = await crearVite({ configFile: resolve(aqui, '../vite.config.ts'), server: { middlewareMode: true }, appType: 'spa' });
   }
+
+  const colaboracion = new Colaboracion(
+    {
+      secciones: () => backend.libro.secciones,
+      titulo: () => backend.libro.metadatos.titulo,
+      guardar: (id, bloques, notas) => backend.guardarDesdeColaboracion(id, bloques, notas),
+    },
+    { raiz: raizRenderer, vite },
+  );
+  backend.datosColaboracion = () => (colaboracion.activa ? { puerto: colaboracion.puerto, codigo: colaboracion.codigo } : undefined);
 
   const rutas: [string, RegExp, (req: IncomingMessage, res: ServerResponse, m: RegExpMatchArray, url: URL) => Promise<void>][] = [
     ['GET', /^\/api\/estado$/, async (_q, r) => enviar(r, 200, backend.estado())],
@@ -193,6 +204,12 @@ export async function iniciarServidor(op: OpcionesServidor = {}) {
       backend.eliminarVersion(m[1]);
       enviar(r, 200, backend.estado());
     }],
+    ['GET', /^\/api\/colaboracion$/, async (_q, r) => enviar(r, 200, colaboracion.estado())],
+    ['POST', /^\/api\/colaboracion$/, async (_q, r) => enviar(r, 200, { ...(await colaboracion.iniciar()), estado: backend.estado() })],
+    ['DELETE', /^\/api\/colaboracion$/, async (_q, r) => {
+      await colaboracion.detener();
+      enviar(r, 200, { ...colaboracion.estado(), estado: backend.estado() });
+    }],
     ['POST', /^\/api\/buscar$/, async (q, r) => enviar(r, 200, backend.buscar(await json(q)))],
     ['POST', /^\/api\/reemplazar$/, async (q, r) => {
       const d = await json(q);
@@ -296,7 +313,15 @@ export async function iniciarServidor(op: OpcionesServidor = {}) {
       if (esApi) {
         for (const [metodo, re, fn] of rutas) {
           const m = url.pathname.match(re);
-          if (m && req.method === metodo) return await fn(req, res, m, url);
+          if (m && req.method === metodo) {
+            // Con colaboración activa: lo que escriben los demás pasa al modelo antes del cambio,
+            // y después las salas toman lo que cambió por otra vía.
+            const cambia = req.method !== 'GET' && colaboracion.activa;
+            if (cambia) colaboracion.guardarPendiente();
+            await fn(req, res, m, url);
+            if (cambia) colaboracion.sincronizar();
+            return;
+          }
         }
         return enviar(res, 404, { error: 'Ruta desconocida.' });
       }
@@ -307,7 +332,7 @@ export async function iniciarServidor(op: OpcionesServidor = {}) {
       const cabeceras: Record<string, string> = {
         'Content-Type': TIPOS[extname(ruta)] ?? 'application/octet-stream',
         'Content-Security-Policy':
-          "default-src 'self'; img-src 'self' blob: data:; style-src 'self' 'unsafe-inline'; script-src 'self'; frame-src 'self'; object-src 'none'",
+          "default-src 'self'; connect-src 'self' ws://127.0.0.1:*; img-src 'self' blob: data:; style-src 'self' 'unsafe-inline'; script-src 'self'; frame-src 'self'; object-src 'none'",
       };
       if (token && url.searchParams.get('t') === token) cabeceras['Set-Cookie'] = `obi=${token}; HttpOnly; SameSite=Strict; Path=/`;
       res.writeHead(200, cabeceras);
@@ -324,7 +349,7 @@ export async function iniciarServidor(op: OpcionesServidor = {}) {
   const puerto = typeof direccion === 'object' && direccion ? direccion.port : 0;
   backend.base = `http://127.0.0.1:${puerto}`;
   backend.clave = token || '-';
-  return { servidor, puerto, token, backend, url: `http://127.0.0.1:${puerto}/${token ? `?t=${token}` : ''}` };
+  return { servidor, puerto, token, backend, colaboracion, url: `http://127.0.0.1:${puerto}/${token ? `?t=${token}` : ''}` };
 }
 
 function leerCookie(cabecera: string | undefined, nombre: string): string | undefined {
