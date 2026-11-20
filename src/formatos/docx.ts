@@ -61,7 +61,7 @@ export function rubiesDeTexto(lista: Inline[]): Inline[] {
   return normalizarInlines(salida);
 }
 
-export async function importarDocx(datos: Uint8Array): Promise<ResultadoImportacion> {
+export async function importarDocx(datos: Uint8Array, importacion: { vacios?: boolean } = {}): Promise<ResultadoImportacion> {
   const avisos: ResultadoImportacion['avisos'] = [];
   const recursos: Recurso[] = [];
   const usados = new Set<string>();
@@ -72,6 +72,7 @@ export async function importarDocx(datos: Uint8Array): Promise<ResultadoImportac
     {
       styleMap: MAPA_ESTILOS,
       includeDefaultStyleMap: true,
+      ...(importacion.vacios ? { ignoreEmptyParagraphs: false } : {}),
       // Mammoth no exporta la alineación: se convierte en un estilo antes de transformar.
       transformDocument: (mammoth as any).transforms.paragraph((p: any) => {
         if (p.styleId || p.styleName) {
@@ -133,6 +134,7 @@ export async function importarDocx(datos: Uint8Array): Promise<ResultadoImportac
   quitar(subtituloDoc);
 
   const opciones: OpcionesConversion = {
+    vacios: importacion.vacios,
     css: new Map(),
     imagen: (src) => (src.startsWith('obi-recurso:') ? src.slice('obi-recurso:'.length) : undefined),
     rutaCruda: (src) => {

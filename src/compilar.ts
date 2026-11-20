@@ -130,7 +130,10 @@ export function bloquesXhtml(bloques: Bloque[], ctx: Contexto, seccion?: Seccion
     switch (b.tipo) {
       case 'parrafo': {
         const contenido = inlinesXhtml(b.contenido, ctx);
-        partes.push(`<p${claseParrafo(b.estilo)}>${contenido || '<br/>'}</p>`);
+        const espacio = [b.espacioAntes !== undefined ? `margin-top: ${b.espacioAntes}em` : '', b.espacioDespues !== undefined ? `margin-bottom: ${b.espacioDespues}em` : '']
+          .filter(Boolean)
+          .join('; ');
+        partes.push(`<p${claseParrafo(b.estilo)}${espacio ? ` style="${espacio}"` : ''}>${contenido || '<br/>'}</p>`);
         break;
       }
       case 'subtitulo':

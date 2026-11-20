@@ -69,6 +69,9 @@ export interface Parrafo {
   tipo: 'parrafo';
   estilo: EstiloParrafo;
   contenido: Inline[];
+  /** Espacio propio antes o después de este párrafo, en em (el del original en la conversión sencilla). */
+  espacioAntes?: number;
+  espacioDespues?: number;
 }
 
 export interface Subtitulo {
@@ -370,6 +373,9 @@ export interface Tema {
   primeraLinea: boolean;
   colorTitulos: string;
   colorAcento: string;
+  /** Espaciado entre letras y entre palabras del texto, en em (0 o sin valor = normal). */
+  espaciadoLetras?: number;
+  espaciadoPalabras?: number;
 }
 
 export const TEMA_PREDETERMINADO: Tema = {
@@ -426,6 +432,8 @@ export function validarTema(entrada: unknown, propias: string[] = []): Partial<T
   if (typeof e.primeraLinea === 'boolean') t.primeraLinea = e.primeraLinea;
   if (typeof e.colorTitulos === 'string' && COLOR.test(e.colorTitulos)) t.colorTitulos = e.colorTitulos;
   if (typeof e.colorAcento === 'string' && COLOR.test(e.colorAcento)) t.colorAcento = e.colorAcento;
+  numero('espaciadoLetras', -0.1, 0.5);
+  numero('espaciadoPalabras', -0.2, 1);
   return t;
 }
 

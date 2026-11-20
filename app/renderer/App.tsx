@@ -22,7 +22,8 @@ import { Publicar } from './paneles/Publicar';
 import { Muestra } from './paneles/Muestra';
 import { Cubierta } from './paneles/Cubierta';
 import { Sencillo } from './paneles/Sencillo';
-import type { ResumenConversion } from './api';
+import type { AnalisisConversion, OpcionesConversionSencilla, ResumenConversion } from './api';
+import { ConversionPasos } from './paneles/ConversionPasos';
 import type { Pestana } from './paneles/Inspector';
 import { cambiarIdioma, idiomaInterfaz, t } from './i18n';
 
@@ -67,6 +68,8 @@ export function App() {
   const entradaArchivo = useRef<HTMLInputElement>(null);
   const entradaConversion = useRef<HTMLInputElement>(null);
   const [sencillo, setSencillo] = useState<ResumenConversion | null>(null);
+  const [asistente, setAsistente] = useState<AnalisisConversion | null>(null);
+  const [convirtiendo, setConvirtiendo] = useState(false);
 
   const aplicar = useCallback((e: Estado, cambioVisible = true) => {
     setEstado(e);
@@ -116,13 +119,25 @@ export function App() {
 
   const convertir = async (archivo: File) => {
     if (estado?.cambiado && !(await confirmar(t('Abrir otro archivo'), t('Hay cambios sin guardar en el libro actual. ¿Abrir otro archivo de todos modos?'), t('Abrir')))) return;
-    const r = await llamar(() => api.conversion(archivo), t('Convirtiendo «{0}»…', { 0: archivo.name }));
-    if (!r) return;
-    aplicar(r.estado);
-    setActual(r.estado.libro.secciones[0]?.id ?? '');
-    setValidacion(null);
-    setSencillo(r);
-    setInicio(false);
+    const a = await llamar(() => api.analizarConversion(archivo), t('Analizando «{0}»…', { 0: archivo.name }));
+    if (a) setAsistente(a);
+  };
+
+  const confirmarConversion = async (opciones: OpcionesConversionSencilla) => {
+    setConvirtiendo(true);
+    try {
+      const r = await api.conversion(opciones);
+      aplicar(r.estado);
+      setActual(r.estado.libro.secciones[0]?.id ?? '');
+      setValidacion(null);
+      setAsistente(null);
+      setSencillo(r);
+      setInicio(false);
+    } catch (e) {
+      aviso((e as Error).message, 'error');
+    } finally {
+      setConvirtiendo(false);
+    }
   };
 
   const libroNuevo = async () => {
@@ -308,6 +323,15 @@ export function App() {
       }}
     />
   );
+
+  if (asistente) {
+    return (
+      <>
+        <Dialogos />
+        <ConversionPasos analisis={asistente} ocupado={convirtiendo} onCancelar={() => setAsistente(null)} onConvertir={confirmarConversion} />
+      </>
+    );
+  }
 
   if (sencillo && !inicio) {
     return (

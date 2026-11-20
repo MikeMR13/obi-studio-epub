@@ -63,7 +63,11 @@ export function bloquesAPM(bloques: Bloque[]): PMNodo {
   for (const b of bloques) {
     switch (b.tipo) {
       case 'parrafo':
-        content.push({ type: 'paragraph', attrs: { estilo: b.estilo }, content: inlinesAPM(b.contenido) });
+        content.push({
+          type: 'paragraph',
+          attrs: { estilo: b.estilo, ...(b.espacioAntes !== undefined ? { espacioAntes: b.espacioAntes } : {}), ...(b.espacioDespues !== undefined ? { espacioDespues: b.espacioDespues } : {}) },
+          content: inlinesAPM(b.contenido),
+        });
         break;
       case 'subtitulo':
         content.push({ type: 'heading', attrs: { level: b.nivel }, content: inlinesAPM(b.contenido) });
@@ -133,7 +137,16 @@ export function pmABloques(doc: PMNodo): Bloque[] {
     switch (n.type) {
       case 'paragraph': {
         const estilo = String(n.attrs?.estilo ?? 'cuerpo') as EstiloParrafo;
-        bloques.push({ tipo: 'parrafo', estilo: ESTILOS_VALIDOS.has(estilo) ? estilo : 'cuerpo', contenido: pmAInlines(n.content) });
+        const espacio = (v: unknown) => (v === null || v === undefined || v === '' || !Number.isFinite(Number(v)) ? undefined : Number(v));
+        const antes = espacio(n.attrs?.espacioAntes);
+        const despues = espacio(n.attrs?.espacioDespues);
+        bloques.push({
+          tipo: 'parrafo',
+          estilo: ESTILOS_VALIDOS.has(estilo) ? estilo : 'cuerpo',
+          contenido: pmAInlines(n.content),
+          ...(antes !== undefined ? { espacioAntes: antes } : {}),
+          ...(despues !== undefined ? { espacioDespues: despues } : {}),
+        });
         break;
       }
       case 'heading': {

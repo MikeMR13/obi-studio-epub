@@ -99,8 +99,11 @@ export async function iniciarServidor(op: OpcionesServidor = {}) {
       backend.nuevo(d.titulo, d.autor);
       enviar(r, 200, backend.estado());
     }],
-    ['POST', /^\/api\/conversion$/, async (q, r, _m, url) => {
-      enviar(r, 200, await backend.conversionSencilla(url.searchParams.get('nombre') ?? 'archivo', await cuerpo(q), url.searchParams.get('conservar') !== 'no'));
+    ['POST', /^\/api\/conversion\/analisis$/, async (q, r, _m, url) => {
+      enviar(r, 200, await backend.analizarConversion(url.searchParams.get('nombre') ?? 'archivo', await cuerpo(q)));
+    }],
+    ['POST', /^\/api\/conversion$/, async (q, r) => {
+      enviar(r, 200, await backend.conversionSencilla(await json(q)));
     }],
     ['POST', /^\/api\/importar$/, async (q, r, _m, url) => {
       await backend.importar(url.searchParams.get('nombre') ?? 'archivo', await cuerpo(q));

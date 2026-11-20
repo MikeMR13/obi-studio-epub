@@ -161,6 +161,10 @@ export async function exportarWord(libro: Libro): Promise<Uint8Array> {
             new Paragraph({
               style: estilo,
               alignment: b.estilo === 'centrado' ? AlignmentType.CENTER : b.estilo === 'derecha' ? AlignmentType.RIGHT : undefined,
+              // 1 em = 12 pt = 240 vigésimos de punto (el tamaño del texto del Word de corrección).
+              ...(b.espacioAntes !== undefined || b.espacioDespues !== undefined
+                ? { spacing: { ...(b.espacioAntes !== undefined ? { before: Math.round(b.espacioAntes * 240) } : {}), ...(b.espacioDespues !== undefined ? { after: Math.round(b.espacioDespues * 240) } : {}) } }
+                : {}),
               children: runs(b.contenido, numeros, cc),
             }),
           );
@@ -285,7 +289,8 @@ function textoDe(b: Bloque): string {
 
 /** Funde en el libro las correcciones hechas en un Word exportado con exportarWord. Modifica `libro`. */
 export async function importarCorrecciones(libro: Libro, datos: Uint8Array, opciones: { revisar?: boolean } = {}): Promise<ResumenCorrecciones> {
-  const { libro: corregido } = await importarDocx(datos);
+  // Con los párrafos vacíos: las líneas en blanco del libro vuelven igual.
+  const { libro: corregido } = await importarDocx(datos, { vacios: true });
   const resumen: ResumenCorrecciones = { actualizadas: [], nuevas: [], sinCambios: 0, comentarios: 0, cambios: 0, avisos: [] };
   const zipWord = await JSZip.loadAsync(datos);
   const core = (await zipWord.file('docProps/core.xml')?.async('string')) ?? '';
@@ -399,6 +404,18 @@ export async function importarCorrecciones(libro: Libro, datos: Uint8Array, opci
       bloques.push(b);
     }
     cerrarRecuadro();
+    // El espacio propio de cada párrafo no viaja por el importador de Word: se recupera por orden.
+    const vacioP = (b: Bloque) => b.tipo === 'parrafo' && !b.contenido.length;
+    const originales = { lleno: s.bloques.filter((b) => b.tipo === 'parrafo' && !vacioP(b)), vacio: s.bloques.filter(vacioP) };
+    const cuenta = { lleno: 0, vacio: 0 };
+    for (const b of bloques) {
+      if (b.tipo !== 'parrafo') continue;
+      const k = vacioP(b) ? 'vacio' : 'lleno';
+      const o = originales[k][cuenta[k]++];
+      if (o?.tipo !== 'parrafo') continue;
+      if (o.espacioAntes !== undefined) b.espacioAntes = o.espacioAntes;
+      if (o.espacioDespues !== undefined) b.espacioDespues = o.espacioDespues;
+    }
     const notas: Nota[] = nueva.notas;
     // Los párrafos vacíos no viajan por Word: no cuentan como cambio.
     const sinVacios = (l: Bloque[]) => l.filter((b) => !(b.tipo === 'parrafo' && !b.contenido.length));

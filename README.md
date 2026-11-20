@@ -34,7 +34,12 @@ Maquetador visual de novelas ligeras para Windows, macOS y Linux. Escribes y das
 - **CSS propio** (Tema → CSS propio): se añade después del tema en el EPUB y el PDF, y se revisa mientras se escribe con las reglas de EPUBCheck (sin `direction`, `@import`, recursos remotos ni `position: fixed`).
 - **Revisiones rápidas** en buscar y reemplazar: espacios dobles, espacio antes de un signo, falta de espacio tras coma, guion de diálogo, comillas rectas, tres puntos y preguntas sin «¿».
 - **Fuentes ofuscadas** (algoritmo del IDPF, con `encryption.xml`) para las fuentes propias que lo pidan, e **imágenes en escala de grises** para imprimir en blanco y negro.
-- **Conversión sencilla** (en el inicio): de EPUB o Word a EPUB conservando el diseño del original (sangría, interlineado, espacios, alineación, títulos y sus fuentes, también las WOFF y las ofuscadas, o las instaladas en el sistema), con los formatos y las imágenes; una sola pantalla con título, autor y exportar a EPUB, KEPUB o PDF digital.
+- **Conversión sencilla** (en el inicio): de EPUB o Word a EPUB con un asistente por pasos que muestra lo que se encontró en el original y deja elegir qué conservar:
+  1. Párrafos y títulos: sangría, interlineado, alineación; alineación, color y mayúsculas de los títulos.
+  2. Espaciado: espacio entre párrafos, espacio propio de cada párrafo que se aparte del general, líneas en blanco, espacio antes de los títulos y espaciado entre letras y palabras.
+  3. Letras e imágenes: las fuentes del archivo (también WOFF y ofuscadas, si su licencia lo permite), las instaladas en el equipo, e imágenes originales o reducidas.
+  4. Confirmación con lo que se conservará y lo que no; después, título, autor y exportar a EPUB, KEPUB o PDF digital.
+  El espacio propio de cada párrafo es parte del modelo: sale en el EPUB y el PDF, vuelve al importar y sobrevive al Word de corrección (como las líneas en blanco).
 
 ## Publicación, imágenes y fuentes (F6)
 

@@ -68,6 +68,8 @@ export function cssTema(tema: Tema, familiaTexto: string, familiaTitulos: string
     `.cabecera-capitulo { text-align: center; margin: 0 0 1em; text-indent: 0; }`,
     `.cabecera-capitulo img { max-width: 100%; max-height: 30vh; }`,
   );
+  if (tema.espaciadoLetras) reglas.push(`p { letter-spacing: ${tema.espaciadoLetras}em; }`);
+  if (tema.espaciadoPalabras) reglas.push(`p { word-spacing: ${tema.espaciadoPalabras}em; }`);
   reglas.push(cssRecuadros(tema));
   void familiaTexto;
   return reglas.join('\n');

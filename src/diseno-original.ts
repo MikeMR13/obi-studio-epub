@@ -15,7 +15,19 @@ export interface FuenteOriginal {
 }
 
 export interface DisenoOriginal {
+  /** Párrafo: sangría, interlineado y alineación. */
   tema: Partial<Tema>;
+  /** Espacio entre párrafos del original (el general) y sus márgenes arriba y abajo, en em. */
+  espacio?: { general: number; arriba: number; abajo: number };
+  /** Espacio sobre los títulos de capítulo, en em (del título). */
+  espacioTitulos?: number;
+  espaciadoLetras?: number;
+  espaciadoPalabras?: number;
+  /** Títulos: alineación, color y mayúsculas. */
+  titulos: Partial<Tema>;
+  /** Párrafos con un espacio distinto del general y líneas en blanco. */
+  parrafosConEspacio: number;
+  lineasEnBlanco: number;
   familiaTexto?: string;
   familiaTitulos?: string;
   fuentes: FuenteOriginal[];
@@ -118,20 +130,9 @@ function peso(sel: string): number {
   return 2 + (sel.match(/\./g) ?? []).length * 10 + (/^[a-z]/i.test(sel) ? 1 : 0);
 }
 
-function margenesParrafo(e: Record<string, string>): number | undefined {
-  let arriba = enEm(e['margin-top']);
-  let abajo = enEm(e['margin-bottom']);
-  if (e.margin) {
-    const partes = e.margin.split(/\s+/);
-    arriba ??= enEm(partes[0]);
-    abajo ??= enEm(partes[2] ?? partes[0]);
-  }
-  if (arriba === undefined && abajo === undefined) return undefined;
-  return Math.min(2, Math.max(0, Math.round(Math.max(arriba ?? 0, abajo ?? 0) * 100) / 100));
-}
 
 /** Tema a partir del CSS de un EPUB y de la clase de párrafo más usada en sus XHTML. */
-export function temaDeCss(css: string, xhtmls: string[]): { tema: Partial<Tema>; familiaTexto?: string; familiaTitulos?: string } {
+export function temaDeCss(css: string, xhtmls: string[]): Omit<DisenoOriginal, 'fuentes' | 'avisos'> {
   const rs = reglas(css);
   const cuentas = new Map<string, number>();
   for (const x of xhtmls) {
@@ -156,18 +157,66 @@ export function temaDeCss(css: string, xhtmls: string[]): { tema: Partial<Tema>;
   if (sangria !== undefined) tema.sangria = Math.min(4, Math.max(0, Math.round(sangria * 100) / 100));
   const li = interlineado(p['line-height']);
   if (li !== undefined) tema.interlineado = li;
-  const esp = margenesParrafo(p);
-  if (esp !== undefined) tema.espacioParrafos = esp;
   const al = (p['text-align'] ?? '').toLowerCase();
   if (al === 'justify') tema.alinear = 'justificado';
   else if (al === 'left' || al === 'start') tema.alinear = 'izquierda';
+  const titulos: Partial<Tema> = {};
   const alh = (h['text-align'] ?? '').toLowerCase();
-  if (alh === 'left' || alh === 'start') tema.tituloEstilo = 'izquierda';
-  else if (alh === 'center') tema.tituloEstilo = 'centrado';
+  if (alh === 'left' || alh === 'start') titulos.tituloEstilo = 'izquierda';
+  else if (alh === 'center') titulos.tituloEstilo = 'centrado';
   const color = colorHex(h.color);
-  if (color) tema.colorTitulos = color;
-  if (/small-caps/i.test(h['font-variant'] ?? '') || /uppercase/i.test(h['text-transform'] ?? '')) tema.tituloMayusculas = true;
-  return { tema, familiaTexto: primeraFamilia(p['font-family']), familiaTitulos: primeraFamilia(h['font-family']) };
+  if (color) titulos.colorTitulos = color;
+  if (/small-caps/i.test(h['font-variant'] ?? '') || /uppercase/i.test(h['text-transform'] ?? '')) titulos.tituloMayusculas = true;
+
+  // Espaciado.
+  const m = margenes(p);
+  const espacio = m ? { general: Math.min(2, Math.max(0, Math.round(Math.max(m.arriba, m.abajo) * 100) / 100)), arriba: m.arriba, abajo: m.abajo } : undefined;
+  const mh = margenes(h);
+  const espacioTitulos = mh && mh.arriba > 0 ? Math.min(12, Math.round(mh.arriba * 100) / 100) : undefined;
+  const letras = enEm(p['letter-spacing']);
+  const palabras = enEm(p['word-spacing']);
+  let parrafosConEspacio = 0;
+  let lineasEnBlanco = 0;
+  const base = { arriba: m?.arriba ?? 0, abajo: m?.abajo ?? 0 };
+  for (const x of xhtmls) {
+    for (const pm of x.matchAll(/<p\b([^>]*)>([\s\S]*?)<\/p>/g)) {
+      const contenido = pm[2].replace(/<(?!img\b)[^>]*>/g, '').replace(/&nbsp;|&#160;|&#xa0;|\u00a0/gi, '').trim();
+      if (!contenido) {
+        lineasEnBlanco++;
+        continue;
+      }
+      const clasesP = pm[1].match(/\bclass\s*=\s*["']([^"']*)["']/)?.[1].split(/\s+/).filter(Boolean) ?? [];
+      const estilo = { ...estiloDe(rs, 'p', clasesP) };
+      const enLinea = pm[1].match(/\bstyle\s*=\s*["']([^"']*)["']/)?.[1];
+      if (enLinea) Object.assign(estilo, reglas(`x{${enLinea}}`)[0]?.decl ?? {});
+      const mp = margenes(estilo);
+      if (mp && (Math.abs(mp.arriba - base.arriba) > 0.05 || Math.abs(mp.abajo - base.abajo) > 0.05)) parrafosConEspacio++;
+    }
+  }
+  return {
+    tema,
+    titulos,
+    ...(espacio ? { espacio } : {}),
+    ...(espacioTitulos !== undefined ? { espacioTitulos } : {}),
+    ...(letras ? { espaciadoLetras: Math.round(letras * 1000) / 1000 } : {}),
+    ...(palabras ? { espaciadoPalabras: Math.round(palabras * 1000) / 1000 } : {}),
+    parrafosConEspacio,
+    lineasEnBlanco,
+    familiaTexto: primeraFamilia(p['font-family']),
+    familiaTitulos: primeraFamilia(h['font-family']),
+  };
+}
+
+function margenes(e: Record<string, string>): { arriba: number; abajo: number } | undefined {
+  let arriba = enEm(e['margin-top']);
+  let abajo = enEm(e['margin-bottom']);
+  if (e.margin) {
+    const partes = e.margin.split(/\s+/);
+    arriba ??= enEm(partes[0]);
+    abajo ??= enEm(partes[2] ?? partes[0]);
+  }
+  if (arriba === undefined && abajo === undefined) return undefined;
+  return { arriba: Math.max(0, arriba ?? 0), abajo: Math.max(0, abajo ?? 0) };
 }
 
 /** WOFF 1.0 → TrueType/OpenType (las tablas van comprimidas con zlib). */
@@ -228,7 +277,7 @@ export async function disenoDeEpub(datos: Uint8Array): Promise<DisenoOriginal> {
     else if (it.tipo === 'application/xhtml+xml') xhtmls.push((await leer(ruta)) ?? '');
   }
   const css = hojas.join('\n');
-  const { tema, familiaTexto, familiaTitulos } = temaDeCss(css, xhtmls);
+  const leido = temaDeCss(css, xhtmls);
 
   // Fuentes: familia según los @font-face que las citan.
   const familiaDe = new Map<string, string>();
@@ -259,7 +308,7 @@ export async function disenoDeEpub(datos: Uint8Array): Promise<DisenoOriginal> {
     const nombre = ruta.split('/').pop()!;
     fuentes.push({ familia: familiaDe.get(nombre.toLowerCase()) ?? '', nombre, datos: d });
   }
-  return { tema, familiaTexto, familiaTitulos, fuentes, avisos };
+  return { ...leido, fuentes, avisos };
 }
 
 function atributo(xml: string, etiqueta: string, attr: string): string | undefined {
@@ -277,22 +326,47 @@ export async function disenoDeDocx(datos: Uint8Array): Promise<DisenoOriginal> {
   const de = (xml: string, et: string, a: string) => atributo(xml, et, a);
   const tamano = Number(de(normal, 'sz', 'val') ?? de(defecto, 'sz', 'val') ?? 24) / 2; // medios puntos → pt
   const tema: Partial<Tema> = {};
+  const titulos: Partial<Tema> = {};
   const primera = de(normal, 'ind', 'firstLine') ?? de(defecto, 'ind', 'firstLine');
   if (primera !== undefined) tema.sangria = Math.min(4, Math.max(0, Math.round((Number(primera) / 20 / tamano) * 100) / 100));
   const linea = de(normal, 'spacing', 'line') ?? de(defecto, 'spacing', 'line');
   const regla = de(normal, 'spacing', 'lineRule') ?? de(defecto, 'spacing', 'lineRule') ?? 'auto';
   if (linea && regla === 'auto') tema.interlineado = Math.min(2.2, Math.max(1.1, Math.round((Number(linea) / 240) * 1.15 * 100) / 100));
-  const despues = de(normal, 'spacing', 'after') ?? de(defecto, 'spacing', 'after');
-  if (despues !== undefined) tema.espacioParrafos = Math.min(2, Math.max(0, Math.round((Number(despues) / 20 / tamano) * 100) / 100));
+  else if (linea && regla === 'exact') tema.interlineado = Math.min(2.2, Math.max(1.1, Math.round((Number(linea) / 20 / tamano) * 100) / 100));
+  const enEmWord = (v?: string) => (v === undefined ? undefined : Math.round((Number(v) / 20 / tamano) * 100) / 100);
+  const despues = enEmWord(de(normal, 'spacing', 'after') ?? de(defecto, 'spacing', 'after'));
+  const antes = enEmWord(de(normal, 'spacing', 'before') ?? de(defecto, 'spacing', 'before'));
+  const espacio = despues !== undefined || antes !== undefined ? { general: Math.min(2, Math.max(despues ?? 0, antes ?? 0)), arriba: antes ?? 0, abajo: despues ?? 0 } : undefined;
+  const tamTitulo = Number(de(titulo, 'sz', 'val') ?? 32) / 2;
+  const antesTitulo = de(titulo, 'spacing', 'before');
+  const espacioTitulos = antesTitulo !== undefined ? Math.min(12, Math.round((Number(antesTitulo) / 20 / tamTitulo) * 100) / 100) : undefined;
+  const letrasWord = normal.match(/<w:rPr>[\s\S]*?<w:spacing\b[^>]*w:val="(-?\d+)"/)?.[1];
+  const espaciadoLetras = letrasWord ? Math.round((Number(letrasWord) / 20 / tamano) * 1000) / 1000 : undefined;
+  const documento = (await zip.file('word/document.xml')?.async('string')) ?? '';
+  const lineasEnBlanco = [...documento.matchAll(/<w:p\b[^>]*?(?:\/>|>([\s\S]*?)<\/w:p>)/g)].filter((m) => !/<w:t\b|<w:drawing|<w:pict/.test(m[1] ?? '')).length;
   const jc = de(normal, 'jc', 'val');
   if (jc === 'both' || jc === 'distribute') tema.alinear = 'justificado';
   else if (jc === 'left' || jc === 'start') tema.alinear = 'izquierda';
   const jch = de(titulo, 'jc', 'val');
-  if (jch === 'center') tema.tituloEstilo = 'centrado';
-  else if (jch === 'left' || jch === 'start') tema.tituloEstilo = 'izquierda';
+  if (jch === 'center') titulos.tituloEstilo = 'centrado';
+  else if (jch === 'left' || jch === 'start') titulos.tituloEstilo = 'izquierda';
   const color = de(titulo, 'color', 'val');
-  if (color && /^[0-9a-f]{6}$/i.test(color)) tema.colorTitulos = `#${color.toLowerCase()}`;
+  if (color && /^[0-9a-f]{6}$/i.test(color)) titulos.colorTitulos = `#${color.toLowerCase()}`;
+  if (/<w:caps\b|<w:smallCaps\b/.test(titulo)) titulos.tituloMayusculas = true;
   const familiaTexto = de(normal, 'rFonts', 'ascii') ?? de(defecto, 'rFonts', 'ascii');
   const familiaTitulos = de(titulo, 'rFonts', 'ascii');
-  return { tema, familiaTexto: primeraFamilia(familiaTexto), familiaTitulos: primeraFamilia(familiaTitulos), fuentes: [], avisos: [] };
+  return {
+    tema,
+    titulos,
+    ...(espacio ? { espacio } : {}),
+    ...(espacioTitulos !== undefined ? { espacioTitulos } : {}),
+    ...(espaciadoLetras ? { espaciadoLetras } : {}),
+    // Word no guarda espacios por párrafo que el importador pueda leer: solo el general.
+    parrafosConEspacio: 0,
+    lineasEnBlanco,
+    familiaTexto: primeraFamilia(familiaTexto),
+    familiaTitulos: primeraFamilia(familiaTitulos),
+    fuentes: [],
+    avisos: [],
+  };
 }

@@ -86,6 +86,47 @@ export interface RecursoPublico extends Omit<Recurso, 'datos'> {
   bytes: number;
 }
 
+/** Qué conservar del original en la conversión sencilla. */
+export interface OpcionesConversionSencilla {
+  parrafos: boolean;
+  espacioParrafos: boolean;
+  espacioPorParrafo: boolean;
+  lineasEnBlanco: boolean;
+  espacioTitulos: boolean;
+  espaciadoLetras: boolean;
+  titulos: boolean;
+  fuentesArchivo: boolean;
+  fuentesSistema: boolean;
+  optimizarImagenes: boolean;
+}
+
+export const OPCIONES_CONVERSION: OpcionesConversionSencilla = {
+  parrafos: true,
+  espacioParrafos: true,
+  espacioPorParrafo: true,
+  lineasEnBlanco: true,
+  espacioTitulos: true,
+  espaciadoLetras: true,
+  titulos: true,
+  fuentesArchivo: true,
+  fuentesSistema: true,
+  optimizarImagenes: false,
+};
+
+export interface AnalisisConversion {
+  nombre: string;
+  tipo: 'epub' | 'docx';
+  titulo: string;
+  diseno?: Omit<DisenoOriginal, 'fuentes'>;
+  fuentesArchivo: { familia: string; archivo: string; permiso: PermisoFuente }[];
+  /** Letras que usa el original y de dónde saldrían. */
+  letras: { familia: string; origen: 'archivo' | 'sistema' | 'falta' }[];
+  secciones: number;
+  ilustraciones: number;
+  imagenes: number;
+  notas: number;
+}
+
 export interface ResumenConversion {
   estado: Estado;
   capitulos: number;
@@ -543,28 +584,121 @@ export class Backend {
 
   // ----- Conversión sencilla -----
 
-  /**
-   * Abre un EPUB o Word y le aplica el diseño del original (letra, sangría, interlineado, alineación,
-   * títulos y fuentes incrustadas o instaladas) para convertirlo sin tener que elegir un tema.
-   */
-  async conversionSencilla(nombre: string, datos: Uint8Array, conservar = true): Promise<ResumenConversion> {
-    await this.importar(nombre, datos);
+  private conversionPendiente?: { nombre: string; datos: Uint8Array; diseno?: DisenoOriginal };
+
+  private async leerDiseno(nombre: string, datos: Uint8Array): Promise<DisenoOriginal | undefined> {
     const ext = nombre.toLowerCase().split('.').pop();
-    const conservado: string[] = [];
-    const avisos: string[] = [...this.avisos];
-    if (conservar && (ext === 'epub' || ext === 'docx')) {
-      let d: DisenoOriginal | undefined;
+    try {
+      if (ext === 'epub') return await disenoDeEpub(datos);
+      if (ext === 'docx') return await disenoDeDocx(datos);
+    } catch {
+      /* sin diseño legible: se ofrece convertir con el tema predeterminado */
+    }
+    return undefined;
+  }
+
+  /** Primer paso de la conversión sencilla: qué trae el archivo y qué se puede conservar. No cambia el libro abierto. */
+  async analizarConversion(nombre: string, datos: Uint8Array): Promise<AnalisisConversion> {
+    const ext = nombre.toLowerCase().split('.').pop();
+    if (ext !== 'epub' && ext !== 'docx') throw new ErrorUsuario('La conversión sencilla admite archivos .epub y .docx.');
+    let libro: Libro;
+    try {
+      libro = (ext === 'epub' ? await importarEpub(datos) : await importarDocx(datos)).libro;
+    } catch (e) {
+      throw new ErrorUsuario(`No se pudo abrir el archivo: ${(e as Error).message}`);
+    }
+    const diseno = await this.leerDiseno(nombre, datos);
+    this.conversionPendiente = { nombre, datos, diseno };
+    const fuentesArchivo = (diseno?.fuentes ?? []).map((f) => {
       try {
-        d = ext === 'epub' ? await disenoDeEpub(datos) : await disenoDeDocx(datos);
+        const info = leerFuentePropia(f.datos);
+        return { familia: f.familia || info.familia, archivo: f.nombre, permiso: permisoFuente(info.fsType) };
       } catch {
-        avisos.push('No se pudo leer el diseño del original; se usa el tema predeterminado.');
+        return { familia: f.familia, archivo: f.nombre, permiso: { incrustable: false, subconjunto: false, tipo: 'restringida' as const } };
       }
-      if (d) {
-        avisos.push(...d.avisos);
-        const t = temaCompleto(this.libro);
-        this.libro.tema = { ...t, ...validarTema(d.tema), nombre: 'Diseño original' };
-        if (Object.keys(d.tema).length) conservado.push('sangría, interlineado, espacios y alineación');
-        // Fuentes del EPUB (si su licencia permite incrustarlas).
+    });
+    const familias = [...new Set([diseno?.familiaTexto, diseno?.familiaTitulos].filter((x): x is string => !!x))];
+    const sistema = await this.fuentesSistema().catch(() => [] as FamiliaSistema[]);
+    const letras = familias.map((familia) => {
+      const igual = (x: string) => x.toLowerCase() === familia.toLowerCase();
+      const archivo = fuentesArchivo.find((f) => igual(f.familia) && f.permiso.incrustable);
+      const instalada = sistema.find((f) => igual(f.familia) && f.caras.some((c) => c.permiso.incrustable));
+      return { familia, origen: archivo ? ('archivo' as const) : instalada ? ('sistema' as const) : ('falta' as const) };
+    });
+    const { fuentes: _f, ...resto } = diseno ?? { fuentes: [] };
+    return {
+      nombre,
+      tipo: ext,
+      diseno: diseno ? (resto as Omit<DisenoOriginal, 'fuentes'>) : undefined,
+      fuentesArchivo,
+      letras,
+      secciones: libro.secciones.filter((x) => !['portada', 'ilustracion', 'indice'].includes(x.tipo)).length,
+      ilustraciones: libro.secciones.filter((x) => x.tipo === 'ilustracion').length,
+      imagenes: libro.recursos.length,
+      notas: libro.secciones.reduce((n, x) => n + x.notas.length, 0),
+      titulo: libro.metadatos.titulo,
+    };
+  }
+
+  /**
+   * Segundo paso: abre el archivo analizado y conserva del original lo que se haya elegido
+   * (párrafos, espaciado, líneas en blanco, títulos, fuentes e imágenes).
+   */
+  async conversionSencilla(o: Partial<OpcionesConversionSencilla> = {}): Promise<ResumenConversion> {
+    const p = this.conversionPendiente;
+    if (!p) throw new ErrorUsuario('Elige primero el archivo que quieres convertir.');
+    const op: OpcionesConversionSencilla = { ...OPCIONES_CONVERSION, ...o };
+    const d = p.diseno;
+    const ext = p.nombre.toLowerCase().split('.').pop();
+    const avisos: string[] = [];
+    let r;
+    try {
+      r =
+        ext === 'epub'
+          ? await importarEpub(p.datos, { vacios: op.lineasEnBlanco, ...(op.espacioPorParrafo && d?.espacio ? { espaciado: { arriba: d.espacio.arriba, abajo: d.espacio.abajo } } : {}) })
+          : await importarDocx(p.datos, { vacios: op.lineasEnBlanco });
+    } catch (e) {
+      throw new ErrorUsuario(`No se pudo abrir el archivo: ${(e as Error).message}`);
+    }
+    this.libro = r.libro;
+    this.avisos = r.avisos.map((a) => (a.archivo ? `${a.mensaje} (${a.archivo})` : a.mensaje));
+    avisos.push(...this.avisos);
+    this.antesDePlugin = undefined;
+    this.nombreArchivo = nombreDeArchivo(this.libro.metadatos.titulo || p.nombre.replace(/\.[^.]+$/, '')) + '.obi';
+    this.ultimaValidacion = undefined;
+    this.ultimasPaginas = this.ultimasPaginasColor = undefined;
+
+    const conservado: string[] = [];
+    if (d) {
+      avisos.push(...d.avisos);
+      const cambios: Partial<Tema> = {};
+      if (op.parrafos && Object.keys(d.tema).length) {
+        Object.assign(cambios, d.tema);
+        conservado.push('sangría, interlineado y alineación');
+      }
+      if (op.espacioParrafos && d.espacio) {
+        cambios.espacioParrafos = d.espacio.general;
+        conservado.push('espacio entre párrafos');
+      }
+      if (op.espacioTitulos && d.espacioTitulos !== undefined) {
+        cambios.tituloEspacio = d.espacioTitulos;
+        conservado.push('espacio antes de los títulos');
+      }
+      if (op.espaciadoLetras && (d.espaciadoLetras || d.espaciadoPalabras)) {
+        if (d.espaciadoLetras) cambios.espaciadoLetras = d.espaciadoLetras;
+        if (d.espaciadoPalabras) cambios.espaciadoPalabras = d.espaciadoPalabras;
+        conservado.push('espaciado entre letras y palabras');
+      }
+      if (op.titulos && Object.keys(d.titulos).length) {
+        Object.assign(cambios, d.titulos);
+        conservado.push('estilo de los títulos');
+      }
+      if (Object.keys(cambios).length) this.libro.tema = { ...temaCompleto(this.libro), ...validarTema(cambios), nombre: 'Diseño original' };
+      if (op.espacioPorParrafo && d.parrafosConEspacio) conservado.push('espacio propio de cada párrafo');
+      if (op.lineasEnBlanco && d.lineasEnBlanco) conservado.push('líneas en blanco');
+
+      // Fuentes: las del archivo y, si faltan, las instaladas.
+      if (op.fuentesArchivo) {
         for (const f of d.fuentes) {
           try {
             this.agregarCara(f.datos, f.nombre, f.familia || undefined);
@@ -572,40 +706,41 @@ export class Backend {
             avisos.push(`«${f.nombre}»: ${(e as Error).message}`);
           }
         }
-        const elegir = async (familia: string | undefined, campo: 'fuenteTexto' | 'fuenteTitulos') => {
-          if (!familia) return;
-          const igual = (x: string) => x.toLowerCase() === familia.toLowerCase();
-          let p = this.libro.fuentesPropias?.find((x) => igual(x.familia));
-          if (!p) {
-            // Si no viene en el archivo, se busca instalada en el sistema.
-            const sistema = (await this.fuentesSistema().catch(() => [])).find((x) => igual(x.familia));
-            if (sistema?.caras.some((c) => c.permiso.incrustable)) {
-              try {
-                await this.anadirFuenteSistema(sistema.familia);
-                p = this.libro.fuentesPropias?.find((x) => igual(x.familia));
-              } catch (e) {
-                avisos.push((e as Error).message);
-              }
+      }
+      const elegir = async (familia: string | undefined, campo: 'fuenteTexto' | 'fuenteTitulos') => {
+        if (!familia || (!op.fuentesArchivo && !op.fuentesSistema)) return;
+        const igual = (x: string) => x.toLowerCase() === familia.toLowerCase();
+        let f = op.fuentesArchivo ? this.libro.fuentesPropias?.find((x) => igual(x.familia)) : undefined;
+        if (!f && op.fuentesSistema) {
+          const sistema = (await this.fuentesSistema().catch(() => [] as FamiliaSistema[])).find((x) => igual(x.familia));
+          if (sistema?.caras.some((c) => c.permiso.incrustable)) {
+            try {
+              await this.anadirFuenteSistema(sistema.familia);
+              f = this.libro.fuentesPropias?.find((x) => igual(x.familia));
+            } catch (e) {
+              avisos.push((e as Error).message);
             }
           }
-          if (p) {
-            this.libro.tema = { ...temaCompleto(this.libro), [campo]: PREFIJO + p.id };
-            if (!conservado.includes(`letra «${p.familia}»`)) conservado.push(`letra «${p.familia}»`);
-          } else avisos.push(`La letra «${familia}» no viene en el archivo ni está instalada: se usa Literata.`);
-        };
-        await elegir(d.familiaTexto, 'fuenteTexto');
-        await elegir(d.familiaTitulos ?? d.familiaTexto, 'fuenteTitulos');
-      }
+        }
+        if (f) {
+          this.libro.tema = { ...temaCompleto(this.libro), [campo]: PREFIJO + f.id };
+          if (!conservado.includes(`letra «${f.familia}»`)) conservado.push(`letra «${f.familia}»`);
+        } else avisos.push(`La letra «${familia}» no se pudo usar: se usa Literata.`);
+      };
+      await elegir(d.familiaTexto, 'fuenteTexto');
+      await elegir(d.familiaTitulos ?? d.familiaTexto, 'fuenteTitulos');
     }
+    if (op.optimizarImagenes) this.libro.optimizarImagenes = true;
+    else conservado.push('imágenes originales');
+    this.cambiado = true;
     this.marcar();
-    const imagenes = this.libro.recursos.length;
-    const notas = this.libro.secciones.reduce((n, s) => n + s.notas.length, 0);
+    this.conversionPendiente = undefined;
     return {
       estado: this.estado(),
-      capitulos: this.libro.secciones.filter((s) => !['portada', 'ilustracion', 'indice'].includes(s.tipo)).length,
-      ilustraciones: this.libro.secciones.filter((s) => s.tipo === 'ilustracion').length,
-      imagenes,
-      notas,
+      capitulos: this.libro.secciones.filter((x) => !['portada', 'ilustracion', 'indice'].includes(x.tipo)).length,
+      ilustraciones: this.libro.secciones.filter((x) => x.tipo === 'ilustracion').length,
+      imagenes: this.libro.recursos.length,
+      notas: this.libro.secciones.reduce((n, x) => n + x.notas.length, 0),
       conservado,
       avisos,
     };

@@ -31,6 +31,19 @@ export const ParrafoObi = Paragraph.extend({
         parseHTML: (el) => ESTILOS_PARRAFO.find((e) => el.classList.contains(e.id))?.id ?? 'cuerpo',
         renderHTML: (a) => (a.estilo && a.estilo !== 'cuerpo' ? { class: a.estilo } : {}),
       },
+      // Espacio propio del párrafo (el del original); no pasa al párrafo nuevo al pulsar Intro.
+      espacioAntes: {
+        default: null,
+        keepOnSplit: false,
+        parseHTML: (el) => (el.dataset.antes ? Number(el.dataset.antes) : null),
+        renderHTML: (a) => (a.espacioAntes != null ? { 'data-antes': a.espacioAntes, style: `margin-top: ${a.espacioAntes}em` } : {}),
+      },
+      espacioDespues: {
+        default: null,
+        keepOnSplit: false,
+        parseHTML: (el) => (el.dataset.despues ? Number(el.dataset.despues) : null),
+        renderHTML: (a) => (a.espacioDespues != null ? { 'data-despues': a.espacioDespues, style: `margin-bottom: ${a.espacioDespues}em` } : {}),
+      },
     };
   },
   addCommands() {

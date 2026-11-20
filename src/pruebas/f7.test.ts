@@ -245,17 +245,29 @@ test('Conversión sencilla: conserva el diseño y las fuentes del EPUB original'
     `@font-face { font-family: "Libro"; src: url(../Fonts/libro.woff); }
 @font-face { font-family: "Libro"; font-style: italic; src: url(../Fonts/libro-i.ttf); }
 body { font-family: "Libro", serif; }
-p { text-indent: 1.5em; margin: 0 0 0.3em; line-height: 1.5; text-align: justify; }
-h2.titulo { text-align: left; color: #336699; }
+p { text-indent: 1.5em; margin: 0 0 0.3em; line-height: 1.5; text-align: justify; letter-spacing: 0.02em; }
+p.aparte { margin-top: 2em; }
+h2.titulo { text-align: left; color: #336699; margin-top: 3em; }
 .centrar { text-align: center; text-indent: 0; }
 .ital { font-style: italic; }
 span.negr { font-weight: bold; }
 .sc { font-variant: small-caps; }
 .oculto { display: none; }`,
   );
+  const cap1 = (await zip.file('OEBPS/Text/Section0001.xhtml')!.async('string')).replace(
+    '<p class="ital">¿Dónde estoy?</p>',
+    '<p class="ital">¿Dónde estoy?</p>\n<p>&#160;</p>\n<p class="aparte">Mucho después.</p>',
+  );
+  zip.file('OEBPS/Text/Section0001.xhtml', cap1);
   const datos = await zip.generateAsync({ type: 'uint8array' });
   const b = new Backend(await mkdtemp(join(tmpdir(), 'obi-conv-')));
-  const r = await b.conversionSencilla('ajeno.epub', datos);
+  const analisis = await b.analizarConversion('ajeno.epub', datos);
+  assert.equal(analisis.diseno?.lineasEnBlanco, 1);
+  assert.equal(analisis.diseno?.parrafosConEspacio, 1);
+  assert.equal(analisis.diseno?.espacioTitulos, 3);
+  assert.deepEqual(analisis.letras, [{ familia: 'Libro', origen: 'archivo' }]);
+  assert.equal(b.libro.metadatos.titulo, 'Libro sin título', 'analizar no cambia el libro abierto');
+  const r = await b.conversionSencilla();
   const t = b.libro.tema;
   assert.equal(t.nombre, 'Diseño original');
   assert.equal(t.sangria, 1.5);
@@ -264,6 +276,15 @@ span.negr { font-weight: bold; }
   assert.equal(t.alinear, 'justificado');
   assert.equal(t.tituloEstilo, 'izquierda');
   assert.equal(t.colorTitulos, '#336699');
+  assert.equal(t.tituloEspacio, 3);
+  assert.equal(t.espaciadoLetras, 0.02);
+  const cap = b.libro.secciones.find((x) => x.bloques.some((y) => y.tipo === 'parrafo' && JSON.stringify(y).includes('Mucho después')))!;
+  const k = cap.bloques.findIndex((y) => JSON.stringify(y).includes('Mucho después'));
+  const aparte = cap.bloques[k];
+  assert.ok(aparte.tipo === 'parrafo' && aparte.espacioAntes === 2, JSON.stringify(aparte));
+  const blanca = cap.bloques[k - 1];
+  assert.ok(blanca.tipo === 'parrafo' && blanca.contenido.length === 0, 'la línea en blanco se conserva');
+  assert.ok(cap.bloques.filter((y) => y.tipo === 'parrafo' && (y.espacioAntes !== undefined || y.espacioDespues !== undefined)).length === 1, 'solo el párrafo distinto lleva espacio propio');
   const f = b.libro.fuentesPropias?.find((x) => x.familia === 'Libro');
   assert.ok(f && f.caras.length === 2, JSON.stringify(b.libro.fuentesPropias?.map((x) => [x.familia, x.caras.length])));
   assert.equal(t.fuenteTexto, `propia-${f!.id}`);
@@ -272,6 +293,19 @@ span.negr { font-weight: bold; }
   const { datos: epub } = await b.exportar();
   const v = await validarDatos(epub);
   assert.equal(v.mensajes.length, 0, JSON.stringify(v.mensajes));
+  // Ida y vuelta: el espacio propio vuelve al importar el EPUB generado.
+  const { libro: vuelta } = await importarEpub(epub);
+  assert.ok(JSON.stringify(vuelta).includes('"espacioAntes":2'));
+
+  // Sin conservar nada: tema predeterminado, sin líneas en blanco ni espacios propios.
+  await b.analizarConversion('ajeno.epub', datos);
+  const nada = Object.fromEntries(Object.keys(r).length ? ['parrafos', 'espacioParrafos', 'espacioPorParrafo', 'lineasEnBlanco', 'espacioTitulos', 'espaciadoLetras', 'titulos', 'fuentesArchivo', 'fuentesSistema'].map((x) => [x, false]) : []);
+  const r2 = await b.conversionSencilla(nada);
+  assert.notEqual(b.libro.tema.nombre, 'Diseño original');
+  assert.equal(b.libro.fuentesPropias, undefined);
+  assert.ok(!JSON.stringify(b.libro.secciones).includes('espacioAntes'));
+  assert.ok(!b.libro.secciones.some((x) => x.bloques.some((y) => y.tipo === 'parrafo' && !y.contenido.length)));
+  assert.deepEqual(r2.conservado, ['imágenes originales']);
 
   // Word: el estilo Normal y el Título 1.
   const { Document, Packer, Paragraph, HeadingLevel, AlignmentType } = await import('docx');
@@ -284,6 +318,30 @@ span.negr { font-weight: bold; }
   });
   const d = await disenoDeDocx(new Uint8Array(await Packer.toBuffer(docx)));
   assert.equal(d.tema.sangria, 1.5, JSON.stringify(d));
-  assert.equal(d.tema.espacioParrafos, 0.5);
+  assert.equal(d.espacio?.general, 0.5);
+  assert.ok(d.lineasEnBlanco >= 0);
   assert.equal(d.familiaTexto, 'Georgia');
+});
+
+test('Espacio propio y líneas en blanco: editor, PDF y Word de corrección', async () => {
+  const { bloquesAPM, pmABloques } = await import('../editor-modelo.js');
+  const { exportarWord, importarCorrecciones } = await import('../formatos/word.js');
+  const { htmlImpresion } = await import('../impresion.js');
+  const l = libroNuevo('Espacios', 'A');
+  const cap = l.secciones.find((s) => s.tipo === 'capitulo')!;
+  cap.bloques = [parrafo('Uno.'), { tipo: 'parrafo', estilo: 'cuerpo', contenido: [] }, { ...parrafo('Dos, más abajo.'), espacioAntes: 2 }, parrafo('Tres.')];
+  assert.deepEqual(pmABloques(bloquesAPM(cap.bloques)), cap.bloques);
+  assert.match(htmlImpresion(l, { interior: 10 } as never), /<p style="margin-top: 2em">Dos, más abajo\.<\/p>/);
+  const zip = await JSZip.loadAsync(await exportarWord(l));
+  let xml = await zip.file('word/document.xml')!.async('string');
+  assert.match(xml, /w:before="480"/);
+  xml = xml.replace('Tres.', 'Tres, corregido.');
+  zip.file('word/document.xml', xml);
+  const copia = structuredClone(l);
+  await importarCorrecciones(copia, await zip.generateAsync({ type: 'uint8array' }));
+  const b = copia.secciones.find((s) => s.tipo === 'capitulo')!.bloques;
+  assert.equal(b.length, 4, JSON.stringify(b));
+  assert.ok(b[1].tipo === 'parrafo' && !b[1].contenido.length, 'la línea en blanco vuelve de Word');
+  assert.ok(b[2].tipo === 'parrafo' && b[2].espacioAntes === 2, 'el espacio propio se recupera');
+  assert.match(JSON.stringify(b[3]), /corregido/);
 });

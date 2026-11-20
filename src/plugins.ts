@@ -361,6 +361,9 @@ function comprobarBloque(b: Record<string, unknown>, donde: string, notas: Set<s
   switch (b?.tipo) {
     case 'parrafo':
       if (!ESTILOS.has(b.estilo as string)) throw new ErrorPlugin(`${donde}: estilo de párrafo desconocido «${String(b.estilo)}».`);
+      for (const k of ['espacioAntes', 'espacioDespues'] as const) {
+        if (b[k] !== undefined && (typeof b[k] !== 'number' || !Number.isFinite(b[k]) || (b[k] as number) < -5 || (b[k] as number) > 20)) throw new ErrorPlugin(`${donde}: espacio de párrafo no válido.`);
+      }
       comprobarInlines(b.contenido, donde, notas);
       break;
     case 'subtitulo':

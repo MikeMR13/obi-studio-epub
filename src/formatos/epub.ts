@@ -135,7 +135,15 @@ function etiquetasNavegacion(zip: Map<string, string>, rutaNav: string | undefin
 const TEXTO_LLAMADA = /^\s*(\[?\(?\*?\d{1,3}\)?\]?|\*{1,3}|※\d{0,3}|[†‡§]|[a-z])\s*$/i;
 const TIPOS_NOTA = ['footnote', 'endnote', 'rearnote', 'note', 'footnotes', 'endnotes', 'rearnotes'];
 
-export async function importarEpub(datos: Uint8Array): Promise<ResultadoImportacion> {
+/** Opciones de la conversión sencilla: qué del original se conserva al importar. */
+export interface OpcionesImportacion {
+  /** Párrafos vacíos (líneas en blanco). */
+  vacios?: boolean;
+  /** Espacio general del párrafo del original: los que se aparten de él conservan el suyo. */
+  espaciado?: { arriba: number; abajo: number };
+}
+
+export async function importarEpub(datos: Uint8Array, importacion: OpcionesImportacion = {}): Promise<ResultadoImportacion> {
   const avisos: AvisoImportacion[] = [];
   const zip = await JSZip.loadAsync(datos);
   const textos = new Map<string, string>();
@@ -310,6 +318,7 @@ export async function importarEpub(datos: Uint8Array): Promise<ResultadoImportac
 
   let rutaActual = '';
   const opciones: OpcionesConversion = {
+    ...importacion,
     css,
     imagen: (src) => anadirRecurso(resolverRuta(rutaActual, src)),
     rutaCruda: (src) => {

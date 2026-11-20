@@ -16,6 +16,22 @@ export interface EstiloCss {
   superindice?: boolean;
   alinear?: 'center' | 'right' | 'left' | 'justify';
   oculto?: boolean;
+  /** Márgenes del párrafo en em (solo si se pueden pasar a em). */
+  margenArriba?: number;
+  margenAbajo?: number;
+}
+
+/** Longitud CSS en em (16 px = 1 em, 12 pt = 1 em); undefined si no se puede convertir. */
+export function longitudEnEm(v?: string): number | undefined {
+  if (!v) return undefined;
+  const m = v.trim().match(/^(-?\d*\.?\d+)(em|rem|px|pt)?$/i);
+  if (!m) return undefined;
+  const n = parseFloat(m[1]);
+  const u = (m[2] ?? '').toLowerCase();
+  if (u === 'em' || u === 'rem') return n;
+  if (u === 'px') return n / 16;
+  if (u === 'pt') return n / 12;
+  return n === 0 ? 0 : undefined;
 }
 
 /** Reglas de clase muy simples (`.x`, `p.x`, `span.x`) sacadas de las hojas de estilo del EPUB. */
@@ -52,7 +68,16 @@ export function estiloDeDeclaraciones(decl: string): EstiloCss {
     } else if (p === 'vertical-align') e.superindice = v === 'super';
     else if (p === 'text-align' && ['center', 'right', 'left', 'justify'].includes(v)) e.alinear = v as EstiloCss['alinear'];
     else if (p === 'display' && v === 'none') e.oculto = true;
+    else if (p === 'margin-top') e.margenArriba = longitudEnEm(v);
+    else if (p === 'margin-bottom') e.margenAbajo = longitudEnEm(v);
+    else if (p === 'margin') {
+      const partes = v.split(/\s+/);
+      e.margenArriba = longitudEnEm(partes[0]);
+      e.margenAbajo = longitudEnEm(partes[2] ?? partes[0]);
+    }
   }
+  if (e.margenArriba === undefined) delete e.margenArriba;
+  if (e.margenAbajo === undefined) delete e.margenAbajo;
   for (const k of Object.keys(e) as (keyof EstiloCss)[]) if (e[k] === false) delete e[k];
   return e;
 }
@@ -69,6 +94,13 @@ export interface OpcionesConversion {
   esCuerpoNota: (n: Nodo) => boolean;
   /** ¿Este enlace es un enlace de vuelta de una nota? */
   esEnlaceVuelta?: (a: Nodo) => boolean;
+  /** Conservar los párrafos vacíos (líneas en blanco del original). */
+  vacios?: boolean;
+  /**
+   * Conservar el espacio propio de cada párrafo que se aparte del general (márgenes de sus clases CSS).
+   * El margen escrito en el propio párrafo (atributo style, como lo escribe Obi Studio) se lee siempre.
+   */
+  espaciado?: { arriba: number; abajo: number };
 }
 
 export interface Parte {
@@ -278,16 +310,41 @@ export function convertirBloques(raiz: Nodo, o: OpcionesConversion, idiomaLibro?
     actual().bloques.push({ tipo: 'crudo', xhtml });
   };
 
-  const anadirParrafo = (nodos: Nodo[], estilo: EstiloParrafo, base: EstadoInline) => {
+  /** Espacio propio de un párrafo: el de su atributo style y, si se pide, el de sus clases cuando difiere del general. */
+  const espacioDe = (n?: Nodo): { espacioAntes?: number; espacioDespues?: number } => {
+    if (!n) return {};
+    const r: { espacioAntes?: number; espacioDespues?: number } = {};
+    const estilo = attr(n, 'style');
+    // Lo que escribe Obi Studio (margin-top/margin-bottom en em) vuelve siempre, para la ida y vuelta.
+    const propio = (prop: string) => estilo.match(new RegExp(`(?:^|;)\\s*${prop}\\s*:\\s*(-?\\d*\\.?\\d+)em\\s*(?:;|$)`))?.[1];
+    if (propio('margin-top') !== undefined) r.espacioAntes = parseFloat(propio('margin-top')!);
+    if (propio('margin-bottom') !== undefined) r.espacioDespues = parseFloat(propio('margin-bottom')!);
+    const enLinea = estilo ? estiloDeDeclaraciones(estilo) : {};
+    if (o.espaciado) {
+      let deClase: EstiloCss = {};
+      for (const c of clases(n)) deClase = { ...deClase, ...(o.css.get(c) ?? {}) };
+      const arriba = r.espacioAntes ?? enLinea.margenArriba ?? deClase.margenArriba;
+      const abajo = r.espacioDespues ?? enLinea.margenAbajo ?? deClase.margenAbajo;
+      if (arriba !== undefined && Math.abs(arriba - o.espaciado.arriba) > 0.05) r.espacioAntes = Math.round(arriba * 100) / 100;
+      if (abajo !== undefined && Math.abs(abajo - o.espaciado.abajo) > 0.05) r.espacioDespues = Math.round(abajo * 100) / 100;
+    }
+    return r;
+  };
+
+  const anadirParrafo = (nodos: Nodo[], estilo: EstiloParrafo, base: EstadoInline, nodo?: Nodo) => {
     const contenido = inlinesLimpios(nodos, o, base, idiomaLibro);
     const plano = contenido.map((i) => (i.tipo === 'texto' ? i.texto : i.tipo === 'ruby' ? i.base : '')).join('');
-    if (!contenido.length) return;
+    const vacio = !contenido.length || (!plano.trim() && contenido.every((i) => i.tipo === 'texto' || i.tipo === 'salto'));
+    if (vacio) {
+      // Línea en blanco del original: se conserva como párrafo vacío si se pide.
+      if (o.vacios && nodo) actual().bloques.push({ tipo: 'parrafo', estilo: 'cuerpo', contenido: [], ...espacioDe(nodo) });
+      return;
+    }
     if (SEPARADOR.test(plano) && !contenido.some((i) => i.tipo === 'nota')) {
       actual().bloques.push({ tipo: 'separador' });
       return;
     }
-    if (!plano.trim() && !contenido.some((i) => i.tipo !== 'texto' && i.tipo !== 'salto')) return;
-    actual().bloques.push({ tipo: 'parrafo', estilo, contenido });
+    actual().bloques.push({ tipo: 'parrafo', estilo, contenido, ...espacioDe(nodo) });
   };
 
   const recorrer = (n: Nodo, estiloHeredado?: EstiloParrafo, base: EstadoInline = { marcas: [] }) => {
@@ -399,7 +456,7 @@ export function convertirBloques(raiz: Nodo, o: OpcionesConversion, idiomaLibro?
           recorrer(h, estiloParrafo(h, o, estiloHeredado), marcasBloque);
           continue;
         }
-        anadirParrafo(hijos(h), estiloParrafo(h, o, estiloHeredado), marcasBloque);
+        anadirParrafo(hijos(h), estiloParrafo(h, o, estiloHeredado), marcasBloque, et === 'p' ? h : undefined);
         continue;
       }
       if (et === 'ul' || et === 'ol') {
@@ -435,7 +492,7 @@ export function convertirBloques(raiz: Nodo, o: OpcionesConversion, idiomaLibro?
           if (!anadirImagen(img) && nombre(img) === 'svg') anadirCrudo(img);
           continue;
         }
-        if (soloInline && et !== 'body' && et !== 'section') anadirParrafo(hijos(h), estiloParrafo(h, o, estiloHeredado), marcasBloque);
+        if (soloInline && et !== 'body' && et !== 'section') anadirParrafo(hijos(h), estiloParrafo(h, o, estiloHeredado), marcasBloque, et === 'div' ? h : undefined);
         else recorrer(h, et === 'div' ? estiloParrafo(h, o, estiloHeredado) : estiloHeredado, marcasBloque);
         continue;
       }
