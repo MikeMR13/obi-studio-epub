@@ -23,6 +23,18 @@ Maquetador visual de novelas ligeras para Windows, macOS y Linux. Escribes y das
 - **Proyecto `.obi`:** un ZIP con `libro.json` y las imágenes. Copia de recuperación automática cada minuto con cambios.
 - EPUBCheck y un Java mínimo (jlink, 56 MB) van **dentro del instalador**.
 
+## Pendientes cerrados antes de la siguiente fase
+
+- **Buscar y reemplazar** (Ctrl+F / Ctrl+H) en todo el libro o en una sección, en párrafos, listas y notas: mayúsculas, palabra completa y expresiones regulares con grupos. Respeta el formato, el furigana y las llamadas a notas.
+- **Versiones con nombre** (Más → Versiones…): guardar, comparar sección por sección, restaurar y borrar, dentro del `.obi` y con sus imágenes. Antes de importar correcciones de Word se guarda una automáticamente; restaurar guarda antes el estado actual.
+- **Control de cambios propio**: las correcciones de Word pueden entrar como cambios propuestos (diferencia palabra por palabra en la pestaña Revisión) para aceptarlos o rechazarlos uno a uno o todos.
+- **Editor en vertical** para los libros en tategaki, y **Noto Serif JP** incrustada en EPUB y PDF solo con los subconjuntos que cubren los caracteres japoneses del libro.
+- **Interfaz en inglés** (selector en el inicio y en Más). El catálogo está en `app/renderer/i18n-en.ts`; una prueba falla si un texto queda sin traducir.
+- **PDF/X-1a** (Impresión, o `obi pdf --pdfx`) con el Ghostscript del sistema: CMYK, texto en negro puro, PDF 1.3 sin transparencias y OutputIntent. Ghostscript no se incluye por su licencia AGPL.
+- **Firma de instaladores** en GitHub Actions con secretos por sistema; ver [docs/firma.md](docs/firma.md).
+- **Catálogo de plugins**: integrado y por URL https, con huella SHA-256 comprobada. `scripts/catalogo-plugins.mjs` genera un catálogo publicable.
+- **Colaboración en tiempo real en la red local** (Más → Colaborar en la red local…): los invitados entran desde el navegador con un enlace con código y escriben a la vez (Yjs), con cursores con nombre. El servidor de colaboración solo expone la página de invitados y el texto de las secciones; el texto se guarda en el libro. En Windows, el cortafuegos pedirá permiso la primera vez.
+
 ## Ecosistema (F5)
 
 - **Plugins** (menú «Más» → Plugins…): archivos `.obiplugin` con `manifiesto.json` y `principal.js`. Hay cuatro tipos: revisión, transformación (se puede deshacer), exportador e importador (se usa desde «Importar»). Cada plugin corre en un proceso aparte con el modelo de permisos de Node (sin disco, sin procesos, memoria y tiempo limitados) y dentro de un contexto vacío sin `require`, `process` ni `fetch`. Solo ve el libro; las imágenes requieren el permiso «recursos» y la red el permiso «red», que se muestran antes de instalar. El libro que devuelve se valida antes de aceptarlo. Ejemplos en `ejemplos/plugins/` (revisión ortotipográfica, limpieza de espacios, texto plano .txt); se empaquetan con `node scripts/empaquetar-plugin.mjs <carpeta>`. La API se describe en [docs/plugins.md](docs/plugins.md).
@@ -120,6 +132,10 @@ En local: `npm run instaladores` construye el del sistema actual en `instaladore
 | `src/impresion.ts`, `src/pdf.ts`, `src/servicio-impresion.ts` | HTML y CSS de impresión, generación y posproceso del PDF, servicio del visor |
 | `src/estilo-tema.ts`, `src/temas.ts`, `src/fuentes.ts` | CSS del tema común al EPUB y al PDF, galería de temas, fuentes incrustadas |
 | `src/preflight.ts`, `src/division.ts`, `src/recursos.ts` | Revisión previa, división silábica, ubicación de los recursos |
+| `src/buscar.ts`, `src/versiones.ts`, `src/cambios.ts`, `src/diferencias.ts` | Buscar y reemplazar, versiones, control de cambios y diferencias palabra por palabra |
+| `src/pdfx.ts`, `src/catalogo.ts` | PDF/X-1a con Ghostscript; catálogos de plugins |
+| `app/colaboracion.ts`, `app/renderer/colaborar.tsx` | Servidor de colaboración (Yjs) y página de invitados |
+| `app/renderer/i18n.ts`, `app/renderer/i18n-en.ts` | Idioma de la interfaz y catálogo inglés |
 | `src/plugins.ts` | Plugins: manifiesto, ejecución aislada, validación de lo que devuelven, plugins instalados |
 | `src/comentarios.ts` | Anclas de comentarios y comentarios de Word (hilos y resueltos) |
 | `src/accesibilidad.ts` | Informe de accesibilidad (axe-core + EPUB Accessibility 1.1) |
@@ -134,11 +150,7 @@ En local: `npm run instaladores` construye el del sistema actual en `instaladore
 
 ## Siguientes pasos
 
-- Firma de instaladores y prueba en un Windows real.
-- Interfaz en inglés.
-- Fuentes del sistema incrustadas (subconjunto con HarfBuzz), recorte y giro de ilustraciones; fuente japonesa incrustada (Noto Serif JP en subconjunto) para el tategaki.
-- Editor en vertical (hoy el editor muestra el texto en horizontal y la vista previa en vertical).
-- Buscar y reemplazar, versiones con nombre.
-- Colaboración en tiempo real (Yjs) y control de cambios propio, con revisión de cada cambio.
-- Catálogo de plugins para compartirlos.
-- PDF/X-1a y CMYK con Ghostscript.
+- Probar los instaladores en un Windows y un macOS reales, con certificados de firma.
+- Colaboración por internet (hoy, solo en la red local) y comentarios y control de cambios para los invitados.
+- Fuentes del sistema incrustadas (subconjunto con HarfBuzz) y recorte y giro de ilustraciones.
+- Más idiomas de interfaz (el sistema ya admite añadir catálogos).
