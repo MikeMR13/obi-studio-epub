@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { Tema, Tipografia } from '../../../src/model';
 import { FUENTES, TEMA_PREDETERMINADO, validarTema } from '../../../src/model';
 import { FuentesPropias } from './FuentesPropias';
+import { CssPropio } from './CssPropio';
 import { TEMAS } from '../../../src/temas';
 import type { Estado } from '../api';
 import { api, urlRecurso } from '../api';
@@ -275,6 +276,8 @@ export function PanelTema({ estado, version, onTema, onGaleria, onTipografia, on
         </label>
         <button onClick={onAplicarTipografia}>{t('Aplicar a todo el libro')}</button>
       </details>
+
+      <CssPropio estado={estado} onEstado={onEstado} />
 
       <div className="botones-exportar">
         <button onClick={guardarTema} title={t('Guarda el tema para usarlo en otros libros')}>{t('Guardar tema…')}</button>

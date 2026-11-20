@@ -1,6 +1,7 @@
 // Entrega por HTTP lo que necesita el visor de Vivliostyle: el libro de impresión, sus imágenes, las fuentes y el visor.
 
 import { archivosCubierta, posprocesarCubierta } from './cubierta.js';
+import { aGrises } from './procesar-imagen.js';
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { extname, join, normalize } from 'node:path';
@@ -34,8 +35,15 @@ export interface Respuesta {
 }
 
 /** Libro preparado para compaginar (con división silábica si está activada). */
-export async function libroParaImprimir(libro: Libro): Promise<Libro> {
-  return ajustesImpresion(libro).division ? dividirLibro(libro) : libro;
+export async function libroParaImprimir(libro: Libro, digital = false): Promise<Libro> {
+  const a = ajustesImpresion(libro);
+  let l = a.division ? await dividirLibro(libro) : libro;
+  if (a.grises && !digital) {
+    // Mismo nombre de archivo salvo los GIF (pasan a PNG): se mantienen las rutas.
+    const recursos = await Promise.all(l.recursos.map(async (r) => (r.tipoMime === 'image/gif' ? r : aGrises(r).catch(() => r))));
+    l = { ...l, recursos };
+  }
+  return l;
 }
 
 /**
@@ -73,7 +81,7 @@ export async function resolverImpresion(
 
 /** PDF desde la línea de comandos o las pruebas: levanta un servidor temporal y usa Chrome. */
 export async function pdfDesdeLibro(libro: Libro, tipo: TipoPdf, renderizar: Renderizador = renderizadorChrome()): Promise<ResultadoPdf> {
-  const preparado = await libroParaImprimir(libro);
+  const preparado = await libroParaImprimir(libro, tipo === 'digital');
   const clave = globalThis.crypto.randomUUID();
   const versiones = new Map<string, Map<string, string | Uint8Array>>();
   let contador = 0;

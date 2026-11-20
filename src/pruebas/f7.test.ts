@@ -128,3 +128,60 @@ test('Cubierta de imprenta: lomo de KDP, zona del código de barras, avisos y HT
   assert.match(html, /Sinopsis del libro\./);
   assert.equal(CODIGO_BARRAS.ancho, 50.8);
 });
+
+test('Revisiones rápidas: cada búsqueda corrige lo que dice', async () => {
+  const { REVISIONES } = await import('../revisiones.js');
+  const { reemplazar } = await import('../buscar.js');
+  const casos: Record<string, [string, string]> = {
+    espacios: ['Hola   mundo', 'Hola mundo'],
+    'antes-signo': ['Hola , mundo !', 'Hola, mundo!'],
+    'despues-signo': ['uno,dos;tres', 'uno, dos; tres'],
+    'guion-dialogo': ['- Hola —dijo.', '—Hola —dijo.'],
+    'comillas-rectas': ['Dijo "hola" y "adiós"', 'Dijo «hola» y «adiós»'],
+    'tres-puntos': ['Bueno...', 'Bueno…'],
+    'apertura-pregunta': ['Llegó. Qué hora es?', 'Llegó. ¿Qué hora es?'],
+  };
+  for (const r of REVISIONES) {
+    const [antes, despues] = casos[r.id];
+    const l = libroNuevo('R', 'A');
+    const cap = l.secciones.find((s) => s.tipo === 'capitulo')!;
+    cap.bloques = [parrafo(antes)];
+    reemplazar(l, { consulta: r.consulta, regex: true, mayusculas: true }, r.reemplazo);
+    const b = cap.bloques[0];
+    assert.equal(b.tipo === 'parrafo' && b.contenido.map((i) => (i.tipo === 'texto' ? i.texto : '')).join(''), despues, r.id);
+  }
+});
+
+test('CSS propio y fuentes ofuscadas: EPUB válido', async () => {
+  const { revisarCss } = await import('../css-propio.js');
+  const { readFileSync } = await import('node:fs');
+  const { join } = await import('node:path');
+  const { claveOfuscacion, ofuscarFuente } = await import('../compilar.js');
+  const l = libroNuevo('CSS', 'A');
+  l.recursos.push({ id: 'fondo', nombre: 'fondo.png', tipoMime: 'image/png', datos: (await import('./fixtures.js')).pngSolido(20, 20), ancho: 20, alto: 20 });
+  assert.deepEqual(revisarCss('p { color: red; }', l), []);
+  const malos = revisarCss('p { direction: rtl; }\n@import "x.css";\ndiv { background: url(https://x.com/a.png); position: fixed; }\nh1 {', l).map((x) => [x.linea, x.plantilla]);
+  assert.ok(malos.some(([n, m]) => n === 1 && String(m).includes('EPUBCheck no admite la propiedad')));
+  assert.ok(malos.some(([n, m]) => n === 2 && String(m).includes('@import')));
+  assert.ok(malos.some(([n, m]) => n === 3 && String(m).includes('remotos')));
+  assert.ok(malos.some(([, m]) => String(m).includes('position: fixed')));
+  assert.ok(malos.some(([, m]) => String(m).includes('Falta cerrar')));
+  assert.ok(revisarCss('div { background: url(img/otra.png) }', l).some((x) => x.plantilla.includes('no está en el libro')));
+  l.cssPropio = 'p.cuerpo-especial { letter-spacing: 0.02em; }\ndiv.recuadro-sistema { background-image: url(img/fondo.png); }';
+  const regular = new Uint8Array(readFileSync(join(import.meta.dirname, 'fuentes', 'CrimsonText-Regular.ttf')));
+  l.fuentesPropias = [{ id: 'fp1', familia: 'Crimson Text', generica: 'serif', ofuscar: true, caras: [{ peso: 400, estilo: 'normal', formato: 'ttf', fsType: 0, origen: 'x', datos: regular }] }];
+  l.tema = { ...l.tema, fuenteTexto: 'propia-fp1' };
+  const datos = await compilar(l);
+  const r = await validarDatos(datos);
+  assert.equal(r.mensajes.length, 0, JSON.stringify(r.mensajes));
+  const zip = await JSZip.loadAsync(datos);
+  assert.match(await zip.file('EPUB/estilos.css')!.async('string'), /letter-spacing: 0\.02em/);
+  assert.ok(zip.file('EPUB/img/fondo.png'), 'la imagen del CSS entra en el EPUB');
+  const enc = await zip.file('META-INF/encryption.xml')!.async('string');
+  assert.match(enc, /http:\/\/www\.idpf\.org\/2008\/embedding/);
+  const ruta = enc.match(/URI="([^"]+)"/)![1];
+  const ofuscada = await zip.file(ruta)!.async('uint8array');
+  const original = ofuscarFuente(ofuscada, claveOfuscacion(l.metadatos.identificador));
+  assert.deepEqual([...original.slice(0, 4)], [0, 1, 0, 0], 'al desofuscar vuelve a ser una TrueType');
+  assert.notDeepEqual([...ofuscada.slice(0, 4)], [0, 1, 0, 0]);
+});

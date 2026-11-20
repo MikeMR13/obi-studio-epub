@@ -70,7 +70,7 @@ export function revisarImpresion(libro: Libro, paginas?: number, paginasColor?: 
   if (a.marcasCorte) avisos.push(aviso('info', 'Las marcas de corte son para imprentas tradicionales: KDP Print e IngramSpark rechazan los PDF que las llevan.'));
   if (paginasColor?.length) {
     avisos.push(
-      aviso('info', 'Páginas a color en el último PDF: {0} ({1} de {2}). La imprenta cobra el color aparte; si el libro va en blanco y negro, pasa esas imágenes a escala de grises.', [
+      aviso('info', 'Páginas a color en el último PDF: {0} ({1} de {2}). La imprenta cobra el color aparte; si el libro va en blanco y negro, marca «Imágenes en escala de grises».', [
         rangosPaginas(paginasColor),
         paginasColor.length,
         paginas ?? '?',

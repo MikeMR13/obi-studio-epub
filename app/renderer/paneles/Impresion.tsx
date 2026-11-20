@@ -90,6 +90,7 @@ export function PanelImpresion({ estado, version, onCambiar, onExportar, exporta
           : t('Necesita Ghostscript instalado (gratuito, ghostscript.com). Al instalarlo, reinicia Obi Studio.')}
       </small>
       {casilla('marcasCorte', t('Marcas de corte (solo imprentas tradicionales)'))}
+      {casilla('grises', t('Imágenes en escala de grises (libro en blanco y negro)'))}
       <fieldset className="grupo">
         <legend>{t('Márgenes')}</legend>
         <div className="fila-dos">

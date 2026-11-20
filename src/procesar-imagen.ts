@@ -152,3 +152,11 @@ export async function libroConImagenesOptimizadas(libro: Libro): Promise<{ libro
   }
   return { libro: { ...libro, recursos }, ahorro };
 }
+
+/** La imagen en escala de grises (para imprimir en blanco y negro). */
+export async function aGrises(r: Recurso): Promise<Recurso> {
+  if (!sePuedeProcesar(r.tipoMime)) return r;
+  const img = await leer(r.datos);
+  img.greyscale();
+  return { ...r, tipoMime: r.tipoMime === 'image/gif' ? 'image/png' : r.tipoMime, nombre: r.nombre.replace(/\.gif$/i, '.png'), datos: await escribir(img, r.tipoMime, 92) };
+}

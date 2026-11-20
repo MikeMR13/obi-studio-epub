@@ -174,6 +174,18 @@ with sync_playwright() as p:
     pagina.wait_for_timeout(600)
     pagina.screenshot(path=f"{CAPTURAS}/05b-tema-pagina.png")
     paso("Muestra del tema como página impresa", True)
+    # CSS propio.
+    pagina.get_by_text("CSS propio (avanzado)", exact=True).click()
+    area_css = pagina.get_by_label("CSS propio", exact=True)
+    area_css.fill("p { direction: rtl; }")
+    expect(pagina.locator(".seccion-tema .mensajes li.error")).to_contain_text("direction")
+    mal = pagina.get_by_role("button", name="Aplicar CSS").is_disabled()
+    area_css.fill("p.carta { letter-spacing: 0.03em; }")
+    pagina.get_by_role("button", name="Aplicar CSS").click()
+    pagina.wait_for_timeout(600)
+    estado = pagina.evaluate("fetch('/api/estado').then(r => r.json())")
+    paso("CSS propio revisado y aplicado", mal and "letter-spacing" in estado["libro"].get("cssPropio", ""))
+    pagina.get_by_text("CSS propio (avanzado)", exact=True).click()
     # Fuente propia (TTF con licencia OFL de las pruebas).
     pagina.get_by_role("button", name="Fuentes propias…").click()
     fuentes = pagina.locator(".panel-fuentes")
@@ -514,6 +526,9 @@ with sync_playwright() as p:
     estado = pagina.evaluate("fetch('/api/estado').then(r => r.json())")
     texto_libro = str(estado["libro"]["secciones"])
     paso("Reemplazar todo, también en notas", "arboleda de los elfos" in texto_libro and "osque" not in texto_libro)
+    buscar.get_by_label("Revisión rápida").select_option(label="Espacio antes de un signo de puntuación")
+    pagina.wait_for_timeout(500)
+    paso("Revisión rápida prepara la búsqueda", buscar.get_by_label("Buscar", exact=True).input_value().startswith(" +(") and buscar.get_by_label("Reemplazar con").input_value() == "$1")
     buscar.get_by_role("button", name="Cerrar búsqueda").click()
 
     # Versiones.

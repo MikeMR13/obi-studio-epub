@@ -106,5 +106,5 @@ const OPCIONES_APPLE = `<?xml version="1.0" encoding="UTF-8"?>
 export async function compilarParaTienda(libro: Libro, id: IdTienda): Promise<{ datos: Uint8Array; cambios: string[] }> {
   const ajustado = await libroParaTienda(libro, id);
   const extra = id === 'apple' && fuentesTema(temaCompleto(ajustado.libro), false, ajustado.libro).archivos.length ? { 'com.apple.ibooks.display-options.xml': OPCIONES_APPLE } : undefined;
-  return { datos: await empaquetar(compilarArchivos(ajustado.libro), extra), cambios: ajustado.cambios };
+  return { datos: await empaquetar(compilarArchivos(ajustado.libro), extra, ajustado.libro), cambios: ajustado.cambios };
 }

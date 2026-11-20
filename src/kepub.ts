@@ -98,5 +98,5 @@ export function compilarArchivosKepub(libro: Libro): Map<string, string | Uint8A
 }
 
 export async function compilarKepub(libro: Libro): Promise<Uint8Array> {
-  return empaquetar(compilarArchivosKepub(libro));
+  return empaquetar(compilarArchivosKepub(libro), {}, libro);
 }

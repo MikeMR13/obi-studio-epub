@@ -180,6 +180,14 @@ export async function iniciarServidor(op: OpcionesServidor = {}) {
       const res = await backend.anadirFuenteSistema(String((await json(q)).familia ?? ''));
       enviar(r, 200, { ...res, estado: backend.estado() });
     }],
+    ['PUT', /^\/api\/fuentes-propias\/([\w-]+)$/, async (q, r, m) => {
+      backend.ofuscarFuente(m[1], !!(await json(q)).ofuscar);
+      enviar(r, 200, backend.estado());
+    }],
+    ['PUT', /^\/api\/css$/, async (q, r) => {
+      const problemas = backend.cssPropio((await json(q)).css);
+      enviar(r, 200, { problemas, estado: backend.estado() });
+    }],
     ['DELETE', /^\/api\/fuentes-propias\/([\w-]+)$/, async (_q, r, m) => {
       backend.quitarFuente(m[1]);
       enviar(r, 200, backend.estado());

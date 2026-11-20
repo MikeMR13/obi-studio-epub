@@ -14,6 +14,7 @@ import { ErrorFuente, PREFIJO, leerFuentePropia, permisoFuente, type PermisoFuen
 import { buscarFuentesSistema, type FamiliaSistema } from '../src/fuentes-sistema.js';
 import { ErrorImagen, girar, libroConImagenesOptimizadas, recortar } from '../src/procesar-imagen.js';
 import { esVertical } from '../src/model.js';
+import { revisarCss, type ProblemaCss } from '../src/css-propio.js';
 import { PAPELES_KDP, archivosCubierta, cubiertaCompleta, medidasCubierta, posprocesarCubierta, revisarCubierta, type AvisoCubierta, type MedidasCubierta } from '../src/cubierta.js';
 import { ArchivoConfiguracion } from '../src/configuracion.js';
 import { CATALOGO_INTEGRADO, ListaCatalogos, archivoCatalogos, leerCatalogo, normalizarUrlCatalogo, paqueteDeCatalogo, versionMayor, type EntradaCatalogo } from '../src/catalogo.js';
@@ -509,6 +510,25 @@ export class Backend {
     return r!;
   }
 
+  ofuscarFuente(id: string, ofuscar: boolean) {
+    const f = (this.libro.fuentesPropias ?? []).find((x) => x.id === id);
+    if (!f) throw new ErrorUsuario('Esa fuente no existe.', 404);
+    if (ofuscar) f.ofuscar = true;
+    else delete f.ofuscar;
+    this.marcar();
+  }
+
+  /** Guarda el CSS propio si no tiene problemas; devuelve los problemas. */
+  cssPropio(css: string): ProblemaCss[] {
+    const texto = String(css ?? '');
+    const problemas = revisarCss(texto, this.libro);
+    if (problemas.length) return problemas;
+    if (texto.trim()) this.libro.cssPropio = texto;
+    else delete this.libro.cssPropio;
+    this.marcar();
+    return [];
+  }
+
   quitarFuente(id: string) {
     const lista = this.libro.fuentesPropias ?? [];
     if (!lista.some((f) => f.id === id)) throw new ErrorUsuario('Esa fuente no existe.', 404);
@@ -631,7 +651,7 @@ export class Backend {
 
   private async prepararVersion(interior: number, digital: boolean): Promise<string> {
     const v = String(++this.contadorImpresion);
-    this.paquetes.set(v, archivosImpresion(await libroParaImprimir(this.libro), { interior, digital }));
+    this.paquetes.set(v, archivosImpresion(await libroParaImprimir(this.libro, digital), { interior, digital }));
     // Solo se guardan las últimas versiones.
     for (const k of [...this.paquetes.keys()]) if (Number(k) < this.contadorImpresion - 4) this.paquetes.delete(k);
     return urlVisor(this.base, this.clave, Number(v));

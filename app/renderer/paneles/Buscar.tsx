@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { api, type Coincidencia, type Estado } from '../api';
 import { aviso } from '../dialogos';
 import { t } from '../i18n';
+import { REVISIONES } from '../../../src/revisiones';
 
 interface Props {
   estado: Estado;
@@ -102,6 +103,26 @@ export function Buscar({ estado, seccionActual, conReemplazo, onCerrar, onEstado
           <input type="checkbox" checked={soloSeccion} onChange={(e) => setSoloSeccion(e.target.checked)} />
           {t('Solo esta sección')}
         </label>
+        <select
+          className="revision-rapida"
+          value=""
+          aria-label={t('Revisión rápida')}
+          onChange={(e) => {
+            const r = REVISIONES.find((x) => x.id === e.target.value);
+            if (!r) return;
+            setRegex(true);
+            setMayusculas(true);
+            setPalabra(false);
+            setConsulta(r.consulta);
+            setReemplazo(r.reemplazo);
+            setVerReemplazo(true);
+          }}
+        >
+          <option value="">{t('Revisión rápida…')}</option>
+          {REVISIONES.map((r) => (
+            <option key={r.id} value={r.id}>{t(r.nombre)}</option>
+          ))}
+        </select>
         <span className="cuenta" role="status">
           {error ? <span className="error">{error}</span> : resultado ? (resultado.total === 1 ? t('1 resultado') : t('{0} resultados', { 0: resultado.total })) : ''}
         </span>

@@ -324,6 +324,8 @@ export interface FuentePropia {
   familia: string;
   generica: 'serif' | 'sans-serif';
   caras: CaraFuentePropia[];
+  /** Ofuscar la fuente en el EPUB (algoritmo del IDPF), como piden muchas licencias comerciales. */
+  ofuscar?: boolean;
 }
 
 export const FUENTES: Fuente[] = [
@@ -473,6 +475,8 @@ export interface Impresion {
   pdfx?: boolean;
   /** Marcas de corte para imprentas tradicionales (KDP e IngramSpark las rechazan). */
   marcasCorte?: boolean;
+  /** Pasar las imágenes a escala de grises en el PDF de imprenta (libro en blanco y negro). */
+  grises?: boolean;
 }
 
 export const IMPRESION_PREDETERMINADA: Impresion = {
@@ -526,6 +530,8 @@ export interface Libro {
   /** Dirección del texto: horizontal (predeterminada) o vertical japonesa (tategaki), de derecha a izquierda. */
   escritura?: 'horizontal' | 'vertical';
   cubierta?: Cubierta;
+  /** CSS propio del libro, después del tema (EPUB y PDF). Se revisa con las reglas de EPUBCheck. */
+  cssPropio?: string;
   /** Fuentes propias del usuario; el tema las cita como «propia-<id>». */
   fuentesPropias?: FuentePropia[];
   /** Reducir y recomprimir las imágenes al exportar el EPUB (el proyecto y el PDF conservan las originales). */

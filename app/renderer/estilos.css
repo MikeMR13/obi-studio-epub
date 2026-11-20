@@ -498,3 +498,5 @@ p.error { font-weight: 600; }
 .vista-cubierta { display: flex; min-height: 420px; }
 .vista-cubierta iframe { flex: 1; border: 1px solid var(--linea); border-radius: var(--radio); background: #d9d4cb; width: 100%; min-height: 420px; }
 @media (max-width: 900px) { .cuerpo-cubierta { grid-template-columns: 1fr; } }
+.area-css { width: 100%; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px; }
+.revision-rapida { max-width: 14em; font-size: 12.5px; }

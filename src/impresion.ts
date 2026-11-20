@@ -7,6 +7,7 @@ import { bloquesXhtml, numerarNotas, inlinesXhtml, type Contexto } from './compi
 import { esc, escAttr } from './xml.js';
 import { temaCompleto, esVertical } from './model.js';
 import { fuentesTema, caraFuente, familiaCss } from './fuentes.js';
+import { cssPropioSeguro } from './css-propio.js';
 import { cssTema, contenidoTitulo } from './estilo-tema.js';
 
 export const MM_POR_PULGADA = 25.4;
@@ -129,7 +130,7 @@ p { text-align: justify; }
 section.texto > h1 { padding: 0 ${Math.max(6, tema.tituloEspacio * 5)}mm 0 10mm; }
 hr.escena { border: 0; border-right: 0.4pt solid ${tema.colorAcento}; width: 0; height: 20%; margin: auto 1.2em; }
 figure img { max-width: 90%; max-height: none; }` : ''}
-`;
+${cssPropioSeguro(libro)}`;
 }
 
 function claseSeccion(s: Seccion): string {

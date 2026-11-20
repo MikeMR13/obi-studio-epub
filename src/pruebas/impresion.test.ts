@@ -153,3 +153,10 @@ test('Cubierta de imprenta en PDF: tamaño exacto y una sola página', { skip: !
   assert.ok(Math.abs(p.getMediaBox().height - (215.9 + 6.35) * PT) < 0.5);
   assert.ok(Math.abs(p.getTrimBox().width - (ancho - 6.35) * PT) < 0.5);
 });
+
+test('PDF para imprenta en escala de grises: sin páginas a color', { skip: !hayNavegador, timeout: 300_000 }, async () => {
+  const l = libroDePrueba();
+  l.impresion = { ...(l.impresion ?? ({} as never)), grises: true } as Libro['impresion'];
+  const r = await pdfDesdeLibro(l, 'impresion');
+  assert.deepEqual(r.paginasColor, []);
+});

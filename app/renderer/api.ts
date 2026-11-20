@@ -9,6 +9,7 @@ import type { EntradaCatalogo } from '../../src/catalogo';
 import type { AvisoTienda } from '../../src/tiendas';
 import type { CaraSistema } from '../../src/fuentes-sistema';
 import type { AvisoCubierta, MedidasCubierta } from '../../src/cubierta';
+import type { ProblemaCss } from '../../src/css-propio';
 import type { PermisoFuente } from '../../src/fuentes-propias';
 import type { EstadoColaboracion } from '../colaboracion';
 import type { Hallazgo, Manifiesto, PluginInstalado } from '../../src/plugins';
@@ -71,6 +72,8 @@ export const api = {
   fuentesSistema: () => pedir<FamiliaSistemaPublica[]>('GET', '/api/fuentes-sistema'),
   anadirFuente: (archivo: File) => pedir<ResultadoFuente>('POST', `/api/fuentes-propias?nombre=${encodeURIComponent(archivo.name)}`, undefined, archivo),
   anadirFuenteSistema: (familia: string) => pedir<ResultadoFuente>('POST', '/api/fuentes-propias/sistema', { familia }),
+  ofuscarFuente: (id: string, ofuscar: boolean) => pedir<Estado>('PUT', `/api/fuentes-propias/${id}`, { ofuscar }),
+  cssPropio: (css: string) => pedir<{ problemas: ProblemaCss[]; estado: Estado }>('PUT', '/api/css', { css }),
   quitarFuente: (id: string) => pedir<Estado>('DELETE', `/api/fuentes-propias/${id}`),
   reemplazarImagen: (id: string, archivo: File) => pedir<Estado>('PUT', `/api/recursos/${id}`, undefined, archivo),
   codigo: (id: string) => pedir<{ xhtml: string }>('GET', `/api/codigo/${id}`),

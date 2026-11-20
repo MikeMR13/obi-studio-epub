@@ -103,6 +103,10 @@ export function FuentesPropias({ estado, onCerrar, onEstado }: Props) {
                 <div>
                   <strong>{f.familia}</strong>
                   <small>{f.caras.map((c) => nombreCara(c.peso, c.estilo)).join(' · ')}</small>
+                  <label className="casilla">
+                    <input type="checkbox" checked={!!f.ofuscar} onChange={(e) => api.ofuscarFuente(f.id, e.target.checked).then(onEstado).catch((er) => aviso((er as Error).message, 'error'))} />
+                    {t('Ofuscar en el EPUB (lo piden muchas licencias comerciales)')}
+                  </label>
                 </div>
                 <button onClick={() => quitar(f.id)}>{t('Quitar')}</button>
               </li>

@@ -286,6 +286,7 @@ test('Catálogo de plugins: integrado, huella y estado de instalación', async (
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join as unir } from 'node:path';
 import { ESTILOS_PARRAFO, FUENTES, TAMANOS_IMPRESION, TIPOS_SECCION, VARIANTES_RECUADRO } from '../model.js';
+import { REVISIONES } from '../revisiones.js';
 import { TEMAS } from '../temas.js';
 
 test('Interfaz: cada texto de t() y cada nombre del modelo tiene traducción al inglés', async () => {
@@ -321,6 +322,9 @@ test('Interfaz: cada texto de t() y cada nombre del modelo tiene traducción al 
     claves.add(x.nombre);
     if (x.titulo) claves.add(x.titulo);
   }
+  const css = readFileSync(unir(import.meta.dirname, '..', 'css-propio.ts'), 'utf8');
+  for (const m of css.matchAll(/plantilla: '((?:\\.|[^'\\])*)'/g)) claves.add(m[1]);
+  for (const x of REVISIONES) claves.add(x.nombre);
   const faltan = [...claves].filter((k) => !(k in EN));
   assert.deepEqual(faltan, []);
   // Los marcadores {0}, {1}… se conservan en la traducción.

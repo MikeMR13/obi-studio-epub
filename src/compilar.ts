@@ -2,11 +2,13 @@
 // Genera semántica completa (epub:type + roles DPUB-ARIA), navegación con landmarks
 // y metadatos de EPUB Accessibility 1.1.
 
+import { createHash } from 'node:crypto';
 import JSZip from 'jszip';
 import type { Bloque, Imagen, Inline, Libro, Marca, Nota, Recuadro, Recurso, Seccion, TipoSeccion, VarianteRecuadro } from './model.js';
 import { esc, escAttr, limpiarXml } from './xml.js';
 import { temaCompleto, esVertical, VARIANTES_RECUADRO } from './model.js';
 import { cssTema, separadorXhtml as separadorTema, contenidoTitulo } from './estilo-tema.js';
+import { cssPropioSeguro } from './css-propio.js';
 import { fuentesTema, caraFuente, familiaCss, datosArchivoFuente, MIME_FUENTE } from './fuentes.js';
 
 export const CARPETA = 'EPUB';
@@ -387,7 +389,7 @@ body.fija img.fija { display: block; width: 100%; height: 100%; max-width: none;
 body.fija.doble img.fija { width: 200%; }
 body.fija.doble img.mitad-der { margin-left: -100%; }
 ${cssTema(t, f.familiaTexto, f.familiaTitulos)}
-${esVertical(libro) ? cssVertical(t.colorAcento) : ''}`;
+${esVertical(libro) ? cssVertical(t.colorAcento) : ''}${cssPropioSeguro(libro)}`;
 }
 
 function cssVertical(acento: string): string {
@@ -540,6 +542,9 @@ export function compilarArchivos(libro: Libro): Map<string, string | Uint8Array>
   const usadas = new Set<string>();
   if (libro.metadatos.portada) usadas.add(libro.metadatos.portada);
   if (tema.separador === 'imagen' && tema.separadorImagen) usadas.add(tema.separadorImagen);
+  // Imágenes que cita el CSS propio.
+  const css = cssPropioSeguro(libro);
+  if (css) for (const r of libro.recursos) if (css.includes(rutaImagen(r.nombre))) usadas.add(r.id);
   for (const s of libro.secciones) {
     if (s.imagenCabecera) usadas.add(s.imagenCabecera);
     for (const b of s.bloques) if (b.tipo === 'imagen') usadas.add(b.recurso);
@@ -580,7 +585,43 @@ export function compilarArchivos(libro: Libro): Map<string, string | Uint8Array>
   return archivos;
 }
 
-export async function empaquetar(archivos: Map<string, string | Uint8Array>, metaInf: Record<string, string> = {}): Promise<Uint8Array> {
+/** Clave de ofuscación del IDPF: SHA-1 del identificador único sin espacios. */
+export function claveOfuscacion(identificador: string): Uint8Array {
+  return new Uint8Array(createHash('sha1').update(identificador.replace(/[\u0020\u0009\u000d\u000a]/g, ''), 'utf8').digest());
+}
+
+/** Ofusca (o desofusca: es simétrico) los primeros 1040 bytes de una fuente. */
+export function ofuscarFuente(datos: Uint8Array, clave: Uint8Array): Uint8Array {
+  const salida = datos.slice();
+  for (let i = 0; i < Math.min(1040, salida.length); i++) salida[i] ^= clave[i % clave.length];
+  return salida;
+}
+
+/** Ofusca las fuentes propias marcadas y devuelve el META-INF/encryption.xml (o nada). */
+function aplicarOfuscacion(archivos: Map<string, string | Uint8Array>, libro: Libro): string | undefined {
+  const marcadas = (libro.fuentesPropias ?? []).filter((f) => f.ofuscar);
+  if (!marcadas.length) return undefined;
+  const clave = claveOfuscacion(libro.metadatos.identificador);
+  const rutas: string[] = [];
+  for (const [ruta, datos] of archivos) {
+    if (!ruta.startsWith('fuentes/') || typeof datos === 'string') continue;
+    if (!marcadas.some((f) => ruta.startsWith(`fuentes/${f.id}-`))) continue;
+    archivos.set(ruta, ofuscarFuente(datos, clave));
+    rutas.push(`${CARPETA}/${ruta}`);
+  }
+  if (!rutas.length) return undefined;
+  const datos = rutas
+    .map((r) => `  <enc:EncryptedData>\n    <enc:EncryptionMethod Algorithm="http://www.idpf.org/2008/embedding"/>\n    <enc:CipherData><enc:CipherReference URI="${escAttr(r)}"/></enc:CipherData>\n  </enc:EncryptedData>`)
+    .join('\n');
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<encryption xmlns="urn:oasis:names:tc:opendocument:xmlns:container" xmlns:enc="http://www.w3.org/2001/04/xmlenc#">\n${datos}\n</encryption>\n`;
+}
+
+export async function empaquetar(archivos: Map<string, string | Uint8Array>, metaInf: Record<string, string> = {}, libro?: Libro): Promise<Uint8Array> {
+  if (libro?.fuentesPropias?.some((f) => f.ofuscar)) {
+    archivos = new Map(archivos);
+    const cifrado = aplicarOfuscacion(archivos, libro);
+    if (cifrado) metaInf = { ...metaInf, 'encryption.xml': cifrado };
+  }
   const zip = new JSZip();
   zip.file('mimetype', 'application/epub+zip', { compression: 'STORE' });
   zip.file('META-INF/container.xml', CONTAINER);
@@ -591,5 +632,5 @@ export async function empaquetar(archivos: Map<string, string | Uint8Array>, met
 }
 
 export async function compilar(libro: Libro): Promise<Uint8Array> {
-  return empaquetar(compilarArchivos(libro));
+  return empaquetar(compilarArchivos(libro), {}, libro);
 }
