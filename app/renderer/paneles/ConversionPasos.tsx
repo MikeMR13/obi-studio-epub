@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
-import { api, type AnalisisConversion, type CambioCapitulo, type CapituloVista, type CapitulosConversion, type CorteCapitulos, type DatosLibroConversion, type DescripcionesConversion, type OpcionesConversionSencilla, type PortadaConversion } from '../api';
+import { api, type AnalisisConversion, type CambioCapitulo, type CapituloVista, type CapitulosConversion, type CorteCapitulos, type DatosLibroConversion, type DatosLote, type DescripcionesConversion, type OpcionesConversionSencilla, type VolumenLote, type PortadaConversion } from '../api';
 import { TIPOS_SECCION } from '../../../src/model';
+import { TIENDAS } from '../../../src/tiendas-lista';
 import { ROLES, type Credito } from '../../../src/model';
 import { t } from '../i18n';
 
@@ -9,6 +10,9 @@ interface Props {
   ocupado: boolean;
   onCancelar: () => void;
   onConvertir: (o: OpcionesConversionSencilla & { metadatos?: DatosLibroConversion; portada?: PortadaConversion; capitulos?: CapitulosConversion; descripciones?: DescripcionesConversion }) => void;
+  /** Conversión de varios volúmenes: archivos del lote (el análisis es el del primero). */
+  lote?: VolumenLote[];
+  onConvertirLote?: (o: OpcionesConversionSencilla, datos: DatosLote) => void;
 }
 
 type Clave = keyof OpcionesConversionSencilla;
@@ -89,7 +93,7 @@ function recordar(serie: string | undefined, o: OpcionesConversionSencilla) {
 }
 
 /** Asistente de la conversión sencilla: el usuario confirma paso a paso qué conservar del original. */
-export function ConversionPasos({ analisis, ocupado, onCancelar, onConvertir }: Props) {
+export function ConversionPasos({ analisis, ocupado, onCancelar, onConvertir, lote, onConvertirLote }: Props) {
   const d = analisis.diseno;
   const alineacion = d?.tema.alinear === 'justificado' ? t('justificado') : d?.tema.alinear === 'izquierda' ? t('a la izquierda') : '';
   const detallesParrafo = [
@@ -224,8 +228,8 @@ export function ConversionPasos({ analisis, ocupado, onCancelar, onConvertir }: 
   const [meta, setMeta] = useState<DatosLibroConversion>(inicial.datos);
   const [portada, setPortada] = useState<{ vista: string; nueva?: PortadaConversion } | undefined>(analisis.portada ? { vista: analisis.portada } : undefined);
   const [paso, setPaso] = useState(0);
-  const pasoCapitulos = pasos.length;
-  const pasoMeta = pasos.length + 1;
+  const pasoCapitulos = lote ? -1 : pasos.length;
+  const pasoMeta = lote ? -1 : pasos.length + 1;
   const [cortar, setCortar] = useState<CorteCapitulos>('h1');
   const [capitulos, setCapitulos] = useState<CapituloVista[] | 'cargando' | 'error'>();
   const [cambiosCap, setCambiosCap] = useState<Record<number, CambioCapitulo>>({});
@@ -242,7 +246,12 @@ export function ConversionPasos({ analisis, ocupado, onCancelar, onConvertir }: 
     ['pt-BR', t('Portugués (Brasil)')],
     ['ja', t('Japonés')],
   ];
-  const total = pasos.length + 3;
+  const extra = lote ? [t('Volúmenes')] : [t('Capítulos e índice'), t('Metadatos')];
+  const total = pasos.length + extra.length + 1;
+  const pasoVolumenes = lote ? pasos.length : -1;
+  const [serieLote, setSerieLote] = useState(analisis.metadatos.serie ?? '');
+  const [volumenes, setVolumenes] = useState<(number | undefined)[]>(() => (lote ?? []).map((v, k) => v.volumen ?? (k === 0 ? analisis.metadatos.volumen : undefined) ?? k + 1));
+  const [tiendaLote, setTiendaLote] = useState('');
   const cambiar = <K extends keyof DatosLibroConversion>(k: K, v: DatosLibroConversion[K]) => setMeta({ ...meta, [k]: v });
   const elegirPortada = (f?: File) => {
     if (!f) return;
@@ -260,8 +269,8 @@ export function ConversionPasos({ analisis, ocupado, onCancelar, onConvertir }: 
   const describir = analisis.listaImagenes ?? [];
   const [descripciones, setDescripciones] = useState<Record<string, { alt: string; decorativa?: boolean }>>({});
   const descritas = Object.keys(descripciones).length;
-  const nombres = [...pasos.map((p) => p.titulo), t('Capítulos e índice'), t('Metadatos'), t('Confirmar')];
-  const enConfirmar = paso === pasos.length + 2;
+  const nombres = [...pasos.map((p) => p.titulo), ...extra, t('Confirmar')];
+  const enConfirmar = paso === total - 1;
   const enCapitulos = paso === pasoCapitulos;
   // Lista de capítulos con el corte elegido (se vuelve a pedir al cambiar el corte; los cambios hechos se descartan).
   useEffect(() => {
@@ -334,7 +343,7 @@ export function ConversionPasos({ analisis, ocupado, onCancelar, onConvertir }: 
                 </span>
               </label>
             ))}
-            {pasos[paso].opciones.some((x) => x.clave === 'optimizarImagenes') && describir.length > 0 && (
+            {!lote && pasos[paso].opciones.some((x) => x.clave === 'optimizarImagenes') && describir.length > 0 && (
               <details className="describir-imagenes">
                 <summary>
                   {t('Describir las imágenes (opcional)')} · {t('{0} sin descripción', { 0: describir.filter((x) => !(descripciones[x.nombre]?.alt ?? x.alt).trim() && !(descripciones[x.nombre]?.decorativa ?? x.decorativa)).length })}
@@ -528,8 +537,97 @@ export function ConversionPasos({ analisis, ocupado, onCancelar, onConvertir }: 
               </div>
             </div>
           </fieldset>
+        ) : paso === pasoVolumenes ? (
+          <fieldset className="opciones-asistente volumenes-asistente">
+            <legend>{t('Volúmenes')}</legend>
+            <p className="ayuda">{t('Las opciones de los pasos anteriores se aplican a todos los volúmenes. El título y los créditos de cada uno salen de su archivo; lo de aquí completa lo que falte.')}</p>
+            <div className="campos-metadatos">
+              <label>
+                <span>{t('Serie')}</span>
+                <input value={serieLote} onChange={(e) => setSerieLote(e.target.value)} />
+              </label>
+              <div className="fila-metadatos">
+                <label>
+                  <span>{t('Editorial')}</span>
+                  <input value={meta.editorial ?? ''} onChange={(e) => cambiar('editorial', e.target.value)} />
+                </label>
+                <label>
+                  <span>{t('Derechos')}</span>
+                  <input value={meta.derechos ?? ''} onChange={(e) => cambiar('derechos', e.target.value)} />
+                </label>
+              </div>
+              <div className="fila-metadatos">
+                <label>
+                  <span>{t('Traducción')}</span>
+                  <input value={meta.creditos.find((c) => c.rol === 'trl')?.nombre ?? ''} onChange={(e) => cambiar('creditos', [...meta.creditos.filter((c) => c.rol !== 'trl'), ...(e.target.value ? [{ nombre: e.target.value, rol: 'trl' as const }] : [])])} />
+                </label>
+                <label>
+                  <span>{t('Ilustración')}</span>
+                  <input value={meta.creditos.find((c) => c.rol === 'ill')?.nombre ?? ''} onChange={(e) => cambiar('creditos', [...meta.creditos.filter((c) => c.rol !== 'ill'), ...(e.target.value ? [{ nombre: e.target.value, rol: 'ill' as const }] : [])])} />
+                </label>
+              </div>
+            </div>
+            <ol className="lista-capitulos lista-volumenes">
+              {(lote ?? []).map((v, k) => (
+                <li key={k}>
+                  <div className="fila-volumen">
+                    <span className="nombre-volumen" title={v.nombre}>{v.nombre}</span>
+                    <label>
+                      <span>{t('Volumen')}</span>
+                      <input
+                        type="number"
+                        min={0}
+                        step={0.5}
+                        aria-label={t('Volumen de {0}', { 0: v.nombre })}
+                        value={volumenes[k] ?? ''}
+                        onChange={(e) => setVolumenes(volumenes.map((x, j) => (j === k ? (e.target.value ? Number(e.target.value) : undefined) : x)))}
+                      />
+                    </label>
+                  </div>
+                </li>
+              ))}
+            </ol>
+            <div className="opciones-indice">
+              <div className="cortes-capitulos" role="radiogroup" aria-label={t('Dónde empieza cada capítulo')}>
+                <span>{t('Cada capítulo empieza en:')}</span>
+                <label>
+                  <input type="radio" name="cortar-lote" checked={cortar === 'h1'} onChange={() => setCortar('h1')} /> {t('cada archivo y cada título principal (h1)')}
+                </label>
+                <label>
+                  <input type="radio" name="cortar-lote" checked={cortar === 'h2'} onChange={() => setCortar('h2')} /> {t('también en los subtítulos (h2)')}
+                </label>
+                <label>
+                  <input type="radio" name="cortar-lote" checked={cortar === 'saltos'} onChange={() => setCortar('saltos')} /> {t('también en los saltos de página del original')}
+                </label>
+              </div>
+            </div>
+            <div className="opciones-indice">
+              <fieldset className="niveles-indice">
+                <legend>{t('Índice')}</legend>
+                <label>
+                  <input type="radio" name="niveles-lote" checked={profundidad === 1} onChange={() => setProfundidad(1)} /> {t('Solo secciones')}
+                </label>
+                <label>
+                  <input type="radio" name="niveles-lote" checked={profundidad === 2} onChange={() => setProfundidad(2)} /> {t('Secciones y subtítulos')}
+                </label>
+              </fieldset>
+              <label className="casilla">
+                <input type="checkbox" checked={paginaIndice} onChange={(e) => setPaginaIndice(e.target.checked)} /> {t('Añadir página de índice al libro')}
+              </label>
+            </div>
+            <label className="tienda-sencillo">
+              <span>{t('Para')}</span>
+              <select value={tiendaLote} onChange={(e) => setTiendaLote(e.target.value)}>
+                <option value="">{t('Cualquier lector (EPUB estándar)')}</option>
+                {TIENDAS.map((x) => (
+                  <option key={x.id} value={x.id}>{x.nombre}</option>
+                ))}
+              </select>
+            </label>
+          </fieldset>
         ) : (
           <div className="confirmar-asistente">
+            {lote && <p className="nota-serie">{t('Se convertirán {0} volúmenes con estas opciones; cada uno se valida con EPUBCheck. La vista previa es del primero.', { 0: lote.length })}</p>}
             <h2>{t('Se conservará')}</h2>
             <ul>
               <li>{t('El texto, los formatos (negrita, cursiva, alineaciones…), las notas, la portada y las imágenes.')}</li>
@@ -537,7 +635,7 @@ export function ConversionPasos({ analisis, ocupado, onCancelar, onConvertir }: 
                 <li key={x.clave}>{x.titulo}{x.detalle ? `: ${x.detalle}` : ''}</li>
               ))}
               <li>{op.optimizarImagenes ? t('Las imágenes, reducidas para el EPUB.') : t('Las imágenes originales, sin recomprimir.')}</li>
-              {Array.isArray(capitulos) && (
+              {!lote && Array.isArray(capitulos) && (
                 <li>
                   {t('Capítulos: {0}', { 0: capitulos.length - Object.values(cambiosCap).filter((c) => c.unirConSiguiente).length })}
                   {cortar !== 'h1' ? ` · ${cortar === 'h2' ? t('cortados también en los subtítulos') : t('cortados también en los saltos de página')}` : ''}
@@ -545,12 +643,16 @@ export function ConversionPasos({ analisis, ocupado, onCancelar, onConvertir }: 
                   {paginaIndice ? ` · ${t('con página de índice')}` : ''}
                 </li>
               )}
+              {lote ? (
+                <li>{t('Serie «{0}», volúmenes {1}', { 0: serieLote || '—', 1: volumenes.map((v) => v ?? '?').join(', ') })}</li>
+              ) : (
               <li>
                 {t('Metadatos: «{0}»', { 0: meta.titulo || analisis.titulo })}
                 {meta.creditos.filter((c) => c.nombre.trim()).length ? ` · ${meta.creditos.filter((c) => c.nombre.trim()).map((c) => c.nombre).join(', ')}` : ''}
                 {meta.serie ? ` · ${meta.serie}${meta.volumen ? ` ${meta.volumen}` : ''}` : ''}
                 {portada?.nueva ? ` · ${t('portada nueva')}` : ''}
               </li>
+              )}
             </ul>
             {(corregir.length > 0 || descritas > 0) && (
               <>
@@ -600,11 +702,27 @@ export function ConversionPasos({ analisis, ocupado, onCancelar, onConvertir }: 
             <button className="principal" onClick={() => setPaso(paso + 1)}>{t('Siguiente')}</button>
           ) : (
             <button className="principal grande" disabled={ocupado} onClick={() => {
+                if (lote && onConvertirLote) {
+                  recordar(serieLote.trim() || analisis.serie, op);
+                  recordarDatos({ ...meta, serie: serieLote });
+                  onConvertirLote(op, {
+                    ...(serieLote.trim() ? { serie: serieLote.trim() } : {}),
+                    ...(meta.editorial ? { editorial: meta.editorial } : {}),
+                    ...(meta.derechos ? { derechos: meta.derechos } : {}),
+                    creditos: meta.creditos.filter((c) => c.nombre.trim() && c.rol !== 'aut'),
+                    volumenes,
+                    cortar,
+                    profundidad,
+                    paginaIndice,
+                    ...(tiendaLote ? { tienda: tiendaLote } : {}),
+                  });
+                  return;
+                }
                 const serie = meta.serie?.trim() || analisis.serie;
                 recordar(serie, op);
                 recordarDatos(meta);
                 onConvertir({ ...op, ...(descritas ? { descripciones } : {}), capitulos: datosCapitulos(), metadatos: { ...meta, creditos: meta.creditos.filter((c) => c.nombre.trim()) }, ...(portada?.nueva ? { portada: portada.nueva } : {}) });
-              }}>{ocupado ? t('Convirtiendo…') : t('Convertir')}</button>
+              }}>{ocupado ? t('Convirtiendo…') : lote ? t('Convertir {0} volúmenes', { 0: lote.length }) : t('Convertir')}</button>
           )}
         </div>
       </div>

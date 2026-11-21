@@ -236,6 +236,43 @@ export interface CapituloVista {
   subtitulos: number;
 }
 
+/** Volumen de una conversión por lotes. */
+export interface VolumenLote {
+  nombre: string;
+  volumen?: number;
+}
+
+/** Datos comunes de la serie para la conversión por lotes. */
+export interface DatosLote {
+  serie?: string;
+  editorial?: string;
+  derechos?: string;
+  idioma?: string;
+  creditos?: Credito[];
+  /** Volumen de cada archivo, en el orden en que se subieron. */
+  volumenes?: (number | undefined)[];
+  tienda?: string;
+  cortar?: CorteCapitulos;
+  profundidad?: 1 | 2;
+  paginaIndice?: boolean;
+}
+
+export interface ResultadoLote {
+  nombre: string;
+  titulo: string;
+  archivo?: string;
+  ok: boolean;
+  avisos: string[];
+  errores: string[];
+}
+
+/** Volumen que sugiere el nombre del archivo («Vol. 3», «v03», «Tomo 2», «… 05.epub»). */
+export function volumenDeNombre(nombre: string): number | undefined {
+  const base = nombre.replace(/\.[^.]+$/, '');
+  const m = base.match(/(?:vol(?:umen|ume)?|tomo|v|libro|book)[\s._-]*(\d{1,3}(?:[.,]5)?)/i) ?? base.match(/(?:^|[\s._-])(\d{1,3})(?:[\s._-]*$)/);
+  return m ? Number(m[1].replace(',', '.')) : undefined;
+}
+
 /** Nueva portada elegida en el asistente. */
 export interface PortadaConversion {
   nombre: string;
@@ -909,7 +946,7 @@ export class Backend {
               ...(cortar === 'h2' ? { cortarEnH2: true } : {}),
               ...(cortar === 'saltos' ? { saltoPagina: detectorSaltos(d?.css ?? '') } : {}),
             })
-          : await importarDocx(p.datos, { vacios: op.lineasEnBlanco, ...(cortar === 'h2' ? { cortarEnH2: true } : {}) });
+          : await importarDocx(p.datos, { vacios: op.lineasEnBlanco, ...(cortar === 'h2' ? { cortarEnH2: true } : {}), ...(cortar === 'saltos' ? { cortarEnSaltos: true } : {}) });
       if (ext === 'docx' && d && ((op.espacioPorParrafo && d.parrafosConEspacio) || (op.estilosParrafo && d.estilos?.length))) {
         await aplicarDisenoDocx(r.libro, p.datos, { espacio: op.espacioPorParrafo, ...(op.estilosParrafo ? { estilos: d.estilos } : {}) });
       }
@@ -1068,6 +1105,90 @@ export class Backend {
       corregido,
       avisos,
     };
+  }
+
+  // ---------- Conversión por lotes (varios volúmenes con las mismas opciones) ----------
+
+  private lote: { nombre: string; datos: Uint8Array }[] = [];
+  private loteHecho = new Map<number, { nombre: string; datos: Uint8Array }>();
+
+  /** Empieza un lote nuevo (borra el anterior). */
+  nuevoLote() {
+    this.lote = [];
+    this.loteHecho.clear();
+  }
+
+  /** Añade un archivo al lote; el primero se analiza para el asistente. */
+  async anadirAlLote(nombre: string, datos: Uint8Array): Promise<{ indice: number; volumen?: number; analisis?: AnalisisConversion }> {
+    if (this.lote.length >= 60) throw new ErrorUsuario('Un lote admite como mucho 60 archivos.');
+    const ext = nombre.toLowerCase().split('.').pop();
+    if (ext !== 'epub' && ext !== 'docx' && !esFormatoOtro(ext)) throw new ErrorUsuario(`«${nombre}» no es un formato que admita la conversión sencilla.`);
+    this.lote.push({ nombre, datos });
+    const indice = this.lote.length - 1;
+    const volumen = volumenDeNombre(nombre);
+    if (indice === 0) return { indice, ...(volumen !== undefined ? { volumen } : {}), analisis: await this.analizarConversion(nombre, datos) };
+    return { indice, ...(volumen !== undefined ? { volumen } : {}) };
+  }
+
+  /** Convierte un volumen del lote con las opciones elegidas, sin tocar el libro abierto, y lo valida. */
+  async convertirDelLote(indice: number, entrada: Partial<OpcionesConversionSencilla> & { lote?: DatosLote } = {}): Promise<ResultadoLote> {
+    const a = this.lote[indice];
+    if (!a) throw new ErrorUsuario('Ese archivo no está en el lote.');
+    const { lote: datosLote = {}, ...op } = entrada;
+    const otro = new Backend(this.carpetaRecuperacion);
+    otro.sistema = this.sistema;
+    const r: ResultadoLote = { nombre: a.nombre, titulo: a.nombre, ok: false, avisos: [], errores: [] };
+    try {
+      const an = await otro.analizarConversion(a.nombre, a.datos);
+      const m = an.metadatos;
+      const volumen = datosLote.volumenes?.[indice] ?? m.volumen ?? volumenDeNombre(a.nombre);
+      // Los datos de la serie completan lo que el volumen no trae (nunca reemplazan su título).
+      const creditos = [...m.creditos];
+      for (const c of datosLote.creditos ?? []) if (c?.nombre && !creditos.some((x) => x.rol === c.rol)) creditos.push(c);
+      const metadatos = {
+        ...m,
+        ...(datosLote.serie ? { serie: datosLote.serie } : {}),
+        ...(volumen !== undefined ? { volumen } : {}),
+        ...(!m.editorial && datosLote.editorial ? { editorial: datosLote.editorial } : {}),
+        ...(!m.derechos && datosLote.derechos ? { derechos: datosLote.derechos } : {}),
+        ...(datosLote.idioma ? { idioma: datosLote.idioma } : {}),
+        creditos,
+      };
+      const res = await otro.conversionSencilla({
+        ...op,
+        metadatos,
+        capitulos: { cortar: datosLote.cortar ?? 'h1', ...(datosLote.profundidad === 2 ? { profundidad: 2 } : {}), ...(datosLote.paginaIndice ? { paginaIndice: true } : {}) },
+      });
+      clearTimeout(otro.temporizador);
+      r.titulo = otro.libro.metadatos.titulo || a.nombre;
+      r.avisos = res.avisos;
+      const salida = datosLote.tienda ? await otro.exportarTienda(datosLote.tienda) : await otro.exportar();
+      const base = salida.nombre.replace(/\.epub$/, '');
+      const prefijo = volumen !== undefined ? `${String(volumen).padStart(2, '0')} - ` : '';
+      this.loteHecho.set(indice, { nombre: `${prefijo}${base}.epub`, datos: salida.datos });
+      r.archivo = `${prefijo}${base}.epub`;
+      r.ok = true;
+    } catch (e) {
+      clearTimeout(otro.temporizador);
+      const d = e instanceof ErrorUsuario ? (e.datos as { mensajes?: { mensaje: string }[] } | undefined) : undefined;
+      r.errores = d?.mensajes?.length ? d.mensajes.slice(0, 5).map((x) => x.mensaje) : [(e as Error).message];
+    }
+    return r;
+  }
+
+  /** ZIP con los EPUB del lote ya convertidos. */
+  async descargarLote(): Promise<{ nombre: string; datos: Uint8Array }> {
+    if (!this.loteHecho.size) throw new ErrorUsuario('Todavía no hay volúmenes convertidos.');
+    const zip = new JSZip();
+    const usados = new Set<string>();
+    for (const [, v] of [...this.loteHecho].sort((x, y) => x[0] - y[0])) {
+      let n = v.nombre;
+      for (let k = 2; usados.has(n); k++) n = v.nombre.replace(/\.epub$/, ` (${k}).epub`);
+      usados.add(n);
+      zip.file(n, v.datos, { compression: 'STORE' });
+    }
+    const serie = this.libro.metadatos.serie;
+    return { nombre: `${nombreDeArchivo(serie || 'volumenes')}.zip`, datos: await zip.generateAsync({ type: 'uint8array' }) };
   }
 
   /** Cambios de la lista de capítulos del asistente: títulos, índice, uniones, niveles y página de índice. */

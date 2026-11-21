@@ -107,6 +107,20 @@ export async function iniciarServidor(op: OpcionesServidor = {}) {
     ['POST', /^\/api\/conversion\/analisis$/, async (q, r, _m, url) => {
       enviar(r, 200, await backend.analizarConversion(url.searchParams.get('nombre') ?? 'archivo', await cuerpo(q)));
     }],
+    ['POST', /^\/api\/lote\/nuevo$/, async (_q, r) => {
+      backend.nuevoLote();
+      enviar(r, 200, { ok: true });
+    }],
+    ['POST', /^\/api\/lote\/archivo$/, async (q, r, _m, url) => {
+      enviar(r, 200, await backend.anadirAlLote(url.searchParams.get('nombre') ?? 'libro.epub', await cuerpo(q)));
+    }],
+    ['POST', /^\/api\/lote\/(\d+)\/convertir$/, async (q, r, m) => {
+      enviar(r, 200, await backend.convertirDelLote(Number(m[1]), await json(q)));
+    }],
+    ['GET', /^\/api\/lote\/descargar$/, async (_q, r) => {
+      const { nombre, datos } = await backend.descargarLote();
+      descarga(r, nombre, 'application/zip', datos);
+    }],
     ['POST', /^\/api\/conversion\/capitulos$/, async (q, r) => {
       enviar(r, 200, await backend.capitulosConversion(await json(q)));
     }],

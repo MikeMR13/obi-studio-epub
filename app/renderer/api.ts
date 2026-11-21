@@ -1,4 +1,4 @@
-import type { AnalisisConversion, CapituloVista, CapitulosConversion, CorteCapitulos, DatosLibroConversion, DescripcionesConversion, Estado, OpcionesConversionSencilla, PortadaConversion, ResumenConversion } from '../backend';
+import type { AnalisisConversion, CapituloVista, CapitulosConversion, CorteCapitulos, DatosLibroConversion, DatosLote, DescripcionesConversion, Estado, ResultadoLote, OpcionesConversionSencilla, PortadaConversion, ResumenConversion } from '../backend';
 import type { Resultado } from '../../src/validar';
 
 import type { AvisoImpresion } from '../../src/preflight';
@@ -20,7 +20,7 @@ import { t } from './i18n';
 export type RevisionCubierta = { avisos: AvisoCubierta[]; medidas?: MedidasCubierta; paginas?: number };
 export type FamiliaSistemaPublica = { familia: string; caras: Omit<CaraSistema, 'ruta'>[] };
 export type ResultadoFuente = { familia: string; permiso: PermisoFuente; estado: Estado };
-export type { AnalisisConversion, CambioCapitulo, CapituloVista, CapitulosConversion, CorteCapitulos, DatosLibroConversion, DescripcionesConversion, OpcionesConversionSencilla, PortadaConversion, ResumenConversion } from '../backend';
+export type { AnalisisConversion, CambioCapitulo, CapituloVista, CapitulosConversion, CorteCapitulos, DatosLibroConversion, DatosLote, DescripcionesConversion, ResultadoLote, VolumenLote, OpcionesConversionSencilla, PortadaConversion, ResumenConversion } from '../backend';
 export type { Estado, Resultado, AvisoImpresion, InformeAccesibilidad, Hallazgo, Manifiesto, PluginInstalado };
 
 export class ErrorApi extends Error {
@@ -47,6 +47,9 @@ async function pedir<T>(metodo: string, ruta: string, cuerpo?: unknown, binario?
 export const api = {
   estado: () => pedir<Estado>('GET', '/api/estado'),
   nuevo: (titulo: string, autor: string) => pedir<Estado>('POST', '/api/nuevo', { titulo, autor }),
+  nuevoLote: () => pedir<{ ok: boolean }>('POST', '/api/lote/nuevo'),
+  archivoLote: (archivo: File) => pedir<{ indice: number; volumen?: number; analisis?: AnalisisConversion }>('POST', `/api/lote/archivo?nombre=${encodeURIComponent(archivo.name)}`, undefined, archivo),
+  convertirLote: (indice: number, opciones: OpcionesConversionSencilla, lote: DatosLote) => pedir<ResultadoLote>('POST', `/api/lote/${indice}/convertir`, { ...opciones, lote }),
   analizarConversion: (archivo: File) => pedir<AnalisisConversion>('POST', `/api/conversion/analisis?nombre=${encodeURIComponent(archivo.name)}`, undefined, archivo),
   conversion: (opciones: OpcionesConversionSencilla & { metadatos?: DatosLibroConversion; portada?: PortadaConversion; capitulos?: CapitulosConversion; descripciones?: DescripcionesConversion }) => pedir<ResumenConversion>('POST', '/api/conversion', opciones),
   capitulosConversion: (opciones: OpcionesConversionSencilla & { cortar: CorteCapitulos }) => pedir<CapituloVista[]>('POST', '/api/conversion/capitulos', opciones),

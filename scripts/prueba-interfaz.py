@@ -835,6 +835,33 @@ with sync_playwright() as p:
     pagina.screenshot(path=f"{CAPTURAS}/37b-conversion-sencilla-final.png")
     pagina.get_by_role("button", name="Abrir en el editor completo").click()
     expect(pagina.locator(".lista-secciones")).to_be_visible(timeout=15000)
+
+    # Conversión de varios volúmenes con las mismas opciones.
+    import shutil
+    serie_dir = os.path.join(CAPTURAS, "serie")
+    os.makedirs(serie_dir, exist_ok=True)
+    for n in (1, 2):
+        shutil.copy(f"{DOCS}/ajeno.epub", os.path.join(serie_dir, f"Otro mundo Vol. {n}.epub"))
+    pagina.locator("button.marca").click()
+    pagina.get_by_label("Archivo para la conversión sencilla").set_input_files([os.path.join(serie_dir, f"Otro mundo Vol. {n}.epub") for n in (1, 2)])
+    asistente = pagina.locator(".asistente")
+    expect(asistente).to_be_visible(timeout=60000)
+    for _ in range(5):
+        asistente.get_by_role("button", name="Siguiente").click()
+    expect(asistente.locator("legend").first).to_have_text("Volúmenes")
+    asistente.get_by_label("Serie", exact=True).fill("Otro mundo")
+    vols = [asistente.get_by_label("Volumen de Otro mundo Vol. 1.epub").input_value(), asistente.get_by_label("Volumen de Otro mundo Vol. 2.epub").input_value()]
+    pagina.screenshot(path=f"{CAPTURAS}/41-lote-volumenes.png", full_page=True)
+    asistente.get_by_role("button", name="Siguiente").click()
+    asistente.get_by_role("button", name="Convertir 2 volúmenes").click()
+    expect(pagina.locator(".progreso-lote")).to_contain_text("2 de 2 volúmenes convertidos", timeout=240000)
+    pagina.screenshot(path=f"{CAPTURAS}/42-lote-resultado.png", full_page=True)
+    with pagina.expect_download(timeout=60000) as d:
+        pagina.get_by_role("button", name="Descargar los EPUB (.zip)").click()
+    ruta_zip = os.path.join(CAPTURAS, "serie.zip")
+    d.value.save_as(ruta_zip)
+    nombres_zip = sorted(zipfile.ZipFile(ruta_zip).namelist())
+    paso("Conversión de varios volúmenes", vols == ["1", "2"] and len(nombres_zip) == 2 and nombres_zip[0].startswith("01 - "), f"{vols} · {nombres_zip}")
     navegador.close()
 
 # Errores buscados a propósito: código mal formado, colaboración desactivada y cubierta sin diseño todavía.

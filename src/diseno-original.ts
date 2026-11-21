@@ -11,6 +11,7 @@ import { calcular, claveFirma, familia, firmaParrafo, hojaDeCss, longitud, propi
 import { claveOfuscacion, ofuscarFuente } from './compilar.js';
 import { resolverRuta } from './formatos/epub.js';
 import { woff2ASfnt } from './woff2.js';
+import { contarSaltosWord } from './formatos/docx.js';
 
 export interface FuenteOriginal {
   familia: string;
@@ -559,7 +560,7 @@ export async function disenoDeDocx(datos: Uint8Array): Promise<DisenoOriginal> {
     familiaTexto: primeraFamilia(familiaTexto),
     familiaTitulos: primeraFamilia(familiaTitulos),
     ...(estilosWord.length ? { estilos: estilosWord } : {}),
-    cortes: { h2: w.parrafos.filter((x) => /^(heading 2|t[íi]tulo 2)$/i.test(w.estilos.get(x.estilo)?.nombre ?? x.estilo)).length, saltos: 0 },
+    cortes: { h2: w.parrafos.filter((x) => /^(heading 2|t[íi]tulo 2)$/i.test(w.estilos.get(x.estilo)?.nombre ?? x.estilo)).length, saltos: contarSaltosWord((await zip.file('word/document.xml')?.async('string')) ?? '') },
     fuentes,
     avisos: [],
   };

@@ -13,6 +13,9 @@ import type { ResultadoImportacion } from './epub.js';
 import { rutaImagen } from '../compilar.js';
 
 // Estilos de Word (en español e inglés) que se convierten en estilos de párrafo de Obi Studio.
+// Saltos de página de Word: se convierten en el salto de página de Obi Studio (o cortan capítulo).
+const MAPA_SALTOS = ["br[type='page'] => hr.salto-pagina"];
+
 const MAPA_ESTILOS = [
   "p[style-name='Pensamiento'] => p.pensamiento:fresh",
   "p[style-name='Thought'] => p.pensamiento:fresh",
@@ -61,16 +64,70 @@ export function rubiesDeTexto(lista: Inline[]): Inline[] {
   return normalizarInlines(salida);
 }
 
-export async function importarDocx(datos: Uint8Array, importacion: { vacios?: boolean; cortarEnH2?: boolean } = {}): Promise<ResultadoImportacion> {
+/** «Salto de página antes» directo de un párrafo de Word: mammoth no lo lee, así que se cambia por un salto al principio. */
+async function conSaltosAntes(datos: Uint8Array): Promise<Uint8Array> {
+  const zip = await JSZip.loadAsync(datos);
+  const doc = await zip.file('word/document.xml')?.async('string');
+  if (!doc || !/<w:pageBreakBefore(?![^>]*w:val="(0|false|off)")[^>]*\/>/.test(doc)) return datos;
+  const nuevo = doc.replace(/(<w:p\b[^>]*>)(\s*<w:pPr>(?:(?!<\/w:pPr>)[\s\S])*?<w:pageBreakBefore(?![^>]*w:val="(?:0|false|off)")[^>]*\/>[\s\S]*?<\/w:pPr>)/g, '$1$2<w:r><w:br w:type="page"/></w:r>');
+  zip.file('word/document.xml', nuevo);
+  return zip.generateAsync({ type: 'uint8array' });
+}
+
+/** Saltos de página que hay en un Word (para ofrecer cortar capítulos por ellos). */
+export function contarSaltosWord(documentXml: string): number {
+  return (documentXml.match(/<w:br\b[^>]*w:type="page"[^>]*\/>/g) ?? []).length + (documentXml.match(/<w:pageBreakBefore(?![^>]*w:val="(?:0|false|off)")[^>]*\/>/g) ?? []).length;
+}
+
+const MARCADOR_SALTO_WORD = /^⟦Salto de página[^⟧]*⟧$/;
+
+/** Saca los saltos de página (hr.salto-pagina que mammoth deja dentro del párrafo) a un div entre dos párrafos. */
+function sacarSaltos(cuerpo: Nodo) {
+  for (const hr of todos(cuerpo, (n) => nombre(n) === 'hr' && attr(n, 'class').includes('salto-pagina'))) {
+    const p = hr.parentNode as Nodo | null;
+    const doc = (hr as unknown as { ownerDocument: { createElement(n: string): Nodo } }).ownerDocument;
+    const quitar = (n: Nodo) => (n.parentNode as unknown as { removeChild(x: Nodo): void }).removeChild(n);
+    // El marcador del Word de corrección ya dice dónde va el salto.
+    if (p && MARCADOR_SALTO_WORD.test(texto(p).trim())) {
+      quitar(hr);
+      continue;
+    }
+    const div = doc.createElement('div');
+    (div as unknown as { setAttribute(a: string, v: string): void }).setAttribute('class', 'salto-pagina');
+    const siguiente = (n: Nodo) => (n as unknown as { nextSibling: Nodo | null }).nextSibling;
+    const insertar = (nuevo: Nodo, despuesDe: Nodo) => (despuesDe.parentNode as unknown as { insertBefore(a: Nodo, b: Nodo | null): void }).insertBefore(nuevo, siguiente(despuesDe));
+    if (!p || !/^(p|h[1-6]|li)$/.test(nombre(p))) {
+      insertar(div, hr);
+      quitar(hr);
+      continue;
+    }
+    const segundo = (p as unknown as { cloneNode(d: boolean): Nodo }).cloneNode(false);
+    for (let x = siguiente(hr); x; x = siguiente(hr)) (segundo as unknown as { appendChild(x: unknown): void }).appendChild(x);
+    quitar(hr);
+    insertar(div, p);
+    insertar(segundo, div);
+    const vacio = (n: Nodo) => !texto(n).trim() && !todos(n, (x) => nombre(x) === 'img').length;
+    if (vacio(segundo)) quitar(segundo);
+    if (vacio(p)) quitar(p);
+  }
+}
+
+export async function importarDocx(
+  datos: Uint8Array,
+  /** `saltos: false` ignora los saltos de página (el Word de corrección los pone entre capítulos). */
+  importacion: { vacios?: boolean; cortarEnH2?: boolean; cortarEnSaltos?: boolean; saltos?: boolean } = {},
+): Promise<ResultadoImportacion> {
   const avisos: ResultadoImportacion['avisos'] = [];
   const recursos: Recurso[] = [];
   const usados = new Set<string>();
 
+  const saltos = importacion.saltos !== false;
+  if (saltos) datos = await conSaltosAntes(datos);
   const buffer = Buffer.from(datos.buffer, datos.byteOffset, datos.byteLength);
   const resultado = await mammoth.convertToHtml(
     { buffer },
     {
-      styleMap: MAPA_ESTILOS,
+      styleMap: saltos ? [...MAPA_SALTOS, ...MAPA_ESTILOS] : MAPA_ESTILOS,
       includeDefaultStyleMap: true,
       ...(importacion.vacios ? { ignoreEmptyParagraphs: false } : {}),
       // Mammoth no exporta la alineación: se convierte en un estilo antes de transformar.
@@ -113,6 +170,7 @@ export async function importarDocx(datos: Uint8Array, importacion: { vacios?: bo
 
   const documento = analizarHtml(resultado.value);
   const cuerpo = buscar(documento, (n) => nombre(n) === 'body')!;
+  sacarSaltos(cuerpo);
 
   // Notas al pie y finales de mammoth: <a href="#footnote-1" id="footnote-ref-1"> y <li id="footnote-1">.
   const cuerpos = new Map<string, Nodo>();
@@ -136,6 +194,7 @@ export async function importarDocx(datos: Uint8Array, importacion: { vacios?: bo
   const opciones: OpcionesConversion = {
     vacios: importacion.vacios,
     ...(importacion.cortarEnH2 ? { cortarEnH2: true } : {}),
+    ...(importacion.cortarEnSaltos ? { saltoPagina: (n: Nodo) => ({ antes: nombre(n) === 'div' && attr(n, 'class').includes('salto-pagina'), despues: false }) } : {}),
     css: new Map(),
     imagen: (src) => (src.startsWith('obi-recurso:') ? src.slice('obi-recurso:'.length) : undefined),
     rutaCruda: (src) => {
@@ -151,6 +210,11 @@ export async function importarDocx(datos: Uint8Array, importacion: { vacios?: bo
   };
 
   const partes = convertirBloques(cuerpo, opciones, 'es');
+  // En Word es habitual un salto de página antes de cada capítulo: al principio o al final de un capítulo no hace nada.
+  for (const p of partes) {
+    while (p.bloques[0]?.tipo === 'saltoPagina') p.bloques.shift();
+    while (p.bloques[p.bloques.length - 1]?.tipo === 'saltoPagina') p.bloques.pop();
+  }
   const secciones: Seccion[] = [];
   partes.forEach((p, k) => {
     const sinTitulo = p.titulo === undefined;

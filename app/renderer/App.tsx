@@ -20,10 +20,11 @@ import { Colaborar } from './paneles/Colaborar';
 import { Configuracion } from './paneles/Configuracion';
 import { Publicar } from './paneles/Publicar';
 import { IndiceLibro } from './paneles/IndiceLibro';
+import { Lote } from './paneles/Lote';
 import { Muestra } from './paneles/Muestra';
 import { Cubierta } from './paneles/Cubierta';
 import { Sencillo } from './paneles/Sencillo';
-import type { AnalisisConversion, OpcionesConversionSencilla, ResumenConversion } from './api';
+import type { AnalisisConversion, DatosLote, OpcionesConversionSencilla, ResultadoLote, ResumenConversion, VolumenLote } from './api';
 import { ConversionPasos } from './paneles/ConversionPasos';
 import type { Pestana } from './paneles/Inspector';
 import { cambiarIdioma, idiomaInterfaz, t } from './i18n';
@@ -72,6 +73,8 @@ export function App() {
   const [sencillo, setSencillo] = useState<ResumenConversion | null>(null);
   const [asistente, setAsistente] = useState<AnalisisConversion | null>(null);
   const [convirtiendo, setConvirtiendo] = useState(false);
+  const [lote, setLote] = useState<VolumenLote[] | null>(null);
+  const [resultadosLote, setResultadosLote] = useState<{ total: number; resultados: ResultadoLote[]; enCurso: boolean } | null>(null);
 
   const aplicar = useCallback((e: Estado, cambioVisible = true) => {
     setEstado(e);
@@ -119,10 +122,49 @@ export function App() {
     if (e.avisos.length) setTimeout(() => aviso(t('{0} avisos al importar: {1}', { 0: e.avisos.length, 1: e.avisos.slice(0, 2).join(' · ') }), 'error'), 400);
   };
 
-  const convertir = async (archivo: File) => {
-    if (estado?.cambiado && !(await confirmar(t('Abrir otro archivo'), t('Hay cambios sin guardar en el libro actual. ¿Abrir otro archivo de todos modos?'), t('Abrir')))) return;
-    const a = await llamar(() => api.analizarConversion(archivo), t('Analizando «{0}»…', { 0: archivo.name }));
-    if (a) setAsistente(a);
+  const convertir = async (archivos: File[]) => {
+    if (!archivos.length) return;
+    if (archivos.length === 1) {
+      if (estado?.cambiado && !(await confirmar(t('Abrir otro archivo'), t('Hay cambios sin guardar en el libro actual. ¿Abrir otro archivo de todos modos?'), t('Abrir')))) return;
+      const a = await llamar(() => api.analizarConversion(archivos[0]), t('Analizando «{0}»…', { 0: archivos[0].name }));
+      if (a) {
+        setLote(null);
+        setAsistente(a);
+      }
+      return;
+    }
+    // Varios volúmenes: se suben todos y se analiza el primero (por orden de nombre).
+    const ordenados = [...archivos].sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+    const r = await llamar(async () => {
+      await api.nuevoLote();
+      const vols: VolumenLote[] = [];
+      let analisis: AnalisisConversion | undefined;
+      for (const f of ordenados) {
+        const x = await api.archivoLote(f);
+        vols.push({ nombre: f.name, ...(x.volumen !== undefined ? { volumen: x.volumen } : {}) });
+        if (x.analisis) analisis = x.analisis;
+      }
+      return { vols, analisis };
+    }, t('Preparando {0} volúmenes…', { 0: ordenados.length }));
+    if (r?.analisis) {
+      setLote(r.vols);
+      setAsistente(r.analisis);
+    }
+  };
+
+  const convertirLote = async (opciones: OpcionesConversionSencilla, datos: DatosLote) => {
+    if (!lote) return;
+    const resultados: ResultadoLote[] = [];
+    setAsistente(null);
+    setResultadosLote({ total: lote.length, resultados: [], enCurso: true });
+    for (let k = 0; k < lote.length; k++) {
+      try {
+        resultados.push(await api.convertirLote(k, opciones, datos));
+      } catch (e) {
+        resultados.push({ nombre: lote[k].nombre, titulo: lote[k].nombre, ok: false, avisos: [], errores: [(e as Error).message] });
+      }
+      setResultadosLote({ total: lote.length, resultados: [...resultados], enCurso: k < lote.length - 1 });
+    }
   };
 
   const confirmarConversion = async (opciones: Parameters<typeof api.conversion>[0]) => {
@@ -330,7 +372,22 @@ export function App() {
     return (
       <>
         <Dialogos />
-        <ConversionPasos analisis={asistente} ocupado={convirtiendo} onCancelar={() => setAsistente(null)} onConvertir={confirmarConversion} />
+        <ConversionPasos
+          analisis={asistente}
+          ocupado={convirtiendo}
+          onCancelar={() => setAsistente(null)}
+          onConvertir={confirmarConversion}
+          {...(lote ? { lote, onConvertirLote: convertirLote } : {})}
+        />
+      </>
+    );
+  }
+
+  if (resultadosLote) {
+    return (
+      <>
+        <Dialogos />
+        <Lote {...resultadosLote} onInicio={() => (setResultadosLote(null), setLote(null), setInicio(true))} />
       </>
     );
   }
@@ -384,16 +441,18 @@ export function App() {
               <span className="icono-tarjeta">⇄</span>
               <strong>{t('Conversión sencilla')}</strong>
               <span>{t('De EPUB, Word, OpenDocument, HTML, Markdown o texto a EPUB, conservando el diseño, los formatos y las imágenes del original.')}</span>
+              <span className="nota-tarjeta">{t('Elige varios archivos para convertir una serie entera.')}</span>
             </button>
             <input
               ref={entradaConversion}
               type="file"
               hidden
               accept=".epub,.docx,.odt,.html,.htm,.xhtml,.md,.markdown,.txt"
+              multiple
               aria-label={t('Archivo para la conversión sencilla')}
               onChange={(e) => {
-                const f = e.target.files?.[0];
-                if (f) void convertir(f);
+                const fs = [...(e.target.files ?? [])];
+                void convertir(fs);
                 e.target.value = '';
               }}
             />
