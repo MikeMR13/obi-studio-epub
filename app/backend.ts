@@ -4,7 +4,7 @@ import JSZip from 'jszip';
 import { mkdir, readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { basename, join } from 'node:path';
-import type { Bloque, CaraFuentePropia, Comentario, Credito, Cubierta, FuentePropia, Imagen, Impresion, Libro, Nota, Metadatos, Recurso, Seccion, Tema, TipoSeccion, Tipografia } from '../src/model.js';
+import type { Bloque, CaraFuentePropia, Comentario, Credito, Cubierta, FuentePropia, Imagen, Impresion, Inline, Libro, Nota, Metadatos, Recurso, Seccion, Tema, TipoSeccion, Tipografia } from '../src/model.js';
 import { ajustesImpresion, TAMANOS_IMPRESION, temaCompleto, validarTema } from '../src/model.js';
 import { TEMAS } from '../src/temas.js';
 import { libroMuestra, sitioMuestra as crearSitioMuestra, type OpcionesMuestra } from '../src/muestra.js';
@@ -12,7 +12,7 @@ import { TIENDAS, compilarParaTienda, revisarTienda, type AvisoTienda, type IdTi
 import { buscarGhostscript } from '../src/pdfx.js';
 import { ErrorFuente, PREFIJO, leerFuentePropia, permisoFuente, type PermisoFuente } from '../src/fuentes-propias.js';
 import { buscarFuentesSistema, type FamiliaSistema } from '../src/fuentes-sistema.js';
-import { ErrorImagen, girar, libroConImagenesOptimizadas, recortar } from '../src/procesar-imagen.js';
+import { ErrorImagen, girar, libroConImagenesOptimizadas, recortar, reducir, sePuedeProcesar } from '../src/procesar-imagen.js';
 import { esVertical } from '../src/model.js';
 import { revisarCss, type ProblemaCss } from '../src/css-propio.js';
 import { aplicarDisenoDocx, asignadorEstilos, detectorSaltos, disenoDeDocx, disenoDeEpub, pareceSeparador, type DisenoOriginal } from '../src/diseno-original.js';
@@ -107,6 +107,11 @@ export interface OpcionesConversionSencilla {
   fuentesArchivo: boolean;
   fuentesSistema: boolean;
   optimizarImagenes: boolean;
+  /** Limpieza tipográfica (cambia el texto del original, por eso viene desactivada). */
+  raya: boolean;
+  comillas: boolean;
+  suspensivos: boolean;
+  espaciosSignos: boolean;
 }
 
 export const OPCIONES_CONVERSION: OpcionesConversionSencilla = {
@@ -124,7 +129,54 @@ export const OPCIONES_CONVERSION: OpcionesConversionSencilla = {
   fuentesArchivo: true,
   fuentesSistema: true,
   optimizarImagenes: false,
+  raya: false,
+  comillas: false,
+  suspensivos: false,
+  espaciosSignos: false,
 };
+
+/** Casos que la limpieza tipográfica corregiría en el original. */
+export interface TipografiaOriginal {
+  /** Párrafos de diálogo que empiezan con guion en lugar de raya. */
+  guiones: number;
+  comillasRectas: number;
+  tresPuntos: number;
+  /** Espacios dobles y espacios antes de un signo de puntuación. */
+  espacios: number;
+}
+
+/** Imagen del libro con su descripción, para revisarla (opcionalmente) en el asistente. */
+export interface ImagenConversion {
+  nombre: string;
+  alt: string;
+  decorativa: boolean;
+  /** Miniatura como data: URL. */
+  miniatura?: string;
+}
+
+/** Descripción elegida en el asistente para cada imagen (por nombre de archivo). */
+export type DescripcionesConversion = Record<string, { alt: string; decorativa?: boolean }>;
+
+/** Cuenta lo que corregiría la limpieza tipográfica. */
+export function tipografiaOriginal(libro: Libro): TipografiaOriginal {
+  const r: TipografiaOriginal = { guiones: 0, comillasRectas: 0, tresPuntos: 0, espacios: 0 };
+  const ver = (l: Inline[]) => {
+    const t = l.map((i) => (i.tipo === 'texto' ? i.texto : ' ')).join('');
+    if (/^\s*[-–]\s?\S/.test(t)) r.guiones++;
+    r.comillasRectas += (t.match(/"/g) ?? []).length;
+    r.tresPuntos += (t.match(/\.{3}/g) ?? []).length;
+    r.espacios += (t.match(/\S {2,}\S| +[,.;:!?…»)\]]/g) ?? []).length;
+  };
+  for (const s of libro.secciones) {
+    for (const b of s.bloques) {
+      if (b.tipo === 'parrafo' || b.tipo === 'subtitulo') ver(b.contenido);
+      if (b.tipo === 'lista') b.elementos.forEach(ver);
+      if (b.tipo === 'recuadro') b.lineas.forEach((x) => ver(x.contenido));
+    }
+    s.notas.forEach((n) => ver(n.contenido));
+  }
+  return r;
+}
 
 export interface AnalisisConversion {
   nombre: string;
@@ -144,6 +196,9 @@ export interface AnalisisConversion {
   metadatos: DatosLibroConversion;
   /** Portada del original como data: URL (si no es enorme). */
   portada?: string;
+  tipografia: TipografiaOriginal;
+  /** Imágenes interiores con su descripción actual. */
+  listaImagenes: ImagenConversion[];
 }
 
 /** Metadatos que se pueden revisar en el asistente (todo menos la portada, que va aparte). */
@@ -227,6 +282,8 @@ export interface ResumenConversion {
   notas: number;
   /** Lo que se conservó del diseño original. */
   conservado: string[];
+  /** Lo que se corrigió (tipografía, descripciones). */
+  corregido: string[];
   avisos: string[];
 }
 
@@ -760,7 +817,31 @@ export class Backend {
       ...(libro.metadatos.serie ? { serie: libro.metadatos.serie } : {}),
       metadatos: (({ portada: _p, resumenAccesibilidad: _r, ...m }) => m)(libro.metadatos),
       ...(portada && portada.datos.length <= 4_000_000 ? { portada: `data:${portada.tipoMime};base64,${Buffer.from(portada.datos).toString('base64')}` } : {}),
+      tipografia: tipografiaOriginal(libro),
+      listaImagenes: await this.imagenesParaDescribir(libro),
     };
+  }
+
+  /** Imágenes interiores (no la portada) con su descripción y una miniatura, para el asistente. */
+  private async imagenesParaDescribir(libro: Libro): Promise<ImagenConversion[]> {
+    const vistas = new Map<string, ImagenConversion>();
+    for (const s of libro.secciones) {
+      if (s.tipo === 'portada') continue;
+      for (const b of s.bloques) {
+        if (b.tipo !== 'imagen' || b.recurso === libro.metadatos.portada) continue;
+        const r = libro.recursos.find((x) => x.id === b.recurso);
+        if (!r || vistas.has(r.nombre) || vistas.size >= 300) continue;
+        let miniatura: string | undefined;
+        try {
+          const m = sePuedeProcesar(r.tipoMime) ? await reducir(r, { maxLado: 160 }) : r.datos.length < 200_000 ? r : undefined;
+          if (m) miniatura = `data:${m.tipoMime};base64,${Buffer.from(m.datos).toString('base64')}`;
+        } catch {
+          /* sin miniatura */
+        }
+        vistas.set(r.nombre, { nombre: r.nombre, alt: b.alt, decorativa: !!b.decorativa, ...(miniatura ? { miniatura } : {}) });
+      }
+    }
+    return [...vistas.values()];
   }
 
   /**
@@ -804,11 +885,11 @@ export class Backend {
    * (párrafos, espaciado, líneas en blanco, títulos, fuentes e imágenes).
    */
   async conversionSencilla(
-    entrada: Partial<OpcionesConversionSencilla> & { metadatos?: unknown; portada?: PortadaConversion; capitulos?: CapitulosConversion } = {},
+    entrada: Partial<OpcionesConversionSencilla> & { metadatos?: unknown; portada?: PortadaConversion; capitulos?: CapitulosConversion; descripciones?: DescripcionesConversion } = {},
   ): Promise<ResumenConversion> {
     const p = this.conversionPendiente;
     if (!p) throw new ErrorUsuario('Elige primero el archivo que quieres convertir.');
-    const { metadatos: metadatosNuevos, portada: portadaNueva, capitulos, ...o } = entrada;
+    const { metadatos: metadatosNuevos, portada: portadaNueva, capitulos, descripciones, ...o } = entrada;
     const cortar: CorteCapitulos = capitulos?.cortar === 'h2' || capitulos?.cortar === 'saltos' ? capitulos.cortar : 'h1';
     const op: OpcionesConversionSencilla = { ...OPCIONES_CONVERSION, ...o };
     const d = p.diseno;
@@ -844,6 +925,7 @@ export class Backend {
     this.ultimasPaginas = this.ultimasPaginasColor = undefined;
 
     const conservado: string[] = [];
+    const corregido: string[] = [];
     if (d) {
       avisos.push(...d.avisos);
       const cambios: Partial<Tema> = {};
@@ -938,6 +1020,36 @@ export class Backend {
     }
     if (op.optimizarImagenes) this.libro.optimizarImagenes = true;
     else conservado.push('imágenes originales');
+    // Limpieza tipográfica elegida (raya, comillas latinas, puntos suspensivos, espacios).
+    if (op.raya || op.comillas || op.suspensivos) {
+      const t: Tipografia = { raya: op.raya, comillas: op.comillas ? 'latinas' : 'sin-cambio', suspensivos: op.suspensivos };
+      this.libro.tipografia = { ...this.libro.tipografia, ...t };
+      const n = this.libro.secciones.reduce((k, s) => k + aplicarTipografiaSeccion(s, t), 0);
+      if (n) corregido.push(`tipografía en ${n} fragmentos`);
+    }
+    if (op.espaciosSignos) {
+      const n = reemplazar(this.libro, { consulta: ' {2,}', regex: true }, ' ').n + reemplazar(this.libro, { consulta: ' +([,.;:!?…»)\\]])', regex: true }, '$1').n;
+      if (n) corregido.push(n === 1 ? 'un espacio de más' : `${n} espacios de más`);
+    }
+    // Descripciones de las imágenes (opcionales).
+    if (descripciones && typeof descripciones === 'object') {
+      let n = 0;
+      for (const s of this.libro.secciones) {
+        for (const b of s.bloques) {
+          if (b.tipo !== 'imagen') continue;
+          const r = this.libro.recursos.find((x) => x.id === b.recurso);
+          const d = r ? descripciones[r.nombre] : undefined;
+          if (!d || typeof d.alt !== 'string') continue;
+          const alt = d.alt.replace(/\s+/g, ' ').trim().slice(0, 1000);
+          if (alt === b.alt && !!d.decorativa === !!b.decorativa) continue;
+          b.alt = alt;
+          if (d.decorativa) b.decorativa = true;
+          else delete b.decorativa;
+          n++;
+        }
+      }
+      if (n) corregido.push(n === 1 ? 'la descripción de una imagen' : `las descripciones de ${n} imágenes`);
+    }
     if (capitulos) this.aplicarCapitulos(capitulos, avisos);
     // Metadatos y portada revisados en el asistente.
     if (metadatosNuevos) this.metadatos(metadatosValidos(metadatosNuevos) as Partial<Metadatos>);
@@ -953,6 +1065,7 @@ export class Backend {
       imagenes: this.libro.recursos.length,
       notas: this.libro.secciones.reduce((n, x) => n + x.notas.length, 0),
       conservado,
+      corregido,
       avisos,
     };
   }

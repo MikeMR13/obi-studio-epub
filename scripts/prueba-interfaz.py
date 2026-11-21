@@ -760,6 +760,17 @@ with sync_playwright() as p:
     if marcado_inicial:
         espacio.click()
     asistente.get_by_role("button", name="Siguiente").click()
+    # Letras e imágenes: las descripciones de las imágenes son opcionales.
+    expect(asistente.locator("legend").first).to_have_text("Letras e imágenes")
+    describir = asistente.locator(".describir-imagenes")
+    if describir.count():
+        describir.locator("summary").click()
+        describir.locator("li input").first.fill("Ilustración descrita en el asistente")
+        pagina.screenshot(path=f"{CAPTURAS}/39-asistente-imagenes.png", full_page=True)
+    paso("Asistente: descripciones de imágenes opcionales", describir.count() == 1)
+    asistente.get_by_role("button", name="Siguiente").click()
+    expect(asistente.locator("legend").first).to_have_text("Limpieza")
+    paso("Asistente: limpieza tipográfica desactivada de entrada", asistente.locator(".opciones-asistente input:checked").count() == 0)
     asistente.get_by_role("button", name="Siguiente").click()
     # Capítulos e índice: lista de lo que saldrá, con títulos editables.
     expect(asistente.locator("legend").first).to_have_text("Capítulos e índice")
@@ -807,9 +818,21 @@ with sync_playwright() as p:
     with pagina.expect_download(timeout=90000) as d:
         pagina.get_by_role("button", name="Convertir a EPUB").click()
     texto_s = pagina.locator(".resumen-sencillo").inner_text()
-    titulo_s = pagina.locator(".sencillo input").first.input_value()
+    titulo_s = pagina.locator(".titulo-sencillo").inner_text()
     paso("Conversión con los metadatos revisados", titulo_s == "Mi vida en otro mundo (edición revisada)", titulo_s)
     paso("Conversión sencilla de un EPUB", d.value.suggested_filename.endswith(".epub") and "Secciones de texto" in texto_s, texto_s.replace("\n", " · ")[:120])
+    estado = pagina.evaluate("fetch('/api/estado').then(r => r.json())")
+    alts = [b.get("alt") for s in estado["libro"]["secciones"] for b in s["bloques"] if b["tipo"] == "imagen"]
+    paso("Descripción de imagen escrita en el asistente", "Ilustración descrita en el asistente" in alts, str(alts)[:120])
+    pagina.locator(".tienda-sencillo select").select_option("kobo")
+    with pagina.expect_download(timeout=90000) as d:
+        pagina.get_by_role("button", name="Convertir a EPUB").click()
+    paso("Conversión sencilla para una tienda (Kobo)", d.value.suggested_filename.endswith(".epub"), d.value.suggested_filename)
+    pagina.locator(".tienda-sencillo select").select_option("")
+    with pagina.expect_download(timeout=30000) as d:
+        pagina.get_by_role("button", name="Guardar proyecto (.obi)").click()
+    paso("Guardar el proyecto desde la conversión sencilla", d.value.suggested_filename.endswith(".obi"), d.value.suggested_filename)
+    pagina.screenshot(path=f"{CAPTURAS}/37b-conversion-sencilla-final.png")
     pagina.get_by_role("button", name="Abrir en el editor completo").click()
     expect(pagina.locator(".lista-secciones")).to_be_visible(timeout=15000)
     navegador.close()

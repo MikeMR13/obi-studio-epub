@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { api, descargar, ErrorApi, urlRecurso, type Estado, type ResumenConversion } from '../api';
+import { descargar, ErrorApi, urlRecurso, type Estado, type ResumenConversion } from '../api';
+import { TIENDAS, type IdTienda } from '../../../src/tiendas-lista';
 import { aviso } from '../dialogos';
 import { t } from '../i18n';
 
@@ -13,22 +14,28 @@ interface Props {
 }
 
 /** Conversión sencilla: revisar lo esencial y exportar, con el diseño del archivo original. */
-export function Sencillo({ resumen, estado, onEstado, onEditor, onInicio }: Props) {
+export function Sencillo({ resumen, estado, onEditor, onInicio }: Props) {
   const m = estado.libro.metadatos;
-  const [titulo, setTitulo] = useState(m.titulo);
-  const [autor, setAutor] = useState(m.creditos.find((c) => c.rol === 'aut')?.nombre ?? '');
   const [ocupado, setOcupado] = useState('');
   const [errores, setErrores] = useState<string[]>([]);
-  const portada = estado.libro.recursos.find((r) => r.id === m.portada);
-
-  const guardarMeta = async () => {
-    const creditos = [...m.creditos.filter((c) => c.rol !== 'aut'), ...(autor.trim() ? [{ nombre: autor.trim(), rol: 'aut' as const }] : [])];
+  const [tienda, setTienda] = useState<IdTienda | ''>(() => {
     try {
-      onEstado(await api.metadatos({ titulo: titulo.trim() || m.titulo, creditos }));
-    } catch (e) {
-      aviso((e as Error).message, 'error');
+      return (localStorage.getItem('obi-sencillo-tienda') as IdTienda | null) ?? '';
+    } catch {
+      return '';
+    }
+  });
+  const portada = estado.libro.recursos.find((r) => r.id === m.portada);
+  const autores = m.creditos.filter((c) => c.rol === 'aut').map((c) => c.nombre).join(', ');
+  const elegirTienda = (v: IdTienda | '') => {
+    setTienda(v);
+    try {
+      localStorage.setItem('obi-sencillo-tienda', v);
+    } catch {
+      /* sin almacenamiento */
     }
   };
+  const nombreTienda = TIENDAS.find((x) => x.id === tienda)?.nombre;
 
   const exportar = async (ruta: string, texto: string, hecho: string) => {
     setOcupado(texto);
@@ -57,19 +64,14 @@ export function Sencillo({ resumen, estado, onEstado, onEditor, onInicio }: Prop
         <div className="ficha-sencillo">
           {portada ? <img src={urlRecurso(portada.id)} alt={t('Portada')} /> : <div className="sin-portada">{t('Sin portada')}</div>}
           <div className="datos-sencillo">
-            <label className="campo">
-              <span>{t('Título')}</span>
-              <input value={titulo} onChange={(e) => setTitulo(e.target.value)} onBlur={guardarMeta} />
-            </label>
-            <label className="campo">
-              <span>{t('Autor o autora')}</span>
-              <input value={autor} onChange={(e) => setAutor(e.target.value)} onBlur={guardarMeta} />
-            </label>
+            <h2 className="titulo-sencillo">{m.titulo}</h2>
+            {autores && <p className="autor-sencillo">{autores}{m.serie ? ` · ${m.serie}${m.volumen ? ` ${m.volumen}` : ''}` : ''}</p>}
             <ul className="resumen-sencillo">
               <li>{t('Secciones de texto: {0}', { 0: resumen.capitulos })}</li>
               <li>{t('Ilustraciones: {0} · imágenes en total: {1}', { 0: resumen.ilustraciones, 1: resumen.imagenes })}</li>
               <li>{t('Notas al pie: {0}', { 0: resumen.notas })}</li>
               {resumen.conservado.length > 0 && <li className="ok">{t('Del diseño original: {0}', { 0: resumen.conservado.join(', ') })}</li>}
+              {resumen.corregido?.length > 0 && <li className="ok">{t('Corregido: {0}', { 0: resumen.corregido.join(', ') })}</li>}
             </ul>
           </div>
         </div>
@@ -91,12 +93,31 @@ export function Sencillo({ resumen, estado, onEstado, onEditor, onInicio }: Prop
           </ul>
         )}
         {ocupado && <p className="ayuda" role="status">{ocupado}</p>}
+        <label className="tienda-sencillo">
+          <span>{t('Para')}</span>
+          <select value={tienda} onChange={(e) => elegirTienda(e.target.value as IdTienda | '')}>
+            <option value="">{t('Cualquier lector (EPUB estándar)')}</option>
+            {TIENDAS.map((x) => (
+              <option key={x.id} value={x.id}>{x.nombre}</option>
+            ))}
+          </select>
+          {tienda && <small>{t('Se aplican los límites de imágenes de esa tienda al exportar.')}</small>}
+        </label>
         <div className="botones-sencillo">
-          <button className="principal grande" disabled={!!ocupado} onClick={() => exportar('/api/exportar', t('Creando y validando el EPUB…'), t('EPUB creado y validado.'))}>
+          <button
+            className="principal grande"
+            disabled={!!ocupado}
+            onClick={() =>
+              tienda
+                ? exportar(`/api/tiendas/${tienda}/exportar`, t('Creando el EPUB para {0}…', { 0: nombreTienda ?? '' }), t('EPUB para {0} creado.', { 0: nombreTienda ?? '' }))
+                : exportar('/api/exportar', t('Creando y validando el EPUB…'), t('EPUB creado y validado.'))
+            }
+          >
             {t('Convertir a EPUB')}
           </button>
           <button disabled={!!ocupado} onClick={() => exportar('/api/exportar-kepub', t('Creando el KEPUB…'), t('KEPUB creado.'))}>{t('KEPUB para Kobo')}</button>
           <button disabled={!!ocupado} onClick={() => exportar('/api/exportar-pdf?tipo=digital', t('Compaginando el PDF digital…'), t('PDF digital creado.'))}>{t('PDF digital')}</button>
+          <button disabled={!!ocupado} onClick={() => exportar('/api/proyecto', t('Guardando el proyecto…'), t('Proyecto guardado.'))}>{t('Guardar proyecto (.obi)')}</button>
         </div>
         <p className="pie-sencillo">
           {t('Se conservan el texto, los formatos, las notas y las imágenes del original.')}{' '}

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { api, type AnalisisConversion, type CambioCapitulo, type CapituloVista, type CapitulosConversion, type CorteCapitulos, type DatosLibroConversion, type OpcionesConversionSencilla, type PortadaConversion } from '../api';
+import { api, type AnalisisConversion, type CambioCapitulo, type CapituloVista, type CapitulosConversion, type CorteCapitulos, type DatosLibroConversion, type DescripcionesConversion, type OpcionesConversionSencilla, type PortadaConversion } from '../api';
 import { TIPOS_SECCION } from '../../../src/model';
 import { ROLES, type Credito } from '../../../src/model';
 import { t } from '../i18n';
@@ -8,7 +8,7 @@ interface Props {
   analisis: AnalisisConversion;
   ocupado: boolean;
   onCancelar: () => void;
-  onConvertir: (o: OpcionesConversionSencilla & { metadatos?: DatosLibroConversion; portada?: PortadaConversion; capitulos?: CapitulosConversion }) => void;
+  onConvertir: (o: OpcionesConversionSencilla & { metadatos?: DatosLibroConversion; portada?: PortadaConversion; capitulos?: CapitulosConversion; descripciones?: DescripcionesConversion }) => void;
 }
 
 type Clave = keyof OpcionesConversionSencilla;
@@ -20,6 +20,10 @@ interface Opcion {
   detalle?: string;
   disponible: boolean;
   ayuda?: string;
+  /** Valor inicial cuando está disponible (si no se dice, se conserva). */
+  predeterminado?: boolean;
+  /** Corrige el original en lugar de conservar algo de él. */
+  correccion?: boolean;
 }
 
 const em = (v?: number) => (v === undefined ? '' : `${Math.round(v * 100) / 100} em`);
@@ -107,6 +111,7 @@ export function ConversionPasos({ analisis, ocupado, onCancelar, onConvertir }: 
   const bloqueadas = analisis.fuentesArchivo.filter((f) => !f.permiso.incrustable);
   const instaladas = analisis.letras.filter((l) => l.origen === 'sistema').map((l) => l.familia);
   const faltan = analisis.letras.filter((l) => l.origen === 'falta').map((l) => l.familia);
+  const tip = analisis.tipografia ?? { guiones: 0, comillasRectas: 0, tresPuntos: 0, espacios: 0 };
   const espaciado = [d?.espaciadoLetras ? t('letras {0}', { 0: em(d.espaciadoLetras) }) : '', d?.espaciadoPalabras ? t('palabras {0}', { 0: em(d.espaciadoPalabras) }) : ''].filter(Boolean);
 
   const pasos: { titulo: string; opciones: Opcion[] }[] = [
@@ -185,7 +190,25 @@ export function ConversionPasos({ analisis, ocupado, onCancelar, onConvertir }: 
           detalle: t('{0} imágenes', { 0: analisis.imagenes }),
           disponible: analisis.imagenes > 0,
           ayuda: t('Sin marcar, las imágenes van tal cual en el original.'),
+          predeterminado: false,
+          correccion: true,
         },
+      ],
+    },
+    {
+      titulo: t('Limpieza'),
+      opciones: [
+        {
+          clave: 'raya',
+          titulo: t('Raya en los diálogos'),
+          detalle: tip.guiones ? t('{0} diálogos empiezan con guion (-) en lugar de raya (—)', { 0: tip.guiones }) : '',
+          disponible: tip.guiones > 0,
+          predeterminado: false,
+          correccion: true,
+        },
+        { clave: 'comillas', titulo: t('Comillas latinas'), detalle: tip.comillasRectas ? t('{0} comillas rectas (") pasan a « »', { 0: tip.comillasRectas }) : '', disponible: tip.comillasRectas > 0, predeterminado: false, correccion: true },
+        { clave: 'suspensivos', titulo: t('Puntos suspensivos'), detalle: tip.tresPuntos ? t('{0} veces «...» pasa a «…»', { 0: tip.tresPuntos }) : '', disponible: tip.tresPuntos > 0, predeterminado: false, correccion: true },
+        { clave: 'espaciosSignos', titulo: t('Espacios de más'), detalle: tip.espacios ? t('{0} espacios dobles o antes de un signo', { 0: tip.espacios }) : '', disponible: tip.espacios > 0, predeterminado: false, correccion: true },
       ],
     },
   ];
@@ -193,7 +216,7 @@ export function ConversionPasos({ analisis, ocupado, onCancelar, onConvertir }: 
   const previas = recordadas(analisis.serie);
   const [op, setOp] = useState<OpcionesConversionSencilla>(() => {
     const o = {} as OpcionesConversionSencilla;
-    for (const p of pasos) for (const x of p.opciones) o[x.clave] = x.clave === 'optimizarImagenes' ? !!previas?.optimizarImagenes : x.disponible && (previas?.[x.clave] ?? true);
+    for (const p of pasos) for (const x of p.opciones) o[x.clave] = x.disponible && (previas?.[x.clave] ?? x.predeterminado ?? true);
     return o;
   });
   const [vista, setVista] = useState<{ original?: string; convertido: string } | 'cargando' | 'error'>();
@@ -231,8 +254,12 @@ export function ConversionPasos({ analisis, ocupado, onCancelar, onConvertir }: 
     lector.readAsDataURL(f);
   };
   const todas = pasos.flatMap((p) => p.opciones);
-  const conservar = todas.filter((x) => x.disponible && op[x.clave] && x.clave !== 'optimizarImagenes');
-  const noConservar = todas.filter((x) => x.disponible && !op[x.clave] && x.clave !== 'optimizarImagenes');
+  const conservar = todas.filter((x) => x.disponible && op[x.clave] && !x.correccion);
+  const noConservar = todas.filter((x) => x.disponible && !op[x.clave] && !x.correccion);
+  const corregir = todas.filter((x) => x.disponible && op[x.clave] && x.correccion && x.clave !== 'optimizarImagenes');
+  const describir = analisis.listaImagenes ?? [];
+  const [descripciones, setDescripciones] = useState<Record<string, { alt: string; decorativa?: boolean }>>({});
+  const descritas = Object.keys(descripciones).length;
   const nombres = [...pasos.map((p) => p.titulo), t('Capítulos e índice'), t('Metadatos'), t('Confirmar')];
   const enConfirmar = paso === pasos.length + 2;
   const enCapitulos = paso === pasoCapitulos;
@@ -307,6 +334,37 @@ export function ConversionPasos({ analisis, ocupado, onCancelar, onConvertir }: 
                 </span>
               </label>
             ))}
+            {pasos[paso].opciones.some((x) => x.clave === 'optimizarImagenes') && describir.length > 0 && (
+              <details className="describir-imagenes">
+                <summary>
+                  {t('Describir las imágenes (opcional)')} · {t('{0} sin descripción', { 0: describir.filter((x) => !(descripciones[x.nombre]?.alt ?? x.alt).trim() && !(descripciones[x.nombre]?.decorativa ?? x.decorativa)).length })}
+                </summary>
+                <p className="ayuda">{t('Las descripciones ayudan a quien usa un lector de pantalla. Puedes dejarlas vacías y añadirlas después.')}</p>
+                <ul>
+                  {describir.map((x) => {
+                    const v = descripciones[x.nombre] ?? { alt: x.alt, decorativa: x.decorativa };
+                    return (
+                      <li key={x.nombre}>
+                        {x.miniatura ? <img src={x.miniatura} alt="" /> : <span className="sin-miniatura">{x.nombre}</span>}
+                        <div>
+                          <input
+                            value={v.alt}
+                            placeholder={t('Qué se ve en la imagen')}
+                            aria-label={t('Descripción de {0}', { 0: x.nombre })}
+                            disabled={!!v.decorativa}
+                            onChange={(e) => setDescripciones({ ...descripciones, [x.nombre]: { ...v, alt: e.target.value } })}
+                          />
+                          <label className="casilla">
+                            <input type="checkbox" checked={!!v.decorativa} onChange={(e) => setDescripciones({ ...descripciones, [x.nombre]: { ...v, decorativa: e.target.checked } })} />
+                            {t('Decorativa (no necesita descripción)')}
+                          </label>
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </details>
+            )}
           </fieldset>
         ) : paso === pasoCapitulos ? (
           <fieldset className="opciones-asistente capitulos-asistente">
@@ -494,6 +552,17 @@ export function ConversionPasos({ analisis, ocupado, onCancelar, onConvertir }: 
                 {portada?.nueva ? ` · ${t('portada nueva')}` : ''}
               </li>
             </ul>
+            {(corregir.length > 0 || descritas > 0) && (
+              <>
+                <h2>{t('Se corregirá')}</h2>
+                <ul>
+                  {corregir.map((x) => (
+                    <li key={x.clave}>{x.titulo}{x.detalle ? `: ${x.detalle}` : ''}</li>
+                  ))}
+                  {descritas > 0 && <li>{t('Descripciones de imágenes revisadas: {0}', { 0: descritas })}</li>}
+                </ul>
+              </>
+            )}
             {noConservar.length > 0 && (
               <>
                 <h2>{t('No se conservará (se usa el tema de Obi Studio)')}</h2>
@@ -534,7 +603,7 @@ export function ConversionPasos({ analisis, ocupado, onCancelar, onConvertir }: 
                 const serie = meta.serie?.trim() || analisis.serie;
                 recordar(serie, op);
                 recordarDatos(meta);
-                onConvertir({ ...op, capitulos: datosCapitulos(), metadatos: { ...meta, creditos: meta.creditos.filter((c) => c.nombre.trim()) }, ...(portada?.nueva ? { portada: portada.nueva } : {}) });
+                onConvertir({ ...op, ...(descritas ? { descripciones } : {}), capitulos: datosCapitulos(), metadatos: { ...meta, creditos: meta.creditos.filter((c) => c.nombre.trim()) }, ...(portada?.nueva ? { portada: portada.nueva } : {}) });
               }}>{ocupado ? t('Convirtiendo…') : t('Convertir')}</button>
           )}
         </div>
