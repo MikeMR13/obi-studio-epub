@@ -91,6 +91,8 @@ jobs:
             instaladores/*.dmg
             instaladores/*.AppImage
             instaladores/*.deb
+            instaladores/latest*.yml
+            instaladores/*.blockmap
           if-no-files-found: error
 
   publicar:

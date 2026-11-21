@@ -117,7 +117,8 @@ test('importa un EPUB ajeno (Sigil/Calibre): notas en otro archivo, clases CSS, 
   assert.doesNotMatch(texto, /oculto/);
   assert.ok(cap.bloques.some((b) => b.tipo === 'separador'));
   assert.ok(cap.bloques.some((b) => b.tipo === 'parrafo' && b.estilo === 'centrado'));
-  assert.ok(cap.bloques.some((b) => b.tipo === 'crudo' && b.xhtml.includes('<table>')));
+  // Las tablas sencillas de un EPUB ajeno se vuelven editables.
+  assert.ok(cap.bloques.some((b) => b.tipo === 'tabla' && JSON.stringify(b.filas).includes('Fuerza')));
   assert.equal(libro.recursos.length, 2);
 });
 

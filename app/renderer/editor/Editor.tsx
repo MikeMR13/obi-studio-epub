@@ -42,6 +42,7 @@ function idsNotas(bloques: Bloque[]): Set<string> {
   for (const b of bloques) {
     if (b.tipo === 'parrafo' || b.tipo === 'subtitulo') ver(b.contenido);
     if (b.tipo === 'lista') b.elementos.forEach(ver);
+    if (b.tipo === 'tabla') b.filas.forEach((f) => f.forEach((c) => ver(c.contenido)));
     if (b.tipo === 'recuadro') b.lineas.forEach((l) => ver(l.contenido));
   }
   return ids;
@@ -263,6 +264,7 @@ export function Editor({ seccion, onCambio, onEstado, onComentar, onPartir, vert
         idioma: e.getAttributes('idioma').lang as string | undefined,
         imagen: nodo?.type.name === 'imagen' ? ({ pos: sel.from, ...nodo.attrs } as { pos: number; recurso?: string; alt?: string; decorativa?: boolean; pie?: string }) : null,
         vacio: sel.empty,
+        enTabla: e.isActive('table'),
       };
     },
   });
@@ -472,6 +474,49 @@ export function Editor({ seccion, onCambio, onEstado, onComentar, onPartir, vert
         )}
         <B titulo={t('Imagen')} onClick={() => entradaImagen.current?.click()}>🖼</B>
         <B titulo={t('Lista')} activo={editor.isActive('bulletList')} onClick={() => c().toggleBulletList().run()}>•≡</B>
+        <select
+          className="insertar-recuadro"
+          value=""
+          aria-label={t('Tabla')}
+          title={t('Insertar o editar una tabla')}
+          onChange={async (e) => {
+            const v = e.target.value;
+            const k = c() as any;
+            if (v === 'insertar') k.insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run();
+            else if (v === 'fila') k.addRowAfter().run();
+            else if (v === 'columna') k.addColumnAfter().run();
+            else if (v === 'quitar-fila') k.deleteRow().run();
+            else if (v === 'quitar-columna') k.deleteColumn().run();
+            else if (v === 'encabezado') k.toggleHeaderRow().run();
+            else if (v === 'encabezado-columna') k.toggleHeaderColumn().run();
+            else if (v === 'combinar') k.mergeOrSplit().run();
+            else if (v.startsWith('al-')) k.setCellAttribute('alinear', v === 'al-izquierda' ? null : v.slice(3)).run();
+            else if (v === 'titulo') {
+              const actual = String(editor.getAttributes('table').titulo ?? '');
+              const r = await pedirDatos(t('Título de la tabla'), [{ nombre: 'titulo', etiqueta: t('Título (opcional)'), valor: actual }], t('Aceptar'));
+              if (r) (c() as any).updateAttributes('table', { titulo: r.titulo.trim() }).run();
+            } else if (v === 'quitar') k.deleteTable().run();
+          }}
+        >
+          <option value="">{t('Tabla…')}</option>
+          <option value="insertar">{t('Insertar tabla (3 × 3)')}</option>
+          {estado?.enTabla && (
+            <>
+              <option value="fila">{t('Añadir fila debajo')}</option>
+              <option value="columna">{t('Añadir columna a la derecha')}</option>
+              <option value="quitar-fila">{t('Quitar fila')}</option>
+              <option value="quitar-columna">{t('Quitar columna')}</option>
+              <option value="encabezado">{t('Fila de encabezado sí/no')}</option>
+              <option value="encabezado-columna">{t('Columna de encabezado sí/no')}</option>
+              <option value="combinar">{t('Combinar o separar celdas')}</option>
+              <option value="al-izquierda">{t('Celda a la izquierda')}</option>
+              <option value="al-centro">{t('Celda centrada')}</option>
+              <option value="al-derecha">{t('Celda a la derecha')}</option>
+              <option value="titulo">{t('Título de la tabla…')}</option>
+              <option value="quitar">{t('Quitar la tabla')}</option>
+            </>
+          )}
+        </select>
         <select
           className="insertar-recuadro"
           value=""

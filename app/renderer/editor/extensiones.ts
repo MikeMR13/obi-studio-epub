@@ -6,6 +6,7 @@ import StarterKit from '@tiptap/starter-kit';
 import Paragraph from '@tiptap/extension-paragraph';
 import Superscript from '@tiptap/extension-superscript';
 import Subscript from '@tiptap/extension-subscript';
+import { Table, TableCell, TableHeader, TableRow } from '@tiptap/extension-table';
 import { ESTILOS_PARRAFO, VARIANTES_RECUADRO } from '../../../src/model.js';
 import { t } from '../i18n.js';
 
@@ -187,6 +188,31 @@ export const Crudo = Node.create({
     return ['div', { 'data-crudo': '1', class: 'bloque-crudo', title: t('Este bloque se edita en la pestaña Código') }, `⟨${tipo}⟩ ${resumen || t('(sin texto)')}`];
   },
 });
+
+/** Alineación de una celda (clase al-centro / al-derecha, como en el EPUB). */
+const atributoAlinear = {
+  alinear: {
+    default: null,
+    parseHTML: (el: HTMLElement) => (el.classList.contains('al-centro') ? 'centro' : el.classList.contains('al-derecha') ? 'derecha' : null),
+    renderHTML: (a: Record<string, unknown>) => (a.alinear ? { class: `al-${a.alinear}` } : {}),
+  },
+};
+
+/** Tablas editables: título (caption) como atributo de la tabla y alineación por celda. */
+export const TablaObi = Table.extend({
+  addAttributes() {
+    return {
+      ...this.parent?.(),
+      titulo: {
+        default: '',
+        parseHTML: (el: HTMLElement) => el.getAttribute('data-titulo') ?? '',
+        renderHTML: (a: Record<string, unknown>) => (a.titulo ? { 'data-titulo': String(a.titulo) } : {}),
+      },
+    };
+  },
+}).configure({ resizable: false, HTMLAttributes: { class: 'tabla' } });
+export const CeldaObi = TableCell.extend({ addAttributes() { return { ...this.parent?.(), ...atributoAlinear }; } });
+export const CeldaEncabezadoObi = TableHeader.extend({ addAttributes() { return { ...this.parent?.(), ...atributoAlinear }; } });
 
 /** Salto de página dentro de la sección. */
 export const SaltoPaginaObi = Node.create({
@@ -464,5 +490,9 @@ export function extensiones(op: { colaborativo?: boolean } = {}) {
     AspectoObi,
     SaltoPaginaObi,
     SubtituloFueraDeIndice,
+    TablaObi,
+    TableRow,
+    CeldaObi,
+    CeldaEncabezadoObi,
   ];
 }

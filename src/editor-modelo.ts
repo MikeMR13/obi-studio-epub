@@ -96,6 +96,20 @@ export function bloquesAPM(bloques: Bloque[]): PMNodo {
       case 'crudo':
         content.push({ type: 'crudo', attrs: { xhtml: b.xhtml } });
         break;
+      case 'tabla':
+        content.push({
+          type: 'table',
+          attrs: { titulo: b.titulo ?? '' },
+          content: b.filas.map((f) => ({
+            type: 'tableRow',
+            content: f.map((c) => ({
+              type: c.encabezado ? 'tableHeader' : 'tableCell',
+              attrs: { colspan: c.columnas ?? 1, rowspan: c.filas ?? 1, colwidth: null, alinear: c.alinear ?? null },
+              content: [{ type: 'paragraph', attrs: { estilo: 'cuerpo' }, ...(c.contenido.length ? { content: inlinesAPM(c.contenido) } : {}) }],
+            })),
+          })),
+        });
+        break;
       case 'recuadro':
         content.push({
           type: 'recuadro',
@@ -196,6 +210,28 @@ export function pmABloques(doc: PMNodo): Bloque[] {
       case 'crudo':
         bloques.push({ tipo: 'crudo', xhtml: String(n.attrs?.xhtml ?? '') });
         break;
+      case 'table': {
+        const filas = (n.content ?? [])
+          .filter((r) => r.type === 'tableRow')
+          .map((r) =>
+            (r.content ?? []).map((c) => {
+              const col = Number(c.attrs?.colspan) || 1;
+              const fil = Number(c.attrs?.rowspan) || 1;
+              const al = c.attrs?.alinear;
+              return {
+                contenido: pmAInlines((c.content ?? []).flatMap((p, k) => (k > 0 ? [{ type: 'hardBreak' }, ...(p.content ?? [])] : p.content ?? []))),
+                ...(c.type === 'tableHeader' ? { encabezado: true } : {}),
+                ...(col > 1 ? { columnas: col } : {}),
+                ...(fil > 1 ? { filas: fil } : {}),
+                ...(al === 'centro' || al === 'derecha' ? { alinear: al as 'centro' | 'derecha' } : {}),
+              };
+            }),
+          )
+          .filter((f) => f.length);
+        const titulo = String(n.attrs?.titulo ?? '').trim();
+        if (filas.length) bloques.push({ tipo: 'tabla', filas, ...(titulo ? { titulo } : {}) });
+        break;
+      }
       case 'recuadro': {
         const variante = String(n.attrs?.variante ?? 'sistema') as VarianteRecuadro;
         if (!VARIANTES.has(variante)) break;

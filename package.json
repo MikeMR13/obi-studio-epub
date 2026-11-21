@@ -29,6 +29,7 @@
     "@tiptap/extension-link": "^3.34.0",
     "@tiptap/extension-subscript": "^3.34.0",
     "@tiptap/extension-superscript": "^3.34.0",
+    "@tiptap/extension-table": "^3.34.0",
     "@tiptap/extension-text-align": "^3.34.0",
     "@tiptap/pm": "^3.34.0",
     "@tiptap/react": "^3.34.0",
@@ -45,6 +46,7 @@
     "docx": "^9.16.0",
     "electron": "^45.4.1",
     "electron-builder": "^26.18.0",
+    "electron-updater": "^6.8.11",
     "esbuild": "^0.28.2",
     "hyphenopoly": "^6.1.0",
     "jimp": "^1.6.1",
@@ -139,6 +141,14 @@
         "ext": "obi",
         "name": "Proyecto de Obi Studio",
         "role": "Editor"
+      }
+    ],
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "MikeMR13",
+        "repo": "obi-studio-epub",
+        "releaseType": "release"
       }
     ]
   },

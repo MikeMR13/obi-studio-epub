@@ -1,11 +1,11 @@
 // Conversión de HTML/XHTML (de un EPUB o de Word) a bloques del modelo.
 // Lo que el editor visual no sabe representar se guarda como bloque «crudo» para no perder nada.
 
-import type { AspectoTexto, Bloque, EstiloParrafo, Inline, LineaRecuadro, Marca, Nota, Recuadro } from '../model.js';
+import type { AspectoTexto, Bloque, CeldaTabla, EstiloParrafo, Inline, LineaRecuadro, Marca, Nota, Recuadro } from '../model.js';
 import { ESTILOS_PARRAFO, VARIANTES_RECUADRO, nuevoId, normalizarInlines } from '../model.js';
 
 const VARIANTES = VARIANTES_RECUADRO.map((v) => v.id);
-import { ELEMENTO, TEXTO, CDATA, attr, clases, hijos, nombre, serializar, texto, tiposEpub, type Nodo } from './dom.js';
+import { ELEMENTO, TEXTO, CDATA, attr, clases, hijos, hijosElemento, nombre, serializar, texto, tiposEpub, todos, type Nodo } from './dom.js';
 
 export interface EstiloCss {
   negrita?: boolean;
@@ -133,6 +133,8 @@ export interface OpcionesConversion {
   aspectos?: boolean;
   /** Estilo de párrafo propio que corresponde a este párrafo del original (conversión sencilla). */
   estiloPropio?: (n: Nodo) => string | undefined;
+  /** ¿Esta tabla puede volverse editable? (en los EPUB de Obi Studio, solo las de clase «tabla»). Sin él, las sencillas. */
+  tablaEditable?: (t: Nodo) => boolean;
   /** Los h2 también abren capítulo (además de los h1). */
   cortarEnH2?: boolean;
   /** Los saltos de página del original abren capítulo; devuelve dónde hay salto en este elemento. */
@@ -370,6 +372,44 @@ export function convertirBloques(raiz: Nodo, o: OpcionesConversion, idiomaLibro?
     return true;
   };
 
+  /**
+   * Tabla editable si es sencilla (celdas con texto, sin tablas, imágenes, listas ni bloques complejos dentro);
+   * si no, se queda como bloque XHTML.
+   */
+  const anadirTabla = (t: Nodo, marcasBloque: EstadoInline): boolean => {
+    if (o.tablaEditable && !o.tablaEditable(t)) return false;
+    if (todos(t, (x) => x !== t && ['table', 'img', 'image', 'svg', 'ul', 'ol', 'math', 'video', 'audio', 'iframe', 'object', 'figure'].includes(nombre(x))).length) return false;
+    const filasNodos = todos(t, (x) => nombre(x) === 'tr');
+    if (!filasNodos.length) return false;
+    const filas: CeldaTabla[][] = [];
+    for (const tr of filasNodos) {
+      const fila: CeldaTabla[] = [];
+      for (const c of hijosElemento(tr)) {
+        const et = nombre(c);
+        if (et !== 'td' && et !== 'th') continue;
+        const parrafos = hijosElemento(c).filter((x) => nombre(x) === 'p' || nombre(x) === 'div');
+        let contenido: Inline[] = [];
+        if (parrafos.length && parrafos.length === hijosElemento(c).length) {
+          for (const p of parrafos) {
+            if (contenido.length) contenido.push({ tipo: 'salto' });
+            contenido.push(...inlinesLimpios(hijos(p), o, marcasBloque, idiomaLibro));
+          }
+        } else contenido = inlinesLimpios(hijos(c), o, marcasBloque, idiomaLibro);
+        const col = Number(attr(c, 'colspan')) || 1;
+        const fil = Number(attr(c, 'rowspan')) || 1;
+        const cls = clases(c);
+        const al = cls.includes('al-centro') || /text-align:\s*center/i.test(attr(c, 'style')) || attr(c, 'align') === 'center' ? 'centro' : cls.includes('al-derecha') || /text-align:\s*right/i.test(attr(c, 'style')) || attr(c, 'align') === 'right' ? 'derecha' : undefined;
+        fila.push({ contenido, ...(et === 'th' ? { encabezado: true } : {}), ...(col > 1 ? { columnas: Math.min(col, 50) } : {}), ...(fil > 1 ? { filas: Math.min(fil, 200) } : {}), ...(al ? { alinear: al } : {}) });
+      }
+      if (fila.length) filas.push(fila);
+    }
+    if (!filas.length) return false;
+    const caption = todos(t, (x) => nombre(x) === 'caption')[0];
+    const titulo = caption ? texto(caption).replace(/\s+/g, ' ').trim() : '';
+    actual().bloques.push({ tipo: 'tabla', filas, ...(titulo ? { titulo } : {}) });
+    return true;
+  };
+
   const anadirCrudo = (n: Nodo) => {
     const xhtml = serializar(n, (el, a, v) => {
       if ((el === 'img' && a === 'src') || (el === 'image' && (a === 'xlink:href' || a === 'href'))) return o.rutaCruda(v);
@@ -559,6 +599,7 @@ export function convertirBloques(raiz: Nodo, o: OpcionesConversion, idiomaLibro?
         recorrer(h, estiloHeredado, marcasBloque);
         continue;
       }
+      if (et === 'table' && anadirTabla(h, marcasBloque)) continue;
       if (CRUDOS.has(et)) {
         anadirCrudo(h);
         continue;

@@ -47,11 +47,11 @@ with sync_playwright() as p:
     expect(editor).to_contain_text("Desperté en un bosque")
     paso("Furigana visible en el editor", editor.locator("ruby").count() == 1)
     paso("Llamada de nota visible", editor.locator(".llamada-nota").count() == 1)
-    paso("Tabla conservada como bloque XHTML", editor.locator(".bloque-crudo").count() == 1)
+    paso("Tabla del EPUB ajeno convertida en tabla editable", editor.locator("table.tabla").count() == 1 and editor.locator(".bloque-crudo").count() == 0)
     pagina.screenshot(path=f"{CAPTURAS}/02-editor-epub-importado.png")
 
     # Escribir y dar formato.
-    editor.locator("p").last.click()
+    editor.locator(":scope > p").last.click()
     pagina.keyboard.press("End")
     pagina.keyboard.press("Enter")
     pagina.keyboard.type("—Esto lo escribí en Obi Studio... ")
@@ -709,6 +709,112 @@ with sync_playwright() as p:
     pagina.wait_for_timeout(1000)
     estado = pagina.evaluate("fetch('/api/estado').then(r => r.json())")
     paso("Unir una sección con la siguiente desde el índice", len(estado["libro"]["secciones"]) == n_antes)
+    dlg.get_by_role("button", name="Cerrar").click()
+
+    # Tabla editable en el editor.
+    pagina.get_by_role("tab", name="Escribir").click()
+    pagina.locator(".lista-secciones").get_by_role("button", name="Capítulo 1 – La llegada").first.click()
+    editor = pagina.locator(".pagina-editor")
+    expect(editor).to_contain_text("Desperté en un bosque")
+    editor.locator(":scope > p").last.click()
+    pagina.keyboard.press("End")
+    pagina.keyboard.press("Enter")
+    n_tablas = editor.locator("table.tabla").count()
+    pagina.get_by_label("Tabla", exact=True).select_option("insertar")
+    expect(editor.locator("table.tabla")).to_have_count(n_tablas + 1)
+    pagina.keyboard.type("Atributo")
+    pagina.keyboard.press("Tab")
+    pagina.keyboard.type("Valor")
+    pagina.keyboard.press("Tab")
+    pagina.keyboard.press("Tab")
+    pagina.keyboard.type("Fuerza")
+    pagina.keyboard.press("Tab")
+    pagina.keyboard.type("120")
+    pagina.get_by_label("Tabla", exact=True).select_option("al-derecha")
+    pagina.get_by_label("Tabla", exact=True).select_option("columna")
+    pagina.get_by_label("Tabla", exact=True).select_option("titulo")
+    pagina.get_by_label("Título (opcional)").fill("Estado de Aria")
+    pagina.get_by_role("button", name="Aceptar").click()
+    pagina.wait_for_timeout(1300)
+    pagina.screenshot(path=f"{CAPTURAS}/43-tabla-editor.png")
+    estado = pagina.evaluate("fetch('/api/estado').then(r => r.json())")
+    tablas = [b for s in estado["libro"]["secciones"] for b in s["bloques"] if b["tipo"] == "tabla" and b.get("titulo") == "Estado de Aria"]
+    t0 = tablas[0] if tablas else None
+    paso(
+        "Tabla editable: insertar, escribir, alinear, columna y título",
+        t0 is not None and len(t0["filas"]) == 3 and len(t0["filas"][0]) == 4 and t0["filas"][0][0].get("encabezado") and t0["filas"][1][1].get("alinear") == "derecha",
+        json.dumps(t0, ensure_ascii=False)[:160] if t0 else "sin tabla",
+    )
+
+    # Estadísticas y avance.
+    pagina.get_by_role("button", name="Más ▾").click()
+    pagina.get_by_role("menuitem", name=re.compile("^Estadísticas…")).click()
+    dlg = pagina.locator(".panel-estadisticas")
+    expect(dlg).to_be_visible()
+    selector_avance = dlg.locator("select").first
+    selector_avance.select_option("listo")
+    pagina.wait_for_timeout(800)
+    pagina.screenshot(path=f"{CAPTURAS}/44-estadisticas.png")
+    pagina.set_viewport_size({"width": 1024, "height": 768})
+    pagina.wait_for_timeout(300)
+    pagina.screenshot(path=f"{CAPTURAS}/44b-estadisticas-1024.png")
+    pagina.set_viewport_size({"width": 1366, "height": 860})
+    estado = pagina.evaluate("fetch('/api/estado').then(r => r.json())")
+    paso("Estadísticas: cifras y avance por capítulo", "Palabras" in dlg.inner_text() and any(s.get("avance") == "listo" for s in estado["libro"]["secciones"]))
+    dlg.get_by_role("button", name="Cerrar").click()
+
+    # Glosario y personajes.
+    pagina.get_by_role("button", name="Más ▾").click()
+    pagina.get_by_role("menuitem", name=re.compile("^Glosario y personajes…")).click()
+    dlg = pagina.locator(".panel-glosario")
+    expect(dlg).to_be_visible()
+    dlg.get_by_role("button", name="+ Nueva entrada").click()
+    dlg.get_by_label("Término (grafía correcta)").fill("bosque")
+    dlg.locator(".glosario-ficha select").select_option("lugar")
+    dlg.get_by_label("Grafías que hay que evitar (separadas por comas)").fill("Bosque")
+    dlg.get_by_label("Descripción o ficha").fill("Donde despierta el protagonista.")
+    dlg.get_by_label("En el libro (sale en la página de glosario)").check()
+    dlg.get_by_role("button", name="Revisar el libro").click()
+    expect(dlg.locator(".glosario-revision")).to_be_visible()
+    pagina.wait_for_timeout(500)
+    pagina.screenshot(path=f"{CAPTURAS}/45-glosario.png")
+    pagina.set_viewport_size({"width": 1024, "height": 768})
+    pagina.wait_for_timeout(300)
+    pagina.screenshot(path=f"{CAPTURAS}/45b-glosario-1024.png")
+    pagina.set_viewport_size({"width": 1366, "height": 860})
+    hallazgos = dlg.locator(".glosario-revision li").count()
+    n_sec = len(pagina.evaluate("fetch('/api/estado').then(r => r.json())")["libro"]["secciones"])
+    dlg.get_by_role("button", name=re.compile("^Añadir página de glosario")).click()
+    pagina.wait_for_timeout(1000)
+    estado = pagina.evaluate("fetch('/api/estado').then(r => r.json())")
+    glos = estado["libro"].get("glosario") or []
+    paso(
+        "Glosario: entrada, revisión y página en el libro",
+        len(glos) == 1 and glos[0]["termino"] == "bosque" and glos[0]["tipo"] == "lugar" and glos[0].get("enLibro") and hallazgos == 1 and len(estado["libro"]["secciones"]) == n_sec + 1,
+        f"{hallazgos} hallazgos",
+    )
+    with pagina.expect_download(timeout=30000) as d:
+        pagina.get_by_role("button", name="Más ▾").click()
+        pagina.get_by_role("menuitem", name=re.compile("^Glosario y personajes…")).click()
+        pagina.locator(".panel-glosario").get_by_role("button", name="Exportar CSV").click()
+    ruta_csv = os.path.join(CAPTURAS, "glosario.csv")
+    d.value.save_as(ruta_csv)
+    paso("Glosario: exportar CSV", "bosque" in open(ruta_csv, encoding="utf-8-sig").read())
+    pagina.locator(".panel-glosario").get_by_role("button", name="Cerrar").click()
+
+    # Corrector en varios idiomas y actualizaciones.
+    pagina.get_by_role("button", name="Más ▾").click()
+    pagina.get_by_role("menuitem", name=re.compile("^Configuración…")).click()
+    dlg = pagina.locator(".panel-plugins", has_text="Corrector ortográfico")
+    dlg.get_by_label("Inglés", exact=True).click()
+    expect(dlg.get_by_label("Inglés", exact=True)).to_be_checked()
+    pagina.wait_for_timeout(300)
+    pagina.screenshot(path=f"{CAPTURAS}/46-configuracion.png")
+    conf = pagina.evaluate("fetch('/api/configuracion').then(r => r.json())")
+    conf = conf.get("configuracion", conf)
+    paso("Corrector: elegir idiomas", conf.get("idiomasCorrector") == ["es", "en"], str(conf.get("idiomasCorrector")))
+    dlg.get_by_label("Inglés", exact=True).click()
+    expect(dlg.get_by_label("Inglés", exact=True)).not_to_be_checked()
     dlg.get_by_role("button", name="Cerrar").click()
 
     # Ventana pequeña (1024 px).

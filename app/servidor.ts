@@ -200,6 +200,28 @@ export async function iniciarServidor(op: OpcionesServidor = {}) {
       backend.unirConSiguiente(m[1]);
       enviar(r, 200, backend.estado());
     }],
+    ['PUT', /^\/api\/glosario$/, async (q, r) => {
+      backend.guardarGlosario((await json(q)).entradas);
+      enviar(r, 200, backend.estado());
+    }],
+    ['GET', /^\/api\/glosario\/revision$/, async (_q, r) => enviar(r, 200, backend.revisionGlosario())],
+    ['POST', /^\/api\/glosario\/unificar$/, async (q, r) => {
+      const d = await json(q);
+      const n = backend.unificarTermino(d.entrada, d.encontrado);
+      enviar(r, 200, { cambios: n, estado: backend.estado() });
+    }],
+    ['POST', /^\/api\/glosario\/importar$/, async (q, r, _m, url) => {
+      const res = await backend.importarGlosario(url.searchParams.get('nombre') ?? 'glosario.csv', await cuerpo(q));
+      enviar(r, 200, { ...res, estado: backend.estado() });
+    }],
+    ['GET', /^\/api\/glosario\/exportar$/, async (_q, r, _m, url) => {
+      const { nombre, tipo, datos } = backend.exportarGlosario(url.searchParams.get('formato') ?? 'csv');
+      descarga(r, nombre, tipo, datos);
+    }],
+    ['POST', /^\/api\/glosario\/pagina$/, async (_q, r) => {
+      const id = backend.paginaGlosario();
+      enviar(r, 200, { seccion: id, estado: backend.estado() });
+    }],
     ['PUT', /^\/api\/indice$/, async (q, r) => {
       backend.profundidadIndice((await json(q)).profundidad);
       enviar(r, 200, backend.estado());
@@ -314,7 +336,18 @@ export async function iniciarServidor(op: OpcionesServidor = {}) {
       const c = await backend.configuracion.cambiar(await json(q));
       // Al desactivar la colaboración se cierra la que estuviera abierta.
       if (!c.colaboracion && colaboracion.activa) await colaboracion.detener();
+      void backend.avisarCorrector();
       enviar(r, 200, { configuracion: c, estado: backend.estado() });
+    }],
+    ['POST', /^\/api\/actualizacion\/comprobar$/, async (_q, r) => {
+      if (!backend.comprobarActualizacion) throw new ErrorUsuario('Las actualizaciones automáticas solo funcionan en la app de escritorio instalada.');
+      const version = await backend.comprobarActualizacion();
+      enviar(r, 200, { version: version ?? null, estado: backend.estado() });
+    }],
+    ['POST', /^\/api\/actualizacion\/instalar$/, async (_q, r) => {
+      if (!backend.instalarActualizacion || !backend.actualizacion?.descargada) throw new ErrorUsuario('No hay ninguna actualización descargada.');
+      enviar(r, 200, { ok: true });
+      setTimeout(() => backend.instalarActualizacion?.(), 300);
     }],
     ['DELETE', /^\/api\/colaboracion$/, async (_q, r) => {
       await colaboracion.detener();

@@ -3,13 +3,10 @@
 import { DOMParser } from '@xmldom/xmldom';
 import JSZip from 'jszip';
 import type { Bloque, Comentario, Inline } from './model.js';
-import { normalizarInlines, nuevoId } from './model.js';
+import { escribirInlines, inlinesBloque, normalizarInlines, nuevoId } from './model.js';
 
 function listasDe(b: Bloque): Inline[][] {
-  if (b.tipo === 'parrafo' || b.tipo === 'subtitulo') return [b.contenido];
-  if (b.tipo === 'lista') return b.elementos;
-  if (b.tipo === 'recuadro') return b.lineas.map((l) => l.contenido);
-  return [];
+  return inlinesBloque(b);
 }
 
 /** Texto anclado a cada comentario en los bloques de una sección. */
@@ -58,9 +55,7 @@ export function anclarComentario(bloques: Bloque[], id: string, texto: string): 
     for (let k = 0; k < listas.length; k++) {
       const r = anclarEn(listas[k], id, aguja);
       if (!r) continue;
-      if (b.tipo === 'lista') b.elementos[k] = r;
-      else if (b.tipo === 'recuadro') b.lineas[k].contenido = r;
-      else (b as { contenido: Inline[] }).contenido = r;
+      escribirInlines(b, k, r);
       return true;
     }
   }

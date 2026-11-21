@@ -69,6 +69,7 @@ function lugares(s: Seccion): Lugar[] {
   s.bloques.forEach((b: Bloque, k) => {
     if (b.tipo === 'parrafo' || b.tipo === 'subtitulo') salida.push({ lugar: `b${k}`, leer: () => b.contenido, escribir: (l) => (b.contenido = l) });
     if (b.tipo === 'lista') b.elementos.forEach((_, j) => salida.push({ lugar: `b${k}.${j}`, leer: () => b.elementos[j], escribir: (l) => (b.elementos[j] = l) }));
+    if (b.tipo === 'tabla') b.filas.flat().forEach((c, j) => salida.push({ lugar: `b${k}.${j}`, leer: () => c.contenido, escribir: (l) => (c.contenido = l) }));
     if (b.tipo === 'recuadro') b.lineas.forEach((x, j) => salida.push({ lugar: `b${k}.${j}`, leer: () => x.contenido, escribir: (l) => (x.contenido = l) }));
   });
   s.notas.forEach((n, k) => salida.push({ lugar: `n${k}`, leer: () => n.contenido, escribir: (l) => (n.contenido = l) }));

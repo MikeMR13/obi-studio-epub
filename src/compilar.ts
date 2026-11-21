@@ -4,7 +4,7 @@
 
 import { createHash } from 'node:crypto';
 import JSZip from 'jszip';
-import type { Bloque, EntradaIndice, Imagen, Inline, Libro, Marca, Nota, Recuadro, Recurso, Seccion, TipoSeccion, VarianteRecuadro } from './model.js';
+import type { Bloque, CeldaTabla, EntradaIndice, Imagen, Inline, Libro, Marca, Nota, Recuadro, Recurso, Seccion, Tabla, TipoSeccion, VarianteRecuadro } from './model.js';
 import { esc, escAttr, limpiarXml } from './xml.js';
 import { anclaSubtitulo, entradasIndice, temaCompleto, esVertical, VARIANTES_RECUADRO } from './model.js';
 import { cssTema, cssEstilosPropios, separadorXhtml as separadorTema, contenidoTitulo } from './estilo-tema.js';
@@ -166,9 +166,30 @@ export function bloquesXhtml(bloques: Bloque[], ctx: Contexto, seccion?: Seccion
       case 'recuadro':
         partes.push(recuadroXhtml(b, ctx));
         break;
+      case 'tabla':
+        partes.push(tablaXhtml(b, ctx));
+        break;
     }
   }
   return partes.join('\n');
+}
+
+/** Tabla: la primera fila va en thead si todas sus celdas son de encabezado; th de fila con scope="row". */
+function tablaXhtml(b: Tabla, ctx: Contexto): string {
+  const cabecera = b.filas.length > 1 && b.filas[0].every((c) => c.encabezado);
+  const celda = (c: CeldaTabla, enCabecera: boolean) => {
+    const et = c.encabezado ? 'th' : 'td';
+    const atr = [
+      c.encabezado ? ` scope="${enCabecera ? (c.columnas ?? 1) > 1 ? 'colgroup' : 'col' : 'row'}"` : '',
+      c.columnas ? ` colspan="${c.columnas}"` : '',
+      c.filas ? ` rowspan="${c.filas}"` : '',
+      c.alinear && c.alinear !== 'izquierda' ? ` class="al-${c.alinear}"` : '',
+    ].join('');
+    return `<${et}${atr}>${inlinesXhtml(c.contenido, ctx)}</${et}>`;
+  };
+  const fila = (f: CeldaTabla[], enCabecera: boolean) => `<tr>${f.map((c) => celda(c, enCabecera)).join('')}</tr>`;
+  const cuerpo = cabecera ? b.filas.slice(1) : b.filas;
+  return `<table class="tabla">${b.titulo ? `<caption>${esc(b.titulo)}</caption>` : ''}${cabecera ? `<thead>${fila(b.filas[0], true)}</thead>` : ''}<tbody>${cuerpo.map((f) => fila(f, false)).join('')}</tbody></table>`;
 }
 
 const NOMBRE_RECUADRO_EN: Record<VarianteRecuadro, string> = {
@@ -206,6 +227,7 @@ export function numerarNotas(s: Seccion): Map<string, number> {
   for (const b of s.bloques) {
     if (b.tipo === 'parrafo' || b.tipo === 'subtitulo') ver(b.contenido);
     if (b.tipo === 'lista') b.elementos.forEach(ver);
+    if (b.tipo === 'tabla') b.filas.forEach((f) => f.forEach((c) => ver(c.contenido)));
     if (b.tipo === 'recuadro') b.lineas.forEach((l) => ver(l.contenido));
   }
   return mapa;
@@ -385,6 +407,12 @@ p.cita { margin: 0.5em 2em; text-indent: 0; }
 .escena.espacio { height: 1.5em; margin: 0; }
 hr.escena { width: 25%; margin: 1.5em auto; }
 div.salto-pagina { page-break-after: always; break-after: page; height: 0; margin: 0; }
+table.tabla { border-collapse: collapse; margin: 1em auto; max-width: 100%; font-size: 0.9em; }
+table.tabla caption { font-weight: bold; margin-bottom: 0.4em; }
+table.tabla th, table.tabla td { border: 1px solid #8a8a8a; padding: 0.25em 0.55em; text-indent: 0; text-align: left; vertical-align: top; }
+table.tabla thead th { border-bottom-width: 2px; }
+table.tabla .al-centro { text-align: center; }
+table.tabla .al-derecha { text-align: right; }
 .vs { font-variant: small-caps; }
 figure { margin: 1em 0; text-align: center; page-break-inside: avoid; break-inside: avoid; }
 figure img { max-width: 100%; max-height: 95vh; }

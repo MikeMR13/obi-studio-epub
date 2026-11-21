@@ -21,6 +21,8 @@ import { Configuracion } from './paneles/Configuracion';
 import { Publicar } from './paneles/Publicar';
 import { IndiceLibro } from './paneles/IndiceLibro';
 import { Lote } from './paneles/Lote';
+import { Estadisticas } from './paneles/Estadisticas';
+import { Glosario } from './paneles/Glosario';
 import { Muestra } from './paneles/Muestra';
 import { Cubierta } from './paneles/Cubierta';
 import { Sencillo } from './paneles/Sencillo';
@@ -44,9 +46,12 @@ export function App() {
   const [verConfiguracion, setVerConfiguracion] = useState(false);
   const [verPublicar, setVerPublicar] = useState(false);
   const [verIndice, setVerIndice] = useState(false);
+  const [verEstadisticas, setVerEstadisticas] = useState(false);
+  const [verGlosario, setVerGlosario] = useState(false);
   const [verMuestra, setVerMuestra] = useState(false);
   const [verCubierta, setVerCubierta] = useState(false);
   const [configuracion, setConfiguracion] = useState<{ colaboracion: boolean }>({ colaboracion: false });
+  const escritorio = /Electron/.test(navigator.userAgent);
   useEffect(() => {
     api.configuracion().then(setConfiguracion).catch(() => undefined);
   }, []);
@@ -479,6 +484,32 @@ export function App() {
 
   return (
     <div className="app">
+      {verEstadisticas && (
+        <Estadisticas
+          estado={estado}
+          onCerrar={() => setVerEstadisticas(false)}
+          onSeccion={(id, cambios) => llamar(async () => aplicar(await api.seccion(id, cambios), false))}
+          onIrA={(id) => {
+            setVerEstadisticas(false);
+            setActual(id);
+            setPestana('seccion');
+          }}
+        />
+      )}
+      {verGlosario && (
+        <Glosario
+          estado={estado}
+          onCerrar={() => setVerGlosario(false)}
+          onEstado={(e, texto) => aplicar(e, !!texto)}
+          onAviso={(x) => aviso(x)}
+          llamar={(f) => llamar(f)}
+          onIrA={(id) => {
+            setVerGlosario(false);
+            setActual(id);
+            setPestana('seccion');
+          }}
+        />
+      )}
       {verIndice && (
         <IndiceLibro
           estado={estado}
@@ -531,7 +562,21 @@ export function App() {
           }}
         />
       )}
-      {verConfiguracion && <Configuracion onCerrar={() => setVerConfiguracion(false)} onEstado={(e) => aplicar(e)} onConfiguracion={setConfiguracion} />}
+      {verConfiguracion && <Configuracion escritorio={escritorio} onCerrar={() => setVerConfiguracion(false)} onEstado={(e) => aplicar(e)} onConfiguracion={setConfiguracion} />}
+      {estado.actualizacion?.descargada && (
+        <div className="aviso-actualizacion" role="status">
+          {t('Obi Studio {0} está lista para instalarse.', { 0: estado.actualizacion.version })}
+          <button
+            className="pequeno"
+            onClick={async () => {
+              if (estado.cambiado && !(await confirmar(t('Reiniciar para actualizar'), t('Hay cambios sin guardar. Se guardará una copia de recuperación y la app se reiniciará.'), t('Reiniciar')))) return;
+              await llamar(() => api.instalarActualizacion());
+            }}
+          >
+            {t('Reiniciar y actualizar')}
+          </button>
+        </div>
+      )}
       {verColaborar && <Colaborar onCerrar={() => setVerColaborar(false)} onEstado={(e) => aplicar(e)} />}
       {verVersiones && <Versiones estado={estado} onCerrar={() => setVerVersiones(false)} onEstado={(e) => aplicar(e)} />}
       {verPlugins && (
@@ -575,6 +620,8 @@ export function App() {
                 {configuracion.colaboracion && (
                   <li><button role="menuitem" onClick={() => { setMenuMas(false); setVerColaborar(true); }}>{t('Colaborar en la red local…')}<small>{t('Escribir a la vez con otras personas')}</small></button></li>
                 )}
+                <li><button role="menuitem" onClick={() => { setMenuMas(false); setVerEstadisticas(true); }}>{t('Estadísticas…')}<small>{t('Palabras, tiempo de lectura y avance por capítulo')}</small></button></li>
+                <li><button role="menuitem" onClick={() => { setMenuMas(false); setVerGlosario(true); }}>{t('Glosario y personajes…')}<small>{t('Nombres y términos, con aviso de grafías distintas')}</small></button></li>
                 <li><button role="menuitem" onClick={() => { setMenuMas(false); setVerVersiones(true); }}>{t('Versiones…')}<small>{t('Guardar, comparar y restaurar versiones del libro')}</small></button></li>
                 <li><button role="menuitem" onClick={() => { setMenuMas(false); setVerPlugins(true); }}>{t('Plugins…')}<small>{t('Revisiones, transformaciones y otros formatos')}</small></button></li>
                 <li className="separador-menu"><button role="menuitem" onClick={() => { setMenuMas(false); setVerConfiguracion(true); }}>{t('Configuración…')}<small>{t('Idioma de la interfaz y funciones opcionales')}</small></button></li>

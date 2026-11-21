@@ -649,3 +649,63 @@ button.pequeno.activo { background: var(--obi); color: #fff; border-color: var(-
 .resultados-lote > li.error strong { color: var(--obi); }
 .resultados-lote small { color: var(--tinta-suave); }
 .resultados-lote ul { margin: 2px 0 0; padding-left: 18px; font-size: 12.5px; }
+
+.idiomas-corrector { display: flex; flex-wrap: wrap; gap: 4px 14px; }
+.aviso-actualizacion { position: fixed; bottom: 16px; left: 16px; z-index: 40; display: flex; gap: 10px; align-items: center; background: var(--tinta, #222); color: #fff; padding: 8px 12px; border-radius: 8px; font-size: 13px; box-shadow: 0 4px 16px rgb(0 0 0 / 0.2); }
+
+/* Estadísticas */
+.panel-estadisticas { width: min(860px, 96vw); display: flex; flex-direction: column; gap: 12px; }
+.cifras-libro { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin: 0; }
+.cifras-libro > div { border: 1px solid var(--linea); border-radius: 8px; padding: 8px 10px; background: #fff; }
+.cifras-libro dt { font-size: 12px; color: var(--tinta-suave); }
+.cifras-libro dd { margin: 2px 0 0; font-size: 20px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.avance-libro { display: flex; flex-direction: column; gap: 4px; }
+.barra-avance { display: flex; height: 10px; border-radius: 6px; overflow: hidden; background: #ece7df; }
+.barra-avance .a-listo { background: #2d6a3a; }
+.barra-avance .a-revision { background: #c58b1d; }
+.barra-avance .a-borrador { background: #9aa6b8; }
+.tabla-estadisticas { width: 100%; border-collapse: collapse; font-size: 13px; }
+.tabla-estadisticas th, .tabla-estadisticas td { padding: 4px 6px; border-bottom: 1px solid var(--linea); text-align: left; font-variant-numeric: tabular-nums; }
+.tabla-estadisticas thead th { font-size: 12px; color: var(--tinta-suave); font-weight: 600; }
+.tabla-estadisticas tbody th { font-weight: 400; position: relative; min-width: 220px; }
+.tabla-estadisticas .barra-seccion { display: block; height: 3px; background: var(--obi); opacity: 0.35; border-radius: 2px; margin-top: 2px; }
+.tabla-estadisticas select { width: auto; }
+.panel-estadisticas { max-height: 90vh; overflow: auto; }
+@media (max-width: 760px) { .cifras-libro { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+/* Tablas en el editor */
+.ProseMirror table.tabla { border-collapse: collapse; margin: 1em auto; font-size: 0.92em; table-layout: auto; }
+.ProseMirror table.tabla td, .ProseMirror table.tabla th { border: 1px solid #a9a29a; padding: 0.25em 0.55em; vertical-align: top; min-width: 3em; position: relative; text-indent: 0; }
+.ProseMirror table.tabla th { background: #f3efe8; font-weight: 600; }
+.ProseMirror table.tabla p { margin: 0; text-indent: 0; text-align: inherit; }
+.ProseMirror table.tabla .al-centro { text-align: center; }
+.ProseMirror table.tabla .al-derecha { text-align: right; }
+.ProseMirror table.tabla .selectedCell::after { content: ''; position: absolute; inset: 0; background: rgb(183 50 39 / 0.12); pointer-events: none; }
+.ProseMirror table.tabla[data-titulo]::before { content: attr(data-titulo); display: table-caption; caption-side: top; text-align: center; font-weight: 600; padding-bottom: 0.3em; }
+
+/* Glosario y personajes */
+.panel-glosario { width: min(920px, 96vw); display: flex; flex-direction: column; gap: 10px; max-height: 92vh; }
+.glosario-cuerpo { display: grid; grid-template-columns: minmax(220px, 300px) 1fr; gap: 14px; min-height: 320px; overflow: hidden; }
+.glosario-lista { display: flex; flex-direction: column; gap: 6px; min-height: 0; }
+.glosario-filtros { display: flex; gap: 6px; }
+.glosario-filtros input { flex: 1; min-width: 0; }
+.glosario-lista ul { list-style: none; margin: 0; padding: 0; overflow-y: auto; flex: 1; border: 1px solid var(--linea); border-radius: 6px; max-height: 340px; }
+.glosario-lista li button { display: flex; flex-direction: column; align-items: flex-start; width: 100%; text-align: left; border: 0; border-bottom: 1px solid var(--linea); border-radius: 0; background: none; padding: 6px 8px; }
+.glosario-lista li button.activo { background: var(--obi-claro, #fdeee6); }
+.glosario-lista li small { color: var(--tenue); font-size: 11.5px; }
+.glosario-lista li.vacio { padding: 10px; color: var(--tenue); font-size: 13px; }
+.glosario-ficha { display: flex; flex-direction: column; gap: 8px; overflow-y: auto; }
+.glosario-ficha label { display: flex; flex-direction: column; gap: 3px; font-size: 13px; }
+.glosario-ficha label.casilla { flex-direction: row; align-items: center; gap: 6px; }
+.glosario-ficha label.casilla input { width: auto; }
+.glosario-ficha .fila-doble { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.glosario-ficha button.peligro { align-self: flex-start; }
+.glosario-revision { border-top: 1px solid var(--linea); padding-top: 8px; max-height: 220px; overflow-y: auto; }
+.glosario-revision h3 { margin: 0 0 6px; font-size: 14px; }
+.glosario-revision ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.glosario-revision li { display: flex; flex-direction: column; gap: 4px; align-items: flex-start; }
+.glosario-revision small { color: var(--tenue); }
+.ejemplo-glosario { border: 0; background: var(--fondo); text-align: left; font-size: 12.5px; padding: 3px 6px; border-radius: 4px; }
+.panel-glosario .botones-dialogo { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.panel-glosario .espacio { flex: 1; }
+@media (max-width: 760px) { .glosario-cuerpo { grid-template-columns: 1fr; } }

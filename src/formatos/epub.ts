@@ -376,6 +376,7 @@ export async function importarEpub(datos: Uint8Array, importacion: OpcionesImpor
   let rutaActual = '';
   let idSeparador: string | undefined;
   const { separadorImagen, ignorarClases, ...resto } = importacion;
+  const deObiStudio = [...textos.entries()].some(([r, t]) => /\.css$/i.test(r) && t.includes('Generado por Obi Studio'));
   const opciones: OpcionesConversion = {
     ...resto,
     ...(ignorarClases?.length ? { ignorarClases: new Set(ignorarClases) } : {}),
@@ -397,6 +398,8 @@ export async function importarEpub(datos: Uint8Array, importacion: OpcionesImpor
       return r ? rutaImagen(r.nombre) : null;
     },
     claveNota: (a) => llamadas.get(a),
+    // Un EPUB de Obi Studio guarda las tablas XHTML tal cual: solo las editables vuelven como tabla.
+    ...(deObiStudio ? { tablaEditable: (t: Nodo) => clases(t).includes('tabla') } : {}),
     esCuerpoNota: esContenedorDeNotas,
     esEnlaceVuelta: (a) => {
       const href = attr(a, 'href');
@@ -448,6 +451,7 @@ export async function importarEpub(datos: Uint8Array, importacion: OpcionesImpor
       for (const b of s.bloques) {
         if (b.tipo === 'parrafo' || b.tipo === 'subtitulo') ver(b.contenido);
         if (b.tipo === 'lista') b.elementos.forEach(ver);
+        if (b.tipo === 'tabla') b.filas.forEach((f) => f.forEach((c) => ver(c.contenido)));
         if (b.tipo === 'recuadro') b.lineas.forEach((x) => ver(x.contenido));
       }
       claveASeccion.set(s, claves);
@@ -476,6 +480,7 @@ export async function importarEpub(datos: Uint8Array, importacion: OpcionesImpor
     for (const b of s.bloques) {
       if (b.tipo === 'parrafo' || b.tipo === 'subtitulo') b.contenido = cambiar(b.contenido);
       if (b.tipo === 'lista') b.elementos = b.elementos.map(cambiar);
+      if (b.tipo === 'tabla') b.filas.forEach((f) => f.forEach((c) => (c.contenido = cambiar(c.contenido))));
       if (b.tipo === 'recuadro') b.lineas.forEach((x) => (x.contenido = cambiar(x.contenido)));
     }
     s.notas = notas;

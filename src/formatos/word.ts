@@ -5,10 +5,10 @@
 import {
   AlignmentType, CommentRangeEnd, CommentRangeStart, CommentReference, Document, ExternalHyperlink, FootnoteReferenceRun, HeadingLevel, ImageRun, LevelFormat, Packer, Paragraph, TextRun,
   type IRunOptions, type ParagraphChild,
-  PageBreak,
+  PageBreak, Table, TableCell, TableRow, WidthType,
 } from 'docx';
 import JSZip from 'jszip';
-import type { Bloque, Inline, Libro, Nota, Recuadro, Recurso, Seccion } from '../model.js';
+import type { Bloque, Inline, Libro, Nota, Recuadro, Recurso, Seccion, Tabla } from '../model.js';
 import { proponerCambios } from '../cambios.js';
 import { anclarComentario, fundirComentarios, leerComentariosWord, textosComentados } from '../comentarios.js';
 import { TIPOS_SECCION, VARIANTES_RECUADRO, normalizarInlines, nuevoId, temaCompleto } from '../model.js';
@@ -25,6 +25,7 @@ const MARCADOR_IMAGEN = /^⟦Imagen (\d+)[^⟧]*⟧$/;
 const MARCADOR_RECUADRO = /^⟦Recuadro (\d+)[^⟧]*⟧$/;
 const MARCADOR_FIN_RECUADRO = /^⟦Fin del recuadro (\d+)[^⟧]*⟧$/;
 const MARCADOR_SALTO = /^⟦Salto de página[^⟧]*⟧$/;
+const MARCADOR_TABLA = /^⟦Tabla (\d+)[^⟧]*⟧$/;
 
 /** Quita «Etiqueta: » del principio de una línea de recuadro que vuelve de Word y devuelve la etiqueta. */
 function separarEtiqueta(l: Inline[]): { etiqueta?: string; contenido: Inline[] } {
@@ -124,7 +125,7 @@ function tipoImagen(r: Recurso): 'png' | 'jpg' | 'gif' | undefined {
 export async function exportarWord(libro: Libro): Promise<Uint8Array> {
   const notasWord: Record<number, { children: Paragraph[] }> = {};
   let siguienteNota = 1;
-  const hijos: Paragraph[] = [];
+  const hijos: (Paragraph | Table)[] = [];
   const cc: ContextoComentarios = { numeros: new Map(), cerrados: new Set() };
   const comentariosWord: { id: number; author: string; date: Date; children: Paragraph[]; parentId?: number; resolved?: boolean }[] = [];
   const parrafosComentario = (t: string) => t.split('\n').map((l) => new Paragraph({ children: [new TextRun(l)] }));
@@ -177,9 +178,11 @@ export async function exportarWord(libro: Libro): Promise<Uint8Array> {
     let crudos = 0;
     let imagenes = 0;
     let recuadros = 0;
+    let tablas = 0;
     for (const b of s.bloques) {
       if (b.tipo === 'parrafo' || b.tipo === 'subtitulo') registrar(b.contenido);
       if (b.tipo === 'lista') b.elementos.forEach(registrar);
+      if (b.tipo === 'tabla') b.filas.forEach((f) => f.forEach((c) => registrar(c.contenido)));
       if (b.tipo === 'recuadro') b.lineas.forEach((l) => registrar(l.contenido));
       switch (b.tipo) {
         case 'parrafo': {
@@ -206,6 +209,30 @@ export async function exportarWord(libro: Libro): Promise<Uint8Array> {
         case 'saltoPagina':
           // Marcador visible (vuelve como salto al importar las correcciones) y salto real para Word.
           hijos.push(new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: '⟦Salto de página — no editar esta línea⟧', color: '808080' }), new PageBreak()] }));
+          break;
+        case 'tabla':
+          // Marcador: la tabla vuelve con su estructura (encabezados, alineación, título) y el texto corregido.
+          tablas++;
+          hijos.push(new Paragraph({ children: [new TextRun({ text: `⟦Tabla ${tablas}${b.titulo ? ` · ${b.titulo}` : ''} — no editar esta línea⟧`, color: '808080' })] }));
+          hijos.push(
+            new Table({
+              width: { size: 100, type: WidthType.PERCENTAGE },
+              rows: b.filas.map(
+                (f, k) =>
+                  new TableRow({
+                    tableHeader: k === 0 && b.filas.length > 1 && f.every((c) => c.encabezado),
+                    children: f.map(
+                      (c) =>
+                        new TableCell({
+                          ...(c.columnas ? { columnSpan: c.columnas } : {}),
+                          ...(c.filas ? { rowSpan: c.filas } : {}),
+                          children: [new Paragraph({ alignment: c.alinear === 'centro' ? AlignmentType.CENTER : c.alinear === 'derecha' ? AlignmentType.RIGHT : AlignmentType.LEFT, children: runs(c.contenido, numeros, cc) })],
+                        }),
+                    ),
+                  }),
+              ),
+            }),
+          );
           break;
         case 'lista':
           for (const e of b.elementos) {
@@ -300,6 +327,23 @@ export interface ResumenCorrecciones {
   avisos: string[];
 }
 
+/** Texto corregido de una tabla de Word sobre la tabla original: se conserva la estructura si coincide la forma. */
+function fundirTabla(original: Tabla, deWord: Tabla): Tabla {
+  const misma = original.filas.length === deWord.filas.length && original.filas.every((f, i) => f.length === deWord.filas[i].length);
+  if (misma) return { ...original, filas: original.filas.map((f, i) => f.map((c, j) => ({ ...c, contenido: deWord.filas[i][j].contenido }))) };
+  // Se añadieron o quitaron filas o columnas: la tabla nueva, con lo que se pueda recuperar de la original.
+  return {
+    ...(original.titulo ? { titulo: original.titulo } : {}),
+    ...deWord,
+    filas: deWord.filas.map((f, i) =>
+      f.map((c, j) => {
+        const o = original.filas[i]?.[j];
+        return { ...c, ...(o?.alinear ? { alinear: o.alinear } : {}), ...(o ? (o.encabezado ? { encabezado: true } : { encabezado: undefined }) : {}) };
+      }).map(({ encabezado, ...c }) => (encabezado ? { ...c, encabezado } : c)),
+    ),
+  };
+}
+
 /** Bloques sin anclas de comentario, para comparar el texto. */
 function sinComentarios(bloques: Bloque[]): Bloque[] {
   const limpiar = (l: Inline[]) => normalizarInlines(l.map((i) => (i.tipo === 'texto' && i.comentarios ? (({ comentarios: _c, ...r }) => r)(i) : i)));
@@ -310,7 +354,9 @@ function sinComentarios(bloques: Bloque[]): Bloque[] {
         ? { ...b, elementos: b.elementos.map(limpiar) }
         : b.tipo === 'recuadro'
           ? { ...b, lineas: b.lineas.map((l) => ({ ...l, contenido: limpiar(l.contenido) })) }
-          : b,
+          : b.tipo === 'tabla'
+            ? { ...b, filas: b.filas.map((f) => f.map((c) => ({ ...c, contenido: limpiar(c.contenido) }))) }
+            : b,
   );
 }
 
@@ -375,6 +421,8 @@ export async function importarCorrecciones(libro: Libro, datos: Uint8Array, opci
     const crudos = s.bloques.filter((b) => b.tipo === 'crudo');
     const imagenes = s.bloques.filter((b) => b.tipo === 'imagen');
     const recuadrosOriginales = s.bloques.filter((b): b is Recuadro => b.tipo === 'recuadro');
+    const tablasOriginales = s.bloques.filter((b): b is Tabla => b.tipo === 'tabla');
+    let tablaPendiente: Tabla | null = null;
     let indiceImagen = 0;
     const bloques: Bloque[] = [];
     let recuadro: { original: Recuadro; lineas: Inline[][] } | null = null;
@@ -417,6 +465,22 @@ export async function importarCorrecciones(libro: Libro, datos: Uint8Array, opci
       if (MARCADOR_SALTO.test(t)) {
         bloques.push({ tipo: 'saltoPagina' });
         continue;
+      }
+      const mt = t.match(MARCADOR_TABLA);
+      if (mt) {
+        tablaPendiente = tablasOriginales[Number(mt[1]) - 1] ?? null;
+        if (!tablaPendiente) resumen.avisos.push(`«${s.titulo}»: no se encontró la tabla ${mt[1]}.`);
+        continue;
+      }
+      if (b.tipo === 'tabla') {
+        bloques.push(tablaPendiente ? fundirTabla(tablaPendiente, b) : b);
+        tablaPendiente = null;
+        continue;
+      }
+      if (tablaPendiente && b.tipo === 'parrafo' && !b.contenido.length) continue;
+      if (tablaPendiente) {
+        resumen.avisos.push(`«${s.titulo}»: la tabla ${tablasOriginales.indexOf(tablaPendiente) + 1} se borró en Word.`);
+        tablaPendiente = null;
       }
       const mx = t.match(MARCADOR_XHTML);
       const mi = t.match(MARCADOR_IMAGEN);

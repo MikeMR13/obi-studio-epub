@@ -175,7 +175,7 @@ const PRELUDIO = ${'`'}
     version: 1,
     registrar(h) { if (hooks) throw new Error('obi.registrar solo se puede llamar una vez.'); hooks = h; },
     texto,
-    textoBloque(b) { return b.tipo === 'lista' ? b.elementos.map(texto).join('\\n') : b.tipo === 'recuadro' ? b.lineas.map((l) => texto(l.contenido)).join('\\n') : b.tipo === 'parrafo' || b.tipo === 'subtitulo' ? texto(b.contenido) : ''; },
+    textoBloque(b) { return b.tipo === 'tabla' ? b.filas.map((f) => f.map((c) => texto(c.contenido)).join('\\t')).join('\\n') : b.tipo === 'lista' ? b.elementos.map(texto).join('\\n') : b.tipo === 'recuadro' ? b.lineas.map((l) => texto(l.contenido)).join('\\n') : b.tipo === 'parrafo' || b.tipo === 'subtitulo' ? texto(b.contenido) : ''; },
   });
   const consola = Object.freeze({
     log: (...a) => { if (registros.length < 200) registros.push(a.map(String).join(' ').slice(0, 2000)); },
@@ -389,6 +389,18 @@ function comprobarBloque(b: Record<string, unknown>, donde: string, notas: Set<s
       if (!Array.isArray(b.elementos)) throw new ErrorPlugin(`${donde}: lista sin elementos.`);
       for (const e of b.elementos) comprobarInlines(e, donde, notas);
       break;
+    case 'tabla':
+      if (!Array.isArray(b.filas) || !b.filas.length) throw new ErrorPlugin(`${donde}: tabla sin filas.`);
+      for (const f of b.filas as unknown[]) {
+        if (!Array.isArray(f)) throw new ErrorPlugin(`${donde}: fila de tabla que no es una lista.`);
+        for (const c of f as Record<string, unknown>[]) {
+          if (!c || typeof c !== 'object') throw new ErrorPlugin(`${donde}: celda que no es un objeto.`);
+          comprobarInlines(c.contenido, donde, notas);
+          for (const k of ['columnas', 'filas'] as const) if (c[k] !== undefined && (!Number.isInteger(c[k]) || (c[k] as number) < 1)) throw new ErrorPlugin(`${donde}: «${k}» de una celda debe ser un número entero.`);
+        }
+      }
+      if (b.titulo !== undefined && typeof b.titulo !== 'string') throw new ErrorPlugin(`${donde}: el título de la tabla debe ser texto.`);
+      break;
     case 'recuadro': {
       if (!VARIANTES.has(b.variante as string)) throw new ErrorPlugin(`${donde}: recuadro de tipo desconocido «${String(b.variante)}».`);
       if (b.titulo !== undefined && typeof b.titulo !== 'string') throw new ErrorPlugin(`${donde}: el título del recuadro debe ser texto.`);
@@ -458,6 +470,8 @@ export function validarLibroPlugin(entrada: unknown, original: Libro | null, per
     if (s.imagenCabecera !== undefined && !idsRecursos.has(s.imagenCabecera as string)) delete s.imagenCabecera;
     s.mostrarTitulo = s.mostrarTitulo !== false;
     s.enIndice = s.enIndice !== false;
+    if (s.tituloIndice !== undefined && (typeof s.tituloIndice !== 'string' || !s.tituloIndice.trim())) delete s.tituloIndice;
+    if (s.avance !== undefined && !['borrador', 'revision', 'listo'].includes(s.avance as string)) delete s.avance;
   }
   const base = original ?? null;
   const tema = { ...(base?.tema ?? {}), ...validarTema(l.tema) };

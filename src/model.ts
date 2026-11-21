@@ -100,6 +100,24 @@ export interface Separador {
   tipo: 'separador';
 }
 
+/** Celda de una tabla. */
+export interface CeldaTabla {
+  contenido: Inline[];
+  /** Celda de encabezado (th). */
+  encabezado?: boolean;
+  columnas?: number;
+  filas?: number;
+  alinear?: 'izquierda' | 'centro' | 'derecha';
+}
+
+/** Tabla editable (fichas de personaje, estadísticas de un sistema, horarios…). */
+export interface Tabla {
+  tipo: 'tabla';
+  filas: CeldaTabla[][];
+  /** Título de la tabla (caption). */
+  titulo?: string;
+}
+
 /** Salto de página dentro de una sección: lo que sigue empieza en una página nueva. */
 export interface SaltoPagina {
   tipo: 'saltoPagina';
@@ -159,7 +177,7 @@ export interface Recuadro {
   lineas: LineaRecuadro[];
 }
 
-export type Bloque = Parrafo | Subtitulo | Separador | SaltoPagina | Imagen | Lista | Crudo | Recuadro;
+export type Bloque = Parrafo | Subtitulo | Separador | SaltoPagina | Imagen | Lista | Tabla | Crudo | Recuadro;
 
 /**
  * Listas de inlines editables de un bloque (párrafo, subtítulo, elementos de lista, líneas de recuadro),
@@ -169,13 +187,20 @@ export function inlinesBloque(b: Bloque): Inline[][] {
   if (b.tipo === 'parrafo' || b.tipo === 'subtitulo') return [b.contenido];
   if (b.tipo === 'lista') return b.elementos;
   if (b.tipo === 'recuadro') return b.lineas.map((l) => l.contenido);
+  if (b.tipo === 'tabla') return b.filas.flatMap((f) => f.map((c) => c.contenido));
   return [];
+}
+
+/** Celdas de una tabla en el orden de inlinesBloque. */
+export function celdasTabla(b: Tabla): CeldaTabla[] {
+  return b.filas.flat();
 }
 
 export function escribirInlines(b: Bloque, k: number, contenido: Inline[]) {
   if (b.tipo === 'parrafo' || b.tipo === 'subtitulo') b.contenido = contenido;
   else if (b.tipo === 'lista') b.elementos[k] = contenido;
   else if (b.tipo === 'recuadro') b.lineas[k].contenido = contenido;
+  else if (b.tipo === 'tabla') celdasTabla(b)[k].contenido = contenido;
 }
 
 /** Texto plano extra de un recuadro que no está en los inlines (título y etiquetas). */
@@ -246,6 +271,8 @@ export interface Seccion {
   enIndice: boolean;
   /** Texto en el índice cuando es distinto del título (p. ej. más corto). */
   tituloIndice?: string;
+  /** Avance del trabajo en la sección (solo del proyecto; no sale en el EPUB). */
+  avance?: Avance;
   bloques: Bloque[];
   notas: Nota[];
   /** Imagen decorativa sobre el título del capítulo. */
@@ -650,6 +677,8 @@ export interface Libro {
   optimizarImagenes?: boolean;
   /** Niveles del índice: 1 (solo secciones, predeterminado) o 2 (también los subtítulos de nivel 2). */
   profundidadIndice?: 1 | 2;
+  /** Glosario y fichas de personajes (solo del proyecto; la página de glosario del libro se genera aparte). */
+  glosario?: EntradaGlosario[];
   /** Versiones guardadas con nombre (ver src/versiones.ts). No salen en el EPUB. */
   versiones?: Version[];
   /** Imágenes que solo usan las versiones guardadas, por huella. */
@@ -665,6 +694,122 @@ export interface Version {
   palabras: number;
   /** JSON del libro sin versiones; las imágenes van sin bytes y con su huella. */
   libro: string;
+}
+
+export type TipoTermino = 'personaje' | 'lugar' | 'tecnica' | 'objeto' | 'organizacion' | 'otro';
+export const TIPOS_TERMINO: { id: TipoTermino; nombre: string; plural: string }[] = [
+  { id: 'personaje', nombre: 'Personaje', plural: 'Personajes' },
+  { id: 'lugar', nombre: 'Lugar', plural: 'Lugares' },
+  { id: 'tecnica', nombre: 'Técnica o magia', plural: 'Técnicas y magia' },
+  { id: 'objeto', nombre: 'Objeto', plural: 'Objetos' },
+  { id: 'organizacion', nombre: 'Organización', plural: 'Organizaciones' },
+  { id: 'otro', nombre: 'Otro término', plural: 'Otros términos' },
+];
+
+/** Entrada del glosario: la grafía correcta de un nombre o término y lo que se sabe de él. */
+export interface EntradaGlosario {
+  id: string;
+  termino: string;
+  tipo: TipoTermino;
+  /** Grafías que se quieren evitar (se avisan al revisar el libro). */
+  variantes?: string[];
+  /** Nombre original (p. ej. en japonés). */
+  original?: string;
+  /** Lectura o romanización. */
+  lectura?: string;
+  descripcion?: string;
+  /** Sale en la página de glosario del libro. */
+  enLibro?: boolean;
+}
+
+export type Avance = 'borrador' | 'revision' | 'listo';
+export const AVANCES: { id: Avance; nombre: string }[] = [
+  { id: 'borrador', nombre: 'Borrador' },
+  { id: 'revision', nombre: 'En revisión' },
+  { id: 'listo', nombre: 'Listo' },
+];
+
+export interface EstadisticasSeccion {
+  id: string;
+  titulo: string;
+  tipo: TipoSeccion;
+  palabras: number;
+  /** Caracteres de escritura japonesa o china (se leen por carácter). */
+  cjk: number;
+  caracteres: number;
+  parrafos: number;
+  dialogos: number;
+  notas: number;
+  imagenes: number;
+  minutos: number;
+  avance?: Avance;
+}
+
+export interface EstadisticasLibro extends Omit<EstadisticasSeccion, 'id' | 'titulo' | 'tipo' | 'avance'> {
+  secciones: EstadisticasSeccion[];
+  /** Palabras (y caracteres CJK) por avance. */
+  porAvance: Record<Avance | 'sin', number>;
+}
+
+const CJK = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]/gu;
+/** Lectura media: 230 palabras por minuto; 500 caracteres por minuto en japonés o chino. */
+export const PALABRAS_POR_MINUTO = 230;
+export const CJK_POR_MINUTO = 500;
+
+/** Estadísticas del libro: palabras, caracteres, diálogos, tiempo de lectura y avance por sección. */
+export function estadisticasLibro(libro: Pick<Libro, 'secciones'>): EstadisticasLibro {
+  const secciones = libro.secciones.map((s): EstadisticasSeccion => {
+    const textos: string[] = [];
+    let parrafos = 0;
+    let dialogos = 0;
+    let imagenes = 0;
+    for (const b of s.bloques) {
+      if (b.tipo === 'parrafo') {
+        const t = textoPlano(b.contenido);
+        if (t.trim()) {
+          parrafos++;
+          if (/^\s*[—–\-«“"「『]/.test(t)) dialogos++;
+        }
+        textos.push(t);
+      } else if (b.tipo === 'subtitulo') textos.push(textoPlano(b.contenido));
+      else if (b.tipo === 'lista') textos.push(...b.elementos.map(textoPlano));
+      else if (b.tipo === 'recuadro') textos.push(textoExtraRecuadro(b), ...b.lineas.map((l) => textoPlano(l.contenido)));
+      else if (b.tipo === 'tabla') textos.push(...celdasTabla(b).map((c) => textoPlano(c.contenido)), b.titulo ?? '');
+      else if (b.tipo === 'imagen') imagenes++;
+    }
+    const todo = textos.join(' ');
+    const cjk = (todo.match(CJK) ?? []).length;
+    const palabras = todo.replace(CJK, ' ').split(/\s+/).filter((x) => /[\p{L}\p{N}]/u.test(x)).length;
+    return {
+      id: s.id,
+      titulo: s.titulo,
+      tipo: s.tipo,
+      palabras,
+      cjk,
+      caracteres: todo.replace(/\s+/g, '').length,
+      parrafos,
+      dialogos,
+      notas: s.notas.length,
+      imagenes,
+      minutos: palabras / PALABRAS_POR_MINUTO + cjk / CJK_POR_MINUTO,
+      ...(s.avance ? { avance: s.avance } : {}),
+    };
+  });
+  const suma = (k: 'palabras' | 'cjk' | 'caracteres' | 'parrafos' | 'dialogos' | 'notas' | 'imagenes' | 'minutos') => secciones.reduce((n, x) => n + x[k], 0);
+  const porAvance: Record<Avance | 'sin', number> = { borrador: 0, revision: 0, listo: 0, sin: 0 };
+  for (const x of secciones) porAvance[x.avance ?? 'sin'] += x.palabras + x.cjk;
+  return {
+    palabras: suma('palabras'),
+    cjk: suma('cjk'),
+    caracteres: suma('caracteres'),
+    parrafos: suma('parrafos'),
+    dialogos: suma('dialogos'),
+    notas: suma('notas'),
+    imagenes: suma('imagenes'),
+    minutos: suma('minutos'),
+    secciones,
+    porAvance,
+  };
 }
 
 /** Entrada del índice: una sección y, con dos niveles, sus subtítulos. */
@@ -786,6 +931,7 @@ export function contarPalabras(seccion: Seccion): number {
     let t = '';
     if (b.tipo === 'parrafo' || b.tipo === 'subtitulo') t = textoPlano(b.contenido);
     else if (b.tipo === 'lista') t = b.elementos.map(textoPlano).join(' ');
+    else if (b.tipo === 'tabla') t = [b.titulo ?? '', ...celdasTabla(b).map((c) => textoPlano(c.contenido))].join(' ');
     else if (b.tipo === 'recuadro') t = textoExtraRecuadro(b) + ' ' + b.lineas.map((l) => textoPlano(l.contenido)).join(' ');
     total += t.split(/\s+/).filter(Boolean).length;
   }

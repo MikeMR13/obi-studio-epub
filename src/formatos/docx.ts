@@ -247,6 +247,7 @@ export async function importarDocx(
     for (const b of s.bloques) {
       if (b.tipo === 'parrafo' || b.tipo === 'subtitulo') b.contenido = rubiesDeTexto(cambiar(b.contenido));
       if (b.tipo === 'lista') b.elementos = b.elementos.map((e) => rubiesDeTexto(cambiar(e)));
+      if (b.tipo === 'tabla') b.filas.forEach((f) => f.forEach((c) => (c.contenido = rubiesDeTexto(cambiar(c.contenido)))));
     }
     for (const n of notas) n.contenido = rubiesDeTexto(n.contenido);
     s.notas = notas;

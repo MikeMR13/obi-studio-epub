@@ -18,6 +18,7 @@ export function claveBloque(b: Bloque, notas: Nota[]): string {
   if (b.tipo === 'parrafo' || b.tipo === 'subtitulo') return JSON.stringify({ ...b, contenido: limpiar(b.contenido) });
   if (b.tipo === 'lista') return JSON.stringify({ ...b, elementos: b.elementos.map(limpiar) });
   if (b.tipo === 'recuadro') return JSON.stringify({ ...b, lineas: b.lineas.map((l) => ({ ...l, contenido: limpiar(l.contenido) })) });
+  if (b.tipo === 'tabla') return JSON.stringify({ ...b, filas: b.filas.map((f) => f.map((c) => ({ ...c, contenido: limpiar(c.contenido) }))) });
   return JSON.stringify(b);
 }
 
@@ -29,6 +30,7 @@ function notasDe(bloques: Bloque[], notas: Nota[]): Nota[] {
   for (const b of bloques) {
     if (b.tipo === 'parrafo' || b.tipo === 'subtitulo') ver(b.contenido);
     if (b.tipo === 'lista') b.elementos.forEach(ver);
+    if (b.tipo === 'tabla') b.filas.forEach((f) => f.forEach((c) => ver(c.contenido)));
     if (b.tipo === 'recuadro') b.lineas.forEach((l) => ver(l.contenido));
   }
   return notas.filter((n) => ids.has(n.id));

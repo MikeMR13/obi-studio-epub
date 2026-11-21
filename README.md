@@ -8,7 +8,7 @@ Maquetador visual de novelas ligeras para Windows, macOS y Linux. Escribes y das
 
 - **Tabla de contenido** (botón ☰ de la estructura): qué secciones salen en el índice, con qué texto (puede ser distinto del título de la página), uno o dos niveles (secciones y subtítulos h2, que se pueden quitar uno a uno), vista previa, ir a cada sección, unir con la siguiente y añadir la página de índice. El EPUB lleva el nav y también `toc.ncx` para los lectores antiguos; el PDF pone el número de página a cada entrada.
 - **Salto de página** dentro de una sección (también en el PDF y en el Word de corrección), **partir la sección en el cursor** (✂, con sus notas y comentarios) y **unir con la siguiente** (el título de la segunda queda como subtítulo). Antes de partir o unir se guarda una versión.
-- **Importar:** EPUB 2 y 3 (Sigil, Calibre, InDesign, Kindle Create y los propios), Word (.docx), OpenDocument (.odt), HTML, Markdown y texto plano (UTF-8, UTF-16, Shift_JIS o Windows-1252). Conserva capítulos, subtítulos, negrita, cursiva, versalitas, alineación, estilos de novela ligera, notas al pie (también en otro archivo), enlaces, furigana, texto en otro idioma, imágenes con su descripción, portada, serie y volumen. Lo que el editor no sabe representar (tablas, SVG, MathML) se guarda intacto como bloque XHTML.
+- **Importar:** EPUB 2 y 3 (Sigil, Calibre, InDesign, Kindle Create y los propios), Word (.docx), OpenDocument (.odt), HTML, Markdown y texto plano (UTF-8, UTF-16, Shift_JIS o Windows-1252). Conserva capítulos, subtítulos, negrita, cursiva, versalitas, alineación, estilos de novela ligera, notas al pie (también en otro archivo), enlaces, furigana, texto en otro idioma, imágenes con su descripción, portada, serie y volumen. Las tablas sencillas se vuelven tablas editables; lo que el editor no sabe representar (tablas complejas, SVG, MathML) se guarda intacto como bloque XHTML.
 - **Escribir:** editor visual (TipTap/ProseMirror) sobre el modelo del libro, nunca sobre HTML.
   - Estilos de párrafo: cuerpo, sin sangría, centrado, a la derecha, pensamiento, onomatopeya, carta y cita (Ctrl/⌘+Alt+0…7). Subtítulos.
   - Negrita, cursiva, subrayado, tachado, versalitas, superíndice, subíndice, enlaces.
@@ -24,6 +24,20 @@ Maquetador visual de novelas ligeras para Windows, macOS y Linux. Escribes y das
 - **EPUB generado:** EPUB 3.3 con `epub:type` y roles DPUB-ARIA, landmarks, notas `doc-noteref`/`doc-footnote`, metadatos de accesibilidad, serie (`belongs-to-collection`), créditos con función (MARC) y portada para todas las tiendas.
 - **Proyecto `.obi`:** un ZIP con `libro.json` y las imágenes. Copia de recuperación automática cada minuto con cambios.
 - EPUBCheck y un Java mínimo (jlink, 56 MB) van **dentro del instalador**.
+
+## Versión completa: tablas, glosario, estadísticas, corrector y actualizaciones
+
+- **Tablas editables** (barra del editor → «Tabla…»): insertar, filas y columnas, fila o columna de encabezado, combinar celdas, alinear cada celda y título. En el EPUB salen como `<table>` accesible (`caption`, `thead`, `th` con `scope`), también en el PDF y en el Word de corrección (marcador `⟦Tabla n⟧`: vuelve el texto corregido con la estructura original).
+- **Glosario y personajes** (Más → Glosario y personajes…): grafía correcta, tipo, original, lectura, grafías que evitar y ficha. «Revisar el libro» avisa de las grafías distintas (acentos y macrones, guiones, vocales largas, mayúsculas o las variantes indicadas) con ejemplos, y «Cambiar todas» las unifica (palabra completa, con una versión guardada antes). Importa CSV, JSON o el `.obi` de otro volumen de la serie, exporta CSV y JSON, y crea la página «Glosario» del libro con las entradas marcadas.
+- **Estadísticas** (Más → Estadísticas…): palabras, caracteres japoneses, tiempo de lectura, párrafos, diálogo, notas e imágenes, por libro y por sección, y **avance** de cada capítulo (borrador, en revisión, listo), que se guarda solo en el proyecto.
+- **Corrector en varios idiomas** (Configuración): diccionarios de español, inglés, portugués, francés, italiano, alemán y catalán, y el idioma del libro abierto. En Windows y macOS se usa el corrector del sistema.
+- **Actualizaciones automáticas** de la app instalada (electron-updater con las versiones de GitHub): se buscan al abrir (se puede desactivar), se descargan en segundo plano y se instalan al reiniciar, con copia de recuperación antes.
+
+## Conversión sencilla: lotes y limpieza
+
+- **Varios volúmenes a la vez:** se eligen varios archivos y se convierten con las mismas opciones; cada volumen se valida y se descargan todos en un ZIP.
+- **Limpieza tipográfica opcional** (raya de diálogo, comillas, puntos suspensivos y espacios ante signos), **descripción de imágenes opcional**, **tienda de destino**, **guardar el proyecto `.obi`** y **saltos de página de Word** como cortes de capítulo o saltos de página.
+- **Rendimiento:** `npx tsx scripts/rendimiento.mts` mide un libro de unas 150 000 palabras (compilar 0,2 s, importar 0,4 s, EPUBCheck sin mensajes).
 
 ## Géneros, cubierta y conversión sencilla (F7)
 

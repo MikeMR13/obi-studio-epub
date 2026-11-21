@@ -88,6 +88,7 @@ export function caracteresJaponeses(libro: Libro): Set<number> {
     for (const b of s.bloques) {
       if (b.tipo === 'parrafo' || b.tipo === 'subtitulo') inl(b.contenido);
       else if (b.tipo === 'lista') b.elementos.forEach(inl);
+      else if (b.tipo === 'tabla') b.filas.forEach((f) => f.forEach((c) => inl(c.contenido)));
       else if (b.tipo === 'recuadro') (b.lineas.forEach((l) => (inl(l.contenido), ver(l.etiqueta ?? ''))), ver(b.titulo ?? ''));
       else if (b.tipo === 'crudo') ver(b.xhtml);
       else if (b.tipo === 'imagen') ver(b.alt);

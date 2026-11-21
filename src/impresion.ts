@@ -120,6 +120,11 @@ ol.indice li { margin: 0.35em 0; }
 ol.indice a { color: inherit; text-decoration: none; display: block; }
 ol.indice ol { list-style: none; padding: 0 0 0 1.5em; margin: 0.2em 0 0; font-size: 0.95em; }
 div.salto-pagina { break-after: page; height: 0; margin: 0; }
+table.tabla { border-collapse: collapse; margin: 1em auto; max-width: 100%; font-size: 0.9em; break-inside: avoid; }
+table.tabla caption { font-weight: bold; margin-bottom: 0.4em; }
+table.tabla th, table.tabla td { border: 0.5pt solid #555; padding: 0.2em 0.5em; text-indent: 0; text-align: left; vertical-align: top; }
+table.tabla .al-centro { text-align: center; }
+table.tabla .al-derecha { text-align: right; }
 ol.indice a::after { content: target-counter(attr(href url), page); float: right; padding-left: 1em; }
 
 .nota-pie { float: footnote; font-size: 0.82em; line-height: 1.3; text-indent: 0; text-align: left; font-style: normal; font-weight: normal; }

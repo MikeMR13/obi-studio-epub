@@ -1,3 +1,4 @@
+import type { Configuracion } from '../../src/configuracion';
 import type { AnalisisConversion, CapituloVista, CapitulosConversion, CorteCapitulos, DatosLibroConversion, DatosLote, DescripcionesConversion, Estado, ResultadoLote, OpcionesConversionSencilla, PortadaConversion, ResumenConversion } from '../backend';
 import type { Resultado } from '../../src/validar';
 
@@ -13,6 +14,8 @@ import type { ProblemaCss } from '../../src/css-propio';
 import type { PermisoFuente } from '../../src/fuentes-propias';
 import type { EstadoColaboracion } from '../colaboracion';
 import type { Hallazgo, Manifiesto, PluginInstalado } from '../../src/plugins';
+import type { RevisionGlosario } from '../../src/glosario';
+import type { EntradaGlosario } from '../../src/model';
 
 export type { Coincidencia, OpcionesBusqueda, DiferenciaSeccion, AvisoTienda };
 export type Catalogo = { catalogos: string[]; plugins: (EntradaCatalogo & { estado: 'nuevo' | 'instalado' | 'actualizable' })[]; errores: string[] };
@@ -21,6 +24,7 @@ export type RevisionCubierta = { avisos: AvisoCubierta[]; medidas?: MedidasCubie
 export type FamiliaSistemaPublica = { familia: string; caras: Omit<CaraSistema, 'ruta'>[] };
 export type ResultadoFuente = { familia: string; permiso: PermisoFuente; estado: Estado };
 export type { AnalisisConversion, CambioCapitulo, CapituloVista, CapitulosConversion, CorteCapitulos, DatosLibroConversion, DatosLote, DescripcionesConversion, ResultadoLote, VolumenLote, OpcionesConversionSencilla, PortadaConversion, ResumenConversion } from '../backend';
+export type { RevisionGlosario };
 export type { Estado, Resultado, AvisoImpresion, InformeAccesibilidad, Hallazgo, Manifiesto, PluginInstalado };
 
 export class ErrorApi extends Error {
@@ -95,8 +99,10 @@ export const api = {
   restaurarVersion: (id: string) => pedir<{ avisos: string[]; estado: Estado }>('POST', `/api/versiones/${id}/restaurar`),
   eliminarVersion: (id: string) => pedir<Estado>('DELETE', `/api/versiones/${id}`),
   revisarTienda: (id: string) => pedir<AvisoTienda[]>('GET', `/api/tiendas/${id}/revision`),
-  configuracion: () => pedir<{ colaboracion: boolean }>('GET', '/api/configuracion'),
-  cambiarConfiguracion: (c: { colaboracion?: boolean }) => pedir<{ configuracion: { colaboracion: boolean }; estado: Estado }>('PUT', '/api/configuracion', c),
+  configuracion: () => pedir<Configuracion>('GET', '/api/configuracion'),
+  cambiarConfiguracion: (c: Partial<Configuracion>) => pedir<{ configuracion: Configuracion; estado: Estado }>('PUT', '/api/configuracion', c),
+  comprobarActualizacion: () => pedir<{ version: string | null; estado: Estado }>('POST', '/api/actualizacion/comprobar'),
+  instalarActualizacion: () => pedir<{ ok: boolean }>('POST', '/api/actualizacion/instalar'),
   colaboracion: () => pedir<EstadoColaboracion>('GET', '/api/colaboracion'),
   iniciarColaboracion: () => pedir<EstadoColaboracion & { estado: Estado }>('POST', '/api/colaboracion'),
   detenerColaboracion: () => pedir<EstadoColaboracion & { estado: Estado }>('DELETE', '/api/colaboracion'),
@@ -131,6 +137,12 @@ export const api = {
   muestraTema: (modo: 'lector' | 'pagina') => pedir<{ url: string }>('GET', `/api/tema/muestra?modo=${modo}`),
   impresion: (cambios: object) => pedir<Estado>('PUT', '/api/impresion', cambios),
   revisionImpresion: () => pedir<{ avisos: AvisoImpresion[]; paginas?: number }>('GET', '/api/impresion/revision'),
+  glosario: (entradas: EntradaGlosario[]) => pedir<Estado>('PUT', '/api/glosario', { entradas }),
+  revisionGlosario: () => pedir<RevisionGlosario>('GET', '/api/glosario/revision'),
+  unificarTermino: (entrada: string, encontrado: string) => pedir<{ cambios: number; estado: Estado }>('POST', '/api/glosario/unificar', { entrada, encontrado }),
+  importarGlosario: (archivo: File) =>
+    pedir<{ nuevas: number; total: number; estado: Estado }>('POST', `/api/glosario/importar?nombre=${encodeURIComponent(archivo.name)}`, undefined, archivo),
+  paginaGlosario: () => pedir<{ seccion: string; estado: Estado }>('POST', '/api/glosario/pagina'),
   visorImpresion: () => pedir<{ url: string }>('GET', '/api/impresion/visor'),
 };
 

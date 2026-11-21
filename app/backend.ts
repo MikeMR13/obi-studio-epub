@@ -4,7 +4,7 @@ import JSZip from 'jszip';
 import { mkdir, readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { basename, join } from 'node:path';
-import type { Bloque, CaraFuentePropia, Comentario, Credito, Cubierta, FuentePropia, Imagen, Impresion, Inline, Libro, Nota, Metadatos, Recurso, Seccion, Tema, TipoSeccion, Tipografia } from '../src/model.js';
+import type { Bloque, CaraFuentePropia, Comentario, Credito, Cubierta, EntradaGlosario, FuentePropia, Imagen, Impresion, Inline, Libro, Nota, Metadatos, Recurso, Seccion, Tema, TipoSeccion, Tipografia } from '../src/model.js';
 import { ajustesImpresion, TAMANOS_IMPRESION, temaCompleto, validarTema } from '../src/model.js';
 import { TEMAS } from '../src/temas.js';
 import { libroMuestra, sitioMuestra as crearSitioMuestra, type OpcionesMuestra } from '../src/muestra.js';
@@ -42,7 +42,7 @@ import { archivosImpresion, margenInteriorAutomatico } from '../src/impresion.js
 import { generarPdf, renderizadorChrome, urlVisor, type Renderizador, type TipoPdf } from '../src/pdf.js';
 import { libroParaImprimir } from '../src/servicio-impresion.js';
 import { revisarImpresion, type AvisoImpresion } from '../src/preflight.js';
-import { libroNuevo, nuevaSeccion, nuevoId, contarPalabras, inlinesBloque, parrafo, textoPlano } from '../src/model.js';
+import { AVANCES, libroNuevo, nuevaSeccion, nuevoId, contarPalabras, inlinesBloque, parrafo, textoPlano } from '../src/model.js';
 import { compilar, compilarArchivos, archivoSeccion, rutaImagen, cssLibro, CONTAINER } from '../src/compilar.js';
 import { importarEpub } from '../src/formatos/epub.js';
 import { importarDocx } from '../src/formatos/docx.js';
@@ -51,6 +51,8 @@ import { errorXhtml } from '../src/formatos/dom.js';
 import { deserializarProyecto, guardarProyecto, serializarProyecto } from '../src/proyecto.js';
 import { validarDatos, type Resultado } from '../src/validar.js';
 import { aplicarTipografiaLibro, aplicarTipografiaSeccion } from '../src/tipografia.js';
+import { bloquesGlosario, glosarioACsv, glosarioDeCsv, glosarioValido, revisarGlosario, type RevisionGlosario } from '../src/glosario.js';
+import { decodificarTexto } from '../src/formatos/otros.js';
 import { tamanoImagen, tipoPorContenido, extension } from '../src/imagen.js';
 
 /** Acepta solo comentarios con la forma esperada. */
@@ -171,6 +173,7 @@ export function tipografiaOriginal(libro: Libro): TipografiaOriginal {
     for (const b of s.bloques) {
       if (b.tipo === 'parrafo' || b.tipo === 'subtitulo') ver(b.contenido);
       if (b.tipo === 'lista') b.elementos.forEach(ver);
+      if (b.tipo === 'tabla') b.filas.forEach((f) => f.forEach((c) => ver(c.contenido)));
       if (b.tipo === 'recuadro') b.lineas.forEach((x) => ver(x.contenido));
     }
     s.notas.forEach((n) => ver(n.contenido));
@@ -342,6 +345,14 @@ export interface Estado {
   colaboracion?: { puerto: number; codigo: string };
   /** Hay Ghostscript para el PDF/X-1a. */
   ghostscript: boolean;
+  /** Versión nueva de la app (solo la app de escritorio). */
+  actualizacion?: EstadoActualizacion;
+}
+
+export interface EstadoActualizacion {
+  version: string;
+  /** Ya se descargó: se instala al cerrar o al reiniciar. */
+  descargada: boolean;
 }
 
 export class Backend {
@@ -388,6 +399,11 @@ export class Backend {
   constructor(private carpetaRecuperacion = join(homedir(), '.obi-studio')) {}
 
   estado(): Estado {
+    // El corrector sigue el idioma del libro abierto (la app de escritorio lo ajusta).
+    if (this.alCambiarCorrector && this.idiomaAvisado !== this.libro.metadatos.idioma) {
+      this.idiomaAvisado = this.libro.metadatos.idioma;
+      void this.avisarCorrector();
+    }
     const recursos = this.libro.recursos.map(({ datos, ...r }) => ({ ...r, bytes: datos.length }));
     const palabras: Record<string, number> = {};
     for (const s of this.libro.secciones) palabras[s.id] = contarPalabras(s);
@@ -403,7 +419,31 @@ export class Backend {
       palabras,
       avisos: this.avisos,
       ...(this.antesDePlugin ? { deshacerPlugin: this.antesDePlugin.plugin } : {}),
+      ...(this.actualizacion ? { actualizacion: this.actualizacion } : {}),
     };
+  }
+
+  private idiomaAvisado?: string;
+  /** Versión nueva encontrada por la app de escritorio. */
+  actualizacion?: EstadoActualizacion;
+  /** La app de escritorio instala la versión descargada y se reinicia. */
+  instalarActualizacion?: () => void;
+  /** La app de escritorio busca versiones nuevas (devuelve la versión encontrada, si hay). */
+  comprobarActualizacion?: () => Promise<string | undefined>;
+  /** La app de escritorio ajusta el corrector ortográfico (al cambiar la configuración o el idioma del libro). */
+  alCambiarCorrector?: (idiomas: string[]) => void;
+
+  /** Idiomas que debe usar el corrector: los elegidos y, si se pide, el del libro. */
+  async idiomasCorrector(): Promise<string[]> {
+    const c = await this.configuracion.leer();
+    const r = [...c.idiomasCorrector];
+    if (c.corregirIdiomaLibro && this.libro.metadatos.idioma && !r.some((x) => x.split('-')[0] === this.libro.metadatos.idioma.split('-')[0])) r.push(this.libro.metadatos.idioma);
+    return r;
+  }
+
+  /** Avisa a la app de escritorio de los idiomas del corrector. */
+  async avisarCorrector() {
+    if (this.alCambiarCorrector) this.alCambiarCorrector(await this.idiomasCorrector());
   }
 
   private marcar() {
@@ -588,6 +628,7 @@ export class Backend {
       else delete s.tituloIndice;
     }
     if (s.imagenCabecera && !this.libro.recursos.some((r) => r.id === s.imagenCabecera)) delete s.imagenCabecera;
+    if ('avance' in (cambios as object) && !AVANCES.some((a) => a.id === s.avance)) delete s.avance;
     this.marcar();
   }
 
@@ -1105,6 +1146,82 @@ export class Backend {
       corregido,
       avisos,
     };
+  }
+
+  // ---------- Glosario y fichas de personajes ----------
+
+  guardarGlosario(entradas: unknown) {
+    const g = glosarioValido(entradas);
+    if (g.length) this.libro.glosario = g;
+    else delete this.libro.glosario;
+    this.marcar();
+  }
+
+  revisionGlosario(): RevisionGlosario {
+    return revisarGlosario(this.libro);
+  }
+
+  /** Cambia en todo el libro una grafía encontrada por la del glosario (palabra completa, mayúsculas exactas). */
+  unificarTermino(entrada: string, encontrado: string): number {
+    const e = this.libro.glosario?.find((x) => x.id === entrada);
+    if (!e) throw new ErrorUsuario('Esa entrada ya no está en el glosario.');
+    if (typeof encontrado !== 'string' || !encontrado.trim() || encontrado === e.termino) throw new ErrorUsuario('No hay nada que cambiar.');
+    this.conVersion(() => crearVersion(this.libro, `Antes de cambiar «${encontrado}» por «${e.termino}»`));
+    const { n } = reemplazar(this.libro, { consulta: encontrado, palabraCompleta: true, mayusculas: true }, e.termino);
+    for (const s of this.libro.secciones) if (s.titulo === encontrado) s.titulo = e.termino;
+    if (n) this.marcar();
+    return n;
+  }
+
+  /** Añade entradas de un CSV, un JSON o un proyecto .obi (otro volumen de la serie); no repite términos. */
+  async importarGlosario(nombre: string, datos: Uint8Array): Promise<{ nuevas: number; total: number }> {
+    const ext = nombre.toLowerCase().split('.').pop();
+    let entradas: EntradaGlosario[];
+    if (ext === 'obi') entradas = glosarioValido((await deserializarProyecto(datos)).glosario ?? []);
+    else {
+      const texto = decodificarTexto(datos);
+      if (ext === 'json') {
+        try {
+          const j = JSON.parse(texto);
+          entradas = glosarioValido(Array.isArray(j) ? j : j?.glosario);
+        } catch {
+          throw new ErrorUsuario('El JSON del glosario no se pudo leer.');
+        }
+      } else if (ext === 'csv' || ext === 'txt' || ext === 'tsv') entradas = glosarioDeCsv(ext === 'tsv' ? texto.replace(/\t/g, ',') : texto);
+      else throw new ErrorUsuario('Usa un archivo .csv, .json o un proyecto .obi.');
+    }
+    if (!entradas.length) throw new ErrorUsuario('El archivo no tiene entradas de glosario.');
+    const actual = this.libro.glosario ?? [];
+    const ya = new Set(actual.map((x) => x.termino.toLowerCase()));
+    const nuevas = entradas.filter((x) => !ya.has(x.termino.toLowerCase()));
+    this.libro.glosario = glosarioValido([...actual, ...nuevas]);
+    this.marcar();
+    return { nuevas: nuevas.length, total: this.libro.glosario.length };
+  }
+
+  exportarGlosario(formato: string): { nombre: string; tipo: string; datos: Uint8Array } {
+    const g = this.libro.glosario ?? [];
+    const base = `${nombreDeArchivo(this.libro.metadatos.serie || this.libro.metadatos.titulo)}-glosario`;
+    if (formato === 'json') return { nombre: `${base}.json`, tipo: 'application/json', datos: new TextEncoder().encode(JSON.stringify({ glosario: g }, null, 2)) };
+    return { nombre: `${base}.csv`, tipo: 'text/csv; charset=utf-8', datos: new TextEncoder().encode(glosarioACsv(g)) };
+  }
+
+  /** Crea o actualiza la página «Glosario» del libro con las entradas marcadas «en el libro». */
+  paginaGlosario(): string {
+    const bloques = bloquesGlosario(this.libro.glosario ?? []);
+    if (!bloques.length) throw new ErrorUsuario('Marca «En el libro» en las entradas que deban salir en la página de glosario.');
+    let s = this.libro.secciones.find((x) => x.tipo === 'apendice' && /^glosario$/i.test(x.titulo.trim()));
+    if (!s) {
+      s = nuevaSeccion('apendice', 'Glosario');
+      s.mostrarTitulo = true;
+      s.enIndice = true;
+      const k = this.libro.secciones.findIndex((x) => x.tipo === 'posfacio');
+      if (k >= 0) this.libro.secciones.splice(k, 0, s);
+      else this.libro.secciones.push(s);
+    }
+    s.bloques = bloques;
+    this.marcar();
+    return s.id;
   }
 
   // ---------- Conversión por lotes (varios volúmenes con las mismas opciones) ----------

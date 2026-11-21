@@ -3,7 +3,8 @@
 import { app, BrowserWindow, Menu, dialog, shell, type MenuItemConstructorOptions } from 'electron';
 import { iniciarServidor } from './servidor.js';
 import { AlmacenPlugins } from '../src/plugins.js';
-import { ArchivoConfiguracion } from '../src/configuracion.js';
+import { ArchivoConfiguracion, diccionariosPara } from '../src/configuracion.js';
+import electronUpdater from 'electron-updater';
 import { Backend } from './backend.js';
 import { join } from 'node:path';
 
@@ -71,7 +72,38 @@ async function crearVentana() {
     show: false,
     webPreferences: { contextIsolation: true, sandbox: true, nodeIntegration: false, spellcheck: true },
   });
-  ventana.webContents.session.setSpellCheckerLanguages(['es', 'es-419', 'es-ES'].filter((l) => ventana!.webContents.session.availableSpellCheckerLanguages.includes(l)));
+  // Corrector ortográfico: los idiomas de la configuración y el del libro abierto.
+  // (En Windows y macOS se usa el corrector del sistema, que reconoce el idioma por sí mismo.)
+  const sesion = ventana.webContents.session;
+  backend.alCambiarCorrector = (idiomas) => {
+    if (process.platform === 'darwin') return;
+    const dic = diccionariosPara(idiomas, sesion.availableSpellCheckerLanguages);
+    if (dic.length) sesion.setSpellCheckerLanguages(dic);
+  };
+  void backend.avisarCorrector();
+
+  // Actualizaciones automáticas (solo la app instalada; los instaladores publican latest.yml en la versión de GitHub).
+  if (app.isPackaged) {
+    const { autoUpdater } = electronUpdater;
+    autoUpdater.autoDownload = true;
+    autoUpdater.autoInstallOnAppQuit = true;
+    autoUpdater.on('update-available', (i) => (backend.actualizacion = { version: i.version, descargada: false }));
+    autoUpdater.on('update-downloaded', (i) => (backend.actualizacion = { version: i.version, descargada: true }));
+    autoUpdater.on('error', (e) => console.error('Actualización:', e.message));
+    backend.comprobarActualizacion = async () => {
+      const r = await autoUpdater.checkForUpdates();
+      return r?.isUpdateAvailable ? r.updateInfo.version : undefined;
+    };
+    backend.instalarActualizacion = () =>
+      void backend.guardarRecuperacion().finally(() => {
+        // Lo último queda en la copia de recuperación: se puede salir sin preguntar.
+        salirConfirmado = true;
+        autoUpdater.quitAndInstall();
+      });
+    void backend.configuracion.leer().then(async (c) => {
+      if (c.buscarActualizaciones) await autoUpdater.checkForUpdates().catch(() => undefined);
+    });
+  }
   ventana.once('ready-to-show', () => ventana?.show());
 
   // Solo se navega dentro de la app; los enlaces externos se abren en el navegador del sistema.
@@ -160,6 +192,18 @@ async function crearVentana() {
     {
       label: 'Ayuda',
       submenu: [
+        {
+          label: 'Buscar actualizaciones…',
+          click: async () => {
+            if (!backend.comprobarActualizacion) return void dialog.showMessageBox(ventana!, { message: 'Las actualizaciones automáticas solo funcionan en la app instalada.' });
+            try {
+              const v = await backend.comprobarActualizacion();
+              await dialog.showMessageBox(ventana!, { message: v ? `Hay una versión nueva: ${v}` : 'Tienes la última versión.', detail: v ? 'Se descarga en segundo plano y se instala al cerrar la app.' : `Obi Studio EPUB ${app.getVersion()}` });
+            } catch (e) {
+              await dialog.showMessageBox(ventana!, { type: 'warning', message: 'No se pudo buscar actualizaciones.', detail: (e as Error).message });
+            }
+          },
+        },
         { label: 'Acerca de Obi Studio', click: () => dialog.showMessageBox(ventana!, { message: `Obi Studio EPUB ${app.getVersion()}`, detail: 'Maquetador de novelas ligeras. Valida con EPUBCheck 5.4.' }) },
       ],
     },
