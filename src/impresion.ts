@@ -1,8 +1,8 @@
 // Libro para imprimir: un HTML con CSS Paged Media que compagina Vivliostyle.
 // Sale del mismo modelo y del mismo tema que el EPUB.
 
-import type { Impresion, Libro, Nota, Seccion } from './model.js';
-import { ajustesImpresion, textoPlano } from './model.js';
+import type { EntradaIndice, Impresion, Libro, Nota, Seccion } from './model.js';
+import { ajustesImpresion, entradasIndice, textoPlano } from './model.js';
 import { bloquesXhtml, numerarNotas, inlinesXhtml, type Contexto } from './compilar.js';
 import { esc, escAttr } from './xml.js';
 import { temaCompleto, esVertical } from './model.js';
@@ -116,8 +116,10 @@ section.imagen { page: imagen; }
 .pagina-imagen.contenida img { max-width: ${a.ancho - 2 * a.margenExterior}mm; max-height: ${a.alto - a.margenSuperior - a.margenInferior}mm; }
 
 ol.indice { list-style: none; padding: 0; margin: 0; }
-ol.indice li { margin: 0.35em 0; display: flex; }
-ol.indice a { color: inherit; text-decoration: none; flex: 1; }
+ol.indice li { margin: 0.35em 0; }
+ol.indice a { color: inherit; text-decoration: none; display: block; }
+ol.indice ol { list-style: none; padding: 0 0 0 1.5em; margin: 0.2em 0 0; font-size: 0.95em; }
+div.salto-pagina { break-after: page; height: 0; margin: 0; }
 ol.indice a::after { content: target-counter(attr(href url), page); float: right; padding-left: 1em; }
 
 .nota-pie { float: footnote; font-size: 0.82em; line-height: 1.3; text-indent: 0; text-align: left; font-style: normal; font-weight: normal; }
@@ -161,6 +163,8 @@ export function htmlImpresion(libro: Libro, op: OpcionesImpresion): string {
       notasPorId: new Map(s.notas.map((n) => [n.id, n])),
       rutaImg,
       vertical: esVertical(libro),
+      // Prefijo corto: Chrome convierte las anclas enlazadas en destinos con la URL delante (máx. 127 caracteres).
+      prefijoAncla: `p${libro.secciones.indexOf(s)}-`,
     };
     ctx.renderNota = (nota) => renderNota(nota, ctx);
     let contenido = '';
@@ -184,10 +188,9 @@ export function htmlImpresion(libro: Libro, op: OpcionesImpresion): string {
       if (resto.length) contenido += bloquesXhtml(resto, ctx, s);
       if (!contenido) continue;
     } else if (s.tipo === 'indice') {
-      const items = libro.secciones
-        .filter((x) => x.enIndice && x.titulo && x.tipo !== 'indice' && x.tipo !== 'portada')
-        .map((x) => `<li><a href="#s-${x.id}">${esc(x.titulo)}</a></li>`)
-        .join('\n');
+      const li = (e: EntradaIndice): string =>
+        `<li><a href="#${e.ancla ? `p${libro.secciones.findIndex((x) => x.id === e.seccion)}-${e.ancla}` : `s-${e.seccion}`}">${esc(e.texto)}</a>${e.hijos.length ? `<ol>${e.hijos.map(li).join('')}</ol>` : ''}</li>`;
+      const items = entradasIndice(libro).map(li).join('\n');
       contenido = `<h1>${esc(s.titulo || 'Índice')}</h1>\n<ol class="indice">\n${items}\n</ol>` + bloquesXhtml(s.bloques, ctx, s);
     } else {
       const cab = s.imagenCabecera ? libro.recursos.find((r) => r.id === s.imagenCabecera) : undefined;

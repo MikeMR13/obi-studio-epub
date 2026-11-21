@@ -92,10 +92,17 @@ export interface Subtitulo {
   tipo: 'subtitulo';
   nivel: 2 | 3;
   contenido: Inline[];
+  /** Los subtítulos de nivel 2 salen en el índice (si el libro usa dos niveles) salvo que se quiten. */
+  fueraDeIndice?: boolean;
 }
 
 export interface Separador {
   tipo: 'separador';
+}
+
+/** Salto de página dentro de una sección: lo que sigue empieza en una página nueva. */
+export interface SaltoPagina {
+  tipo: 'saltoPagina';
 }
 
 export interface Imagen {
@@ -152,7 +159,7 @@ export interface Recuadro {
   lineas: LineaRecuadro[];
 }
 
-export type Bloque = Parrafo | Subtitulo | Separador | Imagen | Lista | Crudo | Recuadro;
+export type Bloque = Parrafo | Subtitulo | Separador | SaltoPagina | Imagen | Lista | Crudo | Recuadro;
 
 /**
  * Listas de inlines editables de un bloque (párrafo, subtítulo, elementos de lista, líneas de recuadro),
@@ -237,6 +244,8 @@ export interface Seccion {
   /** Mostrar el título como encabezado dentro de la página. */
   mostrarTitulo: boolean;
   enIndice: boolean;
+  /** Texto en el índice cuando es distinto del título (p. ej. más corto). */
+  tituloIndice?: string;
   bloques: Bloque[];
   notas: Nota[];
   /** Imagen decorativa sobre el título del capítulo. */
@@ -639,6 +648,8 @@ export interface Libro {
   fuentesPropias?: FuentePropia[];
   /** Reducir y recomprimir las imágenes al exportar el EPUB (el proyecto y el PDF conservan las originales). */
   optimizarImagenes?: boolean;
+  /** Niveles del índice: 1 (solo secciones, predeterminado) o 2 (también los subtítulos de nivel 2). */
+  profundidadIndice?: 1 | 2;
   /** Versiones guardadas con nombre (ver src/versiones.ts). No salen en el EPUB. */
   versiones?: Version[];
   /** Imágenes que solo usan las versiones guardadas, por huella. */
@@ -654,6 +665,46 @@ export interface Version {
   palabras: number;
   /** JSON del libro sin versiones; las imágenes van sin bytes y con su huella. */
   libro: string;
+}
+
+/** Entrada del índice: una sección y, con dos niveles, sus subtítulos. */
+export interface EntradaIndice {
+  seccion: string;
+  texto: string;
+  /** Ancla del subtítulo dentro del archivo de la sección. */
+  ancla?: string;
+  hijos: EntradaIndice[];
+}
+
+/** Ancla del subtítulo de nivel 2 número k (desde 1) de una sección. */
+export function anclaSubtitulo(k: number): string {
+  return `st-${k}`;
+}
+
+/** Subtítulos de nivel 2 de una sección con su ancla (también los que están fuera del índice). */
+export function subtitulosSeccion(s: Seccion): { bloque: number; ancla: string; texto: string; enIndice: boolean }[] {
+  const r: { bloque: number; ancla: string; texto: string; enIndice: boolean }[] = [];
+  s.bloques.forEach((b, i) => {
+    if (b.tipo === 'subtitulo' && b.nivel === 2) r.push({ bloque: i, ancla: anclaSubtitulo(r.length + 1), texto: textoPlano(b.contenido).replace(/\s+/g, ' ').trim(), enIndice: !b.fueraDeIndice });
+  });
+  return r;
+}
+
+/** Texto de una sección en el índice. */
+export function textoIndice(s: Seccion): string {
+  return s.tituloIndice?.trim() || s.titulo;
+}
+
+/** El índice del libro (menú del lector, página de índice, PDF y toc.ncx). */
+export function entradasIndice(libro: Pick<Libro, 'secciones' | 'profundidadIndice'>, o: { conPaginaIndice?: boolean } = {}): EntradaIndice[] {
+  const dos = libro.profundidadIndice === 2;
+  return libro.secciones
+    .filter((s) => s.enIndice && s.titulo && s.tipo !== 'portada' && (o.conPaginaIndice || s.tipo !== 'indice'))
+    .map((s) => ({
+      seccion: s.id,
+      texto: textoIndice(s),
+      hijos: dos ? subtitulosSeccion(s).filter((x) => x.enIndice && x.texto).map((x) => ({ seccion: s.id, texto: x.texto, ancla: x.ancla, hijos: [] })) : [],
+    }));
 }
 
 export function esVertical(libro: Pick<Libro, 'escritura'>): boolean {

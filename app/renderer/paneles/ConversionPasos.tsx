@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { api, type AnalisisConversion, type DatosLibroConversion, type OpcionesConversionSencilla, type PortadaConversion } from '../api';
+import { api, type AnalisisConversion, type CambioCapitulo, type CapituloVista, type CapitulosConversion, type CorteCapitulos, type DatosLibroConversion, type OpcionesConversionSencilla, type PortadaConversion } from '../api';
+import { TIPOS_SECCION } from '../../../src/model';
 import { ROLES, type Credito } from '../../../src/model';
 import { t } from '../i18n';
 
@@ -7,7 +8,7 @@ interface Props {
   analisis: AnalisisConversion;
   ocupado: boolean;
   onCancelar: () => void;
-  onConvertir: (o: OpcionesConversionSencilla & { metadatos?: DatosLibroConversion; portada?: PortadaConversion }) => void;
+  onConvertir: (o: OpcionesConversionSencilla & { metadatos?: DatosLibroConversion; portada?: PortadaConversion; capitulos?: CapitulosConversion }) => void;
 }
 
 type Clave = keyof OpcionesConversionSencilla;
@@ -200,7 +201,15 @@ export function ConversionPasos({ analisis, ocupado, onCancelar, onConvertir }: 
   const [meta, setMeta] = useState<DatosLibroConversion>(inicial.datos);
   const [portada, setPortada] = useState<{ vista: string; nueva?: PortadaConversion } | undefined>(analisis.portada ? { vista: analisis.portada } : undefined);
   const [paso, setPaso] = useState(0);
-  const pasoMeta = pasos.length;
+  const pasoCapitulos = pasos.length;
+  const pasoMeta = pasos.length + 1;
+  const [cortar, setCortar] = useState<CorteCapitulos>('h1');
+  const [capitulos, setCapitulos] = useState<CapituloVista[] | 'cargando' | 'error'>();
+  const [cambiosCap, setCambiosCap] = useState<Record<number, CambioCapitulo>>({});
+  const [profundidad, setProfundidad] = useState<1 | 2>(1);
+  const [paginaIndice, setPaginaIndice] = useState(false);
+  const cortes = analisis.diseno?.cortes;
+  const cambiarCap = (indice: number, c: Partial<CambioCapitulo>) => setCambiosCap((x) => ({ ...x, [indice]: { ...x[indice], ...c, indice } }));
   const entradaPortada = useRef<HTMLInputElement>(null);
   const idiomas: [string, string][] = [
     ['es', t('Español')],
@@ -210,7 +219,7 @@ export function ConversionPasos({ analisis, ocupado, onCancelar, onConvertir }: 
     ['pt-BR', t('Portugués (Brasil)')],
     ['ja', t('Japonés')],
   ];
-  const total = pasos.length + 2;
+  const total = pasos.length + 3;
   const cambiar = <K extends keyof DatosLibroConversion>(k: K, v: DatosLibroConversion[K]) => setMeta({ ...meta, [k]: v });
   const elegirPortada = (f?: File) => {
     if (!f) return;
@@ -224,15 +233,37 @@ export function ConversionPasos({ analisis, ocupado, onCancelar, onConvertir }: 
   const todas = pasos.flatMap((p) => p.opciones);
   const conservar = todas.filter((x) => x.disponible && op[x.clave] && x.clave !== 'optimizarImagenes');
   const noConservar = todas.filter((x) => x.disponible && !op[x.clave] && x.clave !== 'optimizarImagenes');
-  const nombres = [...pasos.map((p) => p.titulo), t('Metadatos'), t('Confirmar')];
-  const enConfirmar = paso === pasos.length + 1;
+  const nombres = [...pasos.map((p) => p.titulo), t('Capítulos e índice'), t('Metadatos'), t('Confirmar')];
+  const enConfirmar = paso === pasos.length + 2;
+  const enCapitulos = paso === pasoCapitulos;
+  // Lista de capítulos con el corte elegido (se vuelve a pedir al cambiar el corte; los cambios hechos se descartan).
+  useEffect(() => {
+    if (!enCapitulos) return;
+    let vivo = true;
+    setCapitulos('cargando');
+    api
+      .capitulosConversion({ ...op, cortar })
+      .then((r) => vivo && setCapitulos(r))
+      .catch(() => vivo && setCapitulos('error'));
+    return () => {
+      vivo = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [enCapitulos, cortar]);
+  const datosCapitulos = (): CapitulosConversion => ({
+    cortar,
+    ...(Array.isArray(capitulos) ? { total: capitulos.length } : {}),
+    cambios: Object.values(cambiosCap),
+    profundidad,
+    paginaIndice,
+  });
   // Vista previa del original y del resultado al llegar a «Confirmar» (y cada vez que cambian las opciones).
   const claveOp = JSON.stringify(op);
   useEffect(() => {
     if (!enConfirmar) return;
     let vivo = true;
     setVista('cargando');
-    api.vistaConversion(op).then((r) => vivo && setVista(r)).catch(() => vivo && setVista('error'));
+    api.vistaConversion({ ...op, capitulos: datosCapitulos() }).then((r) => vivo && setVista(r)).catch(() => vivo && setVista('error'));
     return () => {
       vivo = false;
     };
@@ -276,6 +307,85 @@ export function ConversionPasos({ analisis, ocupado, onCancelar, onConvertir }: 
                 </span>
               </label>
             ))}
+          </fieldset>
+        ) : paso === pasoCapitulos ? (
+          <fieldset className="opciones-asistente capitulos-asistente">
+            <legend>{t('Capítulos e índice')}</legend>
+            <div className="cortes-capitulos" role="radiogroup" aria-label={t('Dónde empieza cada capítulo')}>
+              <span>{t('Cada capítulo empieza en:')}</span>
+              <label>
+                <input type="radio" name="cortar" checked={cortar === 'h1'} onChange={() => (setCortar('h1'), setCambiosCap({}))} /> {t('cada archivo y cada título principal (h1)')}
+              </label>
+              <label className={cortes?.h2 ? '' : 'no-disponible'}>
+                <input type="radio" name="cortar" disabled={!cortes?.h2} checked={cortar === 'h2'} onChange={() => (setCortar('h2'), setCambiosCap({}))} /> {t('también en los subtítulos (h2)')}
+                {cortes?.h2 ? <small> · {t('{0} en el original', { 0: cortes.h2 })}</small> : null}
+              </label>
+              <label className={cortes?.saltos ? '' : 'no-disponible'}>
+                <input type="radio" name="cortar" disabled={!cortes?.saltos} checked={cortar === 'saltos'} onChange={() => (setCortar('saltos'), setCambiosCap({}))} /> {t('también en los saltos de página del original')}
+                {cortes?.saltos ? <small> · {t('{0} en el original', { 0: cortes.saltos })}</small> : null}
+              </label>
+            </div>
+            {capitulos === 'cargando' && <p className="ayuda">{t('Preparando la lista de capítulos…')}</p>}
+            {capitulos === 'error' && <p className="ayuda">{t('No se pudo preparar la lista de capítulos.')}</p>}
+            {Array.isArray(capitulos) && (
+              <>
+                <p className="ayuda">{t('{0} secciones. Corrige los títulos, quita del índice lo que no deba salir o une un capítulo con el siguiente si quedó partido.', { 0: capitulos.length })}</p>
+                <ol className="lista-capitulos">
+                  {capitulos.map((c, k) => {
+                    const cc = cambiosCap[c.indice] ?? { indice: c.indice };
+                    const unidoAlAnterior = k > 0 && cambiosCap[k - 1]?.unirConSiguiente;
+                    const tipo = t(TIPOS_SECCION.find((x) => x.id === c.tipo)?.nombre ?? '');
+                    return (
+                      <li key={c.indice} className={unidoAlAnterior ? 'unido' : ''}>
+                        <div className="fila-capitulo">
+                          <input
+                            type="checkbox"
+                            checked={cc.enIndice ?? c.enIndice}
+                            disabled={c.tipo === 'portada' || !!unidoAlAnterior}
+                            aria-label={t('«{0}» en el índice', { 0: c.titulo || tipo })}
+                            onChange={(e) => cambiarCap(c.indice, { enIndice: e.target.checked })}
+                          />
+                          <span className="tipo-indice">{tipo}</span>
+                          <input
+                            className="texto-indice"
+                            value={cc.titulo ?? c.titulo}
+                            placeholder={t('(sin título)')}
+                            aria-label={t('Título de la sección {0}', { 0: k + 1 })}
+                            disabled={!!unidoAlAnterior || c.tipo === 'portada'}
+                            onChange={(e) => cambiarCap(c.indice, { titulo: e.target.value })}
+                          />
+                          <small className="palabras-capitulo">{t('{0} palabras', { 0: c.palabras })}</small>
+                          <button
+                            className={`pequeno${cc.unirConSiguiente ? ' activo' : ''}`}
+                            disabled={k === capitulos.length - 1 || ['portada'].includes(c.tipo) || capitulos[k + 1]?.tipo === 'portada'}
+                            aria-pressed={!!cc.unirConSiguiente}
+                            title={t('Unir con la sección siguiente')}
+                            onClick={() => cambiarCap(c.indice, { unirConSiguiente: !cc.unirConSiguiente })}
+                          >
+                            ⤵
+                          </button>
+                        </div>
+                        {c.inicio && <small className="inicio-capitulo">{unidoAlAnterior ? t('Se une con la anterior · ') : ''}{c.inicio}…</small>}
+                      </li>
+                    );
+                  })}
+                </ol>
+              </>
+            )}
+            <div className="opciones-indice">
+              <fieldset className="niveles-indice">
+                <legend>{t('Índice')}</legend>
+                <label>
+                  <input type="radio" name="niveles-asistente" checked={profundidad === 1} onChange={() => setProfundidad(1)} /> {t('Solo secciones')}
+                </label>
+                <label>
+                  <input type="radio" name="niveles-asistente" checked={profundidad === 2} onChange={() => setProfundidad(2)} /> {t('Secciones y subtítulos')}
+                </label>
+              </fieldset>
+              <label className="casilla">
+                <input type="checkbox" checked={paginaIndice} onChange={(e) => setPaginaIndice(e.target.checked)} /> {t('Añadir página de índice al libro')}
+              </label>
+            </div>
           </fieldset>
         ) : paso === pasoMeta ? (
           <fieldset className="opciones-asistente metadatos-asistente">
@@ -369,6 +479,14 @@ export function ConversionPasos({ analisis, ocupado, onCancelar, onConvertir }: 
                 <li key={x.clave}>{x.titulo}{x.detalle ? `: ${x.detalle}` : ''}</li>
               ))}
               <li>{op.optimizarImagenes ? t('Las imágenes, reducidas para el EPUB.') : t('Las imágenes originales, sin recomprimir.')}</li>
+              {Array.isArray(capitulos) && (
+                <li>
+                  {t('Capítulos: {0}', { 0: capitulos.length - Object.values(cambiosCap).filter((c) => c.unirConSiguiente).length })}
+                  {cortar !== 'h1' ? ` · ${cortar === 'h2' ? t('cortados también en los subtítulos') : t('cortados también en los saltos de página')}` : ''}
+                  {profundidad === 2 ? ` · ${t('índice de dos niveles')}` : ''}
+                  {paginaIndice ? ` · ${t('con página de índice')}` : ''}
+                </li>
+              )}
               <li>
                 {t('Metadatos: «{0}»', { 0: meta.titulo || analisis.titulo })}
                 {meta.creditos.filter((c) => c.nombre.trim()).length ? ` · ${meta.creditos.filter((c) => c.nombre.trim()).map((c) => c.nombre).join(', ')}` : ''}
@@ -416,7 +534,7 @@ export function ConversionPasos({ analisis, ocupado, onCancelar, onConvertir }: 
                 const serie = meta.serie?.trim() || analisis.serie;
                 recordar(serie, op);
                 recordarDatos(meta);
-                onConvertir({ ...op, metadatos: { ...meta, creditos: meta.creditos.filter((c) => c.nombre.trim()) }, ...(portada?.nueva ? { portada: portada.nueva } : {}) });
+                onConvertir({ ...op, capitulos: datosCapitulos(), metadatos: { ...meta, creditos: meta.creditos.filter((c) => c.nombre.trim()) }, ...(portada?.nueva ? { portada: portada.nueva } : {}) });
               }}>{ocupado ? t('Convirtiendo…') : t('Convertir')}</button>
           )}
         </div>

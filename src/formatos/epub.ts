@@ -2,7 +2,7 @@
 
 import JSZip from 'jszip';
 import type { Bloque, Credito, Inline, Libro, Nota, Recurso, RolCredito, Seccion, TipoSeccion } from '../model.js';
-import { TEMA_PREDETERMINADO, TIPOGRAFIA_PREDETERMINADA, nuevoId, nuevaSeccion, uuid } from '../model.js';
+import { TEMA_PREDETERMINADO, TIPOGRAFIA_PREDETERMINADA, nuevoId, nuevaSeccion, textoPlano, uuid } from '../model.js';
 import { rutaImagen } from '../compilar.js';
 import { tamanoImagen, tipoPorContenido, tipoPorNombre, extension } from '../imagen.js';
 import {
@@ -132,6 +132,48 @@ function etiquetasNavegacion(zip: Map<string, string>, rutaNav: string | undefin
   return etiquetas;
 }
 
+interface EntradaNav {
+  /** Ruta del documento (sin fragmento). */
+  ruta: string;
+  fragmento: string;
+  etiqueta: string;
+  nivel: number;
+}
+
+/** Índice del nav (o del NCX) con sus niveles, para leer los textos del índice y los subtítulos que salen en él. */
+function indiceNavegacion(zip: Map<string, string>, rutaNav: string | undefined, rutaNcx: string | undefined): { entradas: EntradaNav[]; dosNiveles: boolean } {
+  const entradas: EntradaNav[] = [];
+  let dosNiveles = false;
+  const nivelDe = (n: Nodo, contenedor: string) => {
+    let k = 0;
+    for (let p = n.parentNode as Nodo | null; p; p = p.parentNode as Nodo | null) if (p.nodeType === 1 && nombre(p) === contenedor) k++;
+    return k;
+  };
+  const anadir = (base: string, href: string, etiqueta: string, nivel: number) => {
+    const destino = resolverRuta(base, href);
+    const [ruta, fragmento = ''] = destino.split('#');
+    if (etiqueta) entradas.push({ ruta, fragmento, etiqueta, nivel });
+  };
+  if (rutaNav && zip.has(rutaNav)) {
+    const { documento } = analizarXhtml(zip.get(rutaNav)!);
+    const nav = buscar(documento, (n) => nombre(n) === 'nav' && tiposEpub(n).includes('toc')) ?? buscar(documento, (n) => nombre(n) === 'nav');
+    if (nav) {
+      dosNiveles = clases(nav).includes('dos-niveles');
+      for (const a of todos(nav, (n) => nombre(n) === 'a')) anadir(rutaNav, attr(a, 'href'), texto(a).replace(/\s+/g, ' ').trim(), nivelDe(a, 'ol'));
+    }
+  } else if (rutaNcx && zip.has(rutaNcx)) {
+    const ncx = analizarXml(zip.get(rutaNcx)!);
+    for (const np of todos(ncx, (n) => nombre(n) === 'navpoint')) {
+      const label = buscar(np, (n) => nombre(n) === 'text');
+      const content = hijosElemento(np).find((n) => nombre(n) === 'content');
+      if (label && content) anadir(rutaNcx, attr(content, 'src'), texto(label).replace(/\s+/g, ' ').trim(), nivelDe(np, 'navpoint') + 1);
+    }
+  }
+  const minimo = Math.min(...entradas.map((e) => e.nivel));
+  for (const e of entradas) e.nivel = e.nivel - minimo + 1;
+  return { entradas, dosNiveles: dosNiveles || entradas.some((e) => e.nivel === 2) };
+}
+
 const TEXTO_LLAMADA = /^\s*(\[?\(?\*?\d{1,3}\)?\]?|\*{1,3}|※\d{0,3}|[†‡§]|[a-z])\s*$/i;
 const TIPOS_NOTA = ['footnote', 'endnote', 'rearnote', 'note', 'footnotes', 'endnotes', 'rearnotes'];
 
@@ -151,6 +193,10 @@ export interface OpcionesImportacion {
   separadorImagen?: string;
   /** Clases de capitulares hechas con un span (no se convierte su tamaño). */
   ignorarClases?: string[];
+  /** Los h2 también abren capítulo. */
+  cortarEnH2?: boolean;
+  /** Saltos de página del original que abren capítulo. */
+  saltoPagina?: (n: Nodo) => { antes: boolean; despues: boolean };
 }
 
 export async function importarEpub(datos: Uint8Array, importacion: OpcionesImportacion = {}): Promise<ResultadoImportacion> {
@@ -257,6 +303,7 @@ export async function importarEpub(datos: Uint8Array, importacion: OpcionesImpor
   const rutaNav = [...items.values()].find((i) => i.props.includes('nav'))?.ruta;
   const rutaNcx = [...items.values()].find((i) => i.tipo === 'application/x-dtbncx+xml')?.ruta;
   const etiquetas = etiquetasNavegacion(textos, rutaNav, rutaNcx);
+  const navegacion = indiceNavegacion(textos, rutaNav, rutaNcx);
 
   // --- Documentos del orden de lectura ---
   interface Doc { ruta: string; cuerpo: Nodo; ids: Map<string, Nodo>; clases: string[] }
@@ -377,6 +424,17 @@ export async function importarEpub(datos: Uint8Array, importacion: OpcionesImpor
       const s = nuevaSeccion(tipo, titulo);
       s.mostrarTitulo = p.titulo !== undefined && !!p.titulo;
       s.enIndice = !!titulo && !['portada', 'ilustracion'].includes(tipo);
+      if (navegacion.entradas.length && j === 0 && titulo) {
+        // Con índice: la sección sale en él si el índice apunta a su documento, con el texto que tenga allí.
+        const enNav = navegacion.entradas.find((e) => e.ruta === d.ruta && e.nivel === 1) ?? navegacion.entradas.find((e) => e.ruta === d.ruta);
+        if (!enNav) s.enIndice = false;
+        else if (enNav.nivel === 1 && enNav.etiqueta !== titulo.replace(/\s+/g, ' ').trim()) s.tituloIndice = enNav.etiqueta;
+      }
+      if (navegacion.dosNiveles) {
+        // Subtítulos que no salen en un índice de dos niveles (se comparan por su texto).
+        const textosNav = new Set(navegacion.entradas.filter((e) => e.ruta === d.ruta && e.nivel >= 2).map((e) => e.etiqueta));
+        for (const b of p.bloques) if (b.tipo === 'subtitulo' && b.nivel === 2 && !b.fueraDeIndice && !textosNav.has(textoPlano(b.contenido).replace(/\s+/g, ' ').trim())) b.fueraDeIndice = true;
+      }
       s.bloques = tipo === 'indice' ? [] : p.bloques;
       if (p.imagenCabecera) s.imagenCabecera = p.imagenCabecera;
       if (d.clases.includes('fija') && (tipo === 'ilustracion' || tipo === 'portada')) s.paginaFija = true;
@@ -457,6 +515,7 @@ export async function importarEpub(datos: Uint8Array, importacion: OpcionesImpor
     tema: { ...TEMA_PREDETERMINADO, ...(idSeparador ? { separador: 'imagen' as const, separadorImagen: idSeparador } : {}) },
     tipografia: { ...TIPOGRAFIA_PREDETERMINADA },
     ...(vertical ? { escritura: 'vertical' as const } : {}),
+    ...(navegacion.dosNiveles ? { profundidadIndice: 2 as const } : {}),
   };
   for (const k of Object.keys(libro.metadatos) as (keyof Libro['metadatos'])[]) {
     if (libro.metadatos[k] === undefined || libro.metadatos[k] === '') delete libro.metadatos[k];

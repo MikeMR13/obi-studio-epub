@@ -5,6 +5,7 @@
 import {
   AlignmentType, CommentRangeEnd, CommentRangeStart, CommentReference, Document, ExternalHyperlink, FootnoteReferenceRun, HeadingLevel, ImageRun, LevelFormat, Packer, Paragraph, TextRun,
   type IRunOptions, type ParagraphChild,
+  PageBreak,
 } from 'docx';
 import JSZip from 'jszip';
 import type { Bloque, Inline, Libro, Nota, Recuadro, Recurso, Seccion } from '../model.js';
@@ -23,6 +24,7 @@ const MARCADOR_XHTML = /^⟦XHTML (\d+)[^⟧]*⟧$/;
 const MARCADOR_IMAGEN = /^⟦Imagen (\d+)[^⟧]*⟧$/;
 const MARCADOR_RECUADRO = /^⟦Recuadro (\d+)[^⟧]*⟧$/;
 const MARCADOR_FIN_RECUADRO = /^⟦Fin del recuadro (\d+)[^⟧]*⟧$/;
+const MARCADOR_SALTO = /^⟦Salto de página[^⟧]*⟧$/;
 
 /** Quita «Etiqueta: » del principio de una línea de recuadro que vuelve de Word y devuelve la etiqueta. */
 function separarEtiqueta(l: Inline[]): { etiqueta?: string; contenido: Inline[] } {
@@ -200,6 +202,10 @@ export async function exportarWord(libro: Libro): Promise<Uint8Array> {
           break;
         case 'separador':
           hijos.push(new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun('* * *')] }));
+          break;
+        case 'saltoPagina':
+          // Marcador visible (vuelve como salto al importar las correcciones) y salto real para Word.
+          hijos.push(new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: '⟦Salto de página — no editar esta línea⟧', color: '808080' }), new PageBreak()] }));
           break;
         case 'lista':
           for (const e of b.elementos) {
@@ -407,6 +413,10 @@ export async function importarCorrecciones(libro: Libro, datos: Uint8Array, opci
           continue;
         }
         cerrarRecuadro();
+      }
+      if (MARCADOR_SALTO.test(t)) {
+        bloques.push({ tipo: 'saltoPagina' });
+        continue;
       }
       const mx = t.match(MARCADOR_XHTML);
       const mi = t.match(MARCADOR_IMAGEN);

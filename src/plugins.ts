@@ -375,9 +375,11 @@ function comprobarBloque(b: Record<string, unknown>, donde: string, notas: Set<s
       break;
     case 'subtitulo':
       if (b.nivel !== 2 && b.nivel !== 3) throw new ErrorPlugin(`${donde}: un subtítulo debe ser de nivel 2 o 3.`);
+      if (b.fueraDeIndice !== undefined && typeof b.fueraDeIndice !== 'boolean') throw new ErrorPlugin(`${donde}: «fueraDeIndice» debe ser verdadero o falso.`);
       comprobarInlines(b.contenido, donde, notas);
       break;
     case 'separador':
+    case 'saltoPagina':
       break;
     case 'imagen':
       if (typeof b.recurso !== 'string' || !recursos.has(b.recurso)) throw new ErrorPlugin(`${donde}: imagen que no existe en el libro.`);

@@ -1,4 +1,4 @@
-import type { AnalisisConversion, DatosLibroConversion, Estado, OpcionesConversionSencilla, PortadaConversion, ResumenConversion } from '../backend';
+import type { AnalisisConversion, CapituloVista, CapitulosConversion, CorteCapitulos, DatosLibroConversion, Estado, OpcionesConversionSencilla, PortadaConversion, ResumenConversion } from '../backend';
 import type { Resultado } from '../../src/validar';
 
 import type { AvisoImpresion } from '../../src/preflight';
@@ -20,7 +20,7 @@ import { t } from './i18n';
 export type RevisionCubierta = { avisos: AvisoCubierta[]; medidas?: MedidasCubierta; paginas?: number };
 export type FamiliaSistemaPublica = { familia: string; caras: Omit<CaraSistema, 'ruta'>[] };
 export type ResultadoFuente = { familia: string; permiso: PermisoFuente; estado: Estado };
-export type { AnalisisConversion, DatosLibroConversion, OpcionesConversionSencilla, PortadaConversion, ResumenConversion } from '../backend';
+export type { AnalisisConversion, CambioCapitulo, CapituloVista, CapitulosConversion, CorteCapitulos, DatosLibroConversion, OpcionesConversionSencilla, PortadaConversion, ResumenConversion } from '../backend';
 export type { Estado, Resultado, AvisoImpresion, InformeAccesibilidad, Hallazgo, Manifiesto, PluginInstalado };
 
 export class ErrorApi extends Error {
@@ -48,8 +48,9 @@ export const api = {
   estado: () => pedir<Estado>('GET', '/api/estado'),
   nuevo: (titulo: string, autor: string) => pedir<Estado>('POST', '/api/nuevo', { titulo, autor }),
   analizarConversion: (archivo: File) => pedir<AnalisisConversion>('POST', `/api/conversion/analisis?nombre=${encodeURIComponent(archivo.name)}`, undefined, archivo),
-  conversion: (opciones: OpcionesConversionSencilla & { metadatos?: DatosLibroConversion; portada?: PortadaConversion }) => pedir<ResumenConversion>('POST', '/api/conversion', opciones),
-  vistaConversion: (opciones: OpcionesConversionSencilla) => pedir<{ original?: string; convertido: string }>('POST', '/api/conversion/vista', opciones),
+  conversion: (opciones: OpcionesConversionSencilla & { metadatos?: DatosLibroConversion; portada?: PortadaConversion; capitulos?: CapitulosConversion }) => pedir<ResumenConversion>('POST', '/api/conversion', opciones),
+  capitulosConversion: (opciones: OpcionesConversionSencilla & { cortar: CorteCapitulos }) => pedir<CapituloVista[]>('POST', '/api/conversion/capitulos', opciones),
+  vistaConversion: (opciones: OpcionesConversionSencilla & { capitulos?: CapitulosConversion }) => pedir<{ original?: string; convertido: string }>('POST', '/api/conversion/vista', opciones),
   importar: (archivo: File) => pedir<Estado>('POST', `/api/importar?nombre=${encodeURIComponent(archivo.name)}`, undefined, archivo),
   metadatos: (cambios: object) => pedir<Estado>('PUT', '/api/metadatos', cambios),
   tema: (cambios: object) => pedir<Estado>('PUT', '/api/tema', cambios),
@@ -69,6 +70,9 @@ export const api = {
     ),
   editarImagen: (id: string, op: { girar?: number; recorte?: { x: number; y: number; ancho: number; alto: number } }) => pedir<Estado>('POST', `/api/recursos/${id}/editar`, op),
   dividirIlustracion: (id: string) => pedir<{ seccion: string; estado: Estado }>('POST', `/api/secciones/${id}/dividir`),
+  partirSeccion: (id: string, indice: number, actual?: { bloques: unknown; notas: unknown }) => pedir<{ seccion: string; estado: Estado }>('POST', `/api/secciones/${id}/partir`, { indice, ...actual }),
+  unirSeccion: (id: string) => pedir<Estado>('POST', `/api/secciones/${id}/unir`),
+  profundidadIndice: (profundidad: 1 | 2) => pedir<Estado>('PUT', '/api/indice', { profundidad }),
   revisionCubierta: () => pedir<RevisionCubierta>('GET', '/api/cubierta/revision'),
   cambiarCubierta: (c: Record<string, unknown>) => pedir<RevisionCubierta & { estado: Estado }>('PUT', '/api/cubierta', c),
   visorCubierta: () => pedir<{ url: string }>('GET', '/api/cubierta/visor'),

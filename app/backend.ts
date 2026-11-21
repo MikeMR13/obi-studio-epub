@@ -15,7 +15,7 @@ import { buscarFuentesSistema, type FamiliaSistema } from '../src/fuentes-sistem
 import { ErrorImagen, girar, libroConImagenesOptimizadas, recortar } from '../src/procesar-imagen.js';
 import { esVertical } from '../src/model.js';
 import { revisarCss, type ProblemaCss } from '../src/css-propio.js';
-import { aplicarDisenoDocx, asignadorEstilos, disenoDeDocx, disenoDeEpub, pareceSeparador, type DisenoOriginal } from '../src/diseno-original.js';
+import { aplicarDisenoDocx, asignadorEstilos, detectorSaltos, disenoDeDocx, disenoDeEpub, pareceSeparador, type DisenoOriginal } from '../src/diseno-original.js';
 import { PAPELES_KDP, archivosCubierta, cubiertaCompleta, medidasCubierta, posprocesarCubierta, revisarCubierta, type AvisoCubierta, type MedidasCubierta } from '../src/cubierta.js';
 import { ArchivoConfiguracion } from '../src/configuracion.js';
 import { CATALOGO_INTEGRADO, ListaCatalogos, archivoCatalogos, leerCatalogo, normalizarUrlCatalogo, paqueteDeCatalogo, versionMayor, type EntradaCatalogo } from '../src/catalogo.js';
@@ -42,7 +42,7 @@ import { archivosImpresion, margenInteriorAutomatico } from '../src/impresion.js
 import { generarPdf, renderizadorChrome, urlVisor, type Renderizador, type TipoPdf } from '../src/pdf.js';
 import { libroParaImprimir } from '../src/servicio-impresion.js';
 import { revisarImpresion, type AvisoImpresion } from '../src/preflight.js';
-import { libroNuevo, nuevaSeccion, nuevoId, contarPalabras } from '../src/model.js';
+import { libroNuevo, nuevaSeccion, nuevoId, contarPalabras, inlinesBloque, parrafo, textoPlano } from '../src/model.js';
 import { compilar, compilarArchivos, archivoSeccion, rutaImagen, cssLibro, CONTAINER } from '../src/compilar.js';
 import { importarEpub } from '../src/formatos/epub.js';
 import { importarDocx } from '../src/formatos/docx.js';
@@ -148,6 +148,38 @@ export interface AnalisisConversion {
 
 /** Metadatos que se pueden revisar en el asistente (todo menos la portada, que va aparte). */
 export type DatosLibroConversion = Omit<Metadatos, 'portada' | 'resumenAccesibilidad'>;
+
+/** Dónde empieza cada capítulo en la conversión sencilla. */
+export type CorteCapitulos = 'h1' | 'h2' | 'saltos';
+
+/** Cambios en la lista de capítulos hechos en el asistente (por posición en la lista convertida). */
+export interface CambioCapitulo {
+  indice: number;
+  titulo?: string;
+  tituloIndice?: string;
+  enIndice?: boolean;
+  unirConSiguiente?: boolean;
+}
+
+export interface CapitulosConversion {
+  cortar: CorteCapitulos;
+  /** Número de secciones que vio el asistente (si no coincide, los cambios no se aplican). */
+  total?: number;
+  cambios?: CambioCapitulo[];
+  profundidad?: 1 | 2;
+  paginaIndice?: boolean;
+}
+
+/** Sección tal como saldría de la conversión, para revisarla en el asistente. */
+export interface CapituloVista {
+  indice: number;
+  tipo: TipoSeccion;
+  titulo: string;
+  enIndice: boolean;
+  palabras: number;
+  inicio: string;
+  subtitulos: number;
+}
 
 /** Nueva portada elegida en el asistente. */
 export interface PortadaConversion {
@@ -456,6 +488,11 @@ export class Backend {
     if ('comentarios' in (cambios as object)) s.comentarios = limpiarComentarios((cambios as { comentarios?: unknown }).comentarios);
     if (!s.comentarios?.length) delete s.comentarios;
     for (const k of ['imagenCabecera', 'doblePagina', 'paginaFija'] as const) if ((s as unknown as Record<string, unknown>)[k] === null || s[k] === undefined) delete s[k];
+    if ('tituloIndice' in (cambios as object)) {
+      const v = typeof s.tituloIndice === 'string' ? s.tituloIndice.replace(/\s+/g, ' ').trim().slice(0, 300) : '';
+      if (v && v !== s.titulo) s.tituloIndice = v;
+      else delete s.tituloIndice;
+    }
     if (s.imagenCabecera && !this.libro.recursos.some((r) => r.id === s.imagenCabecera)) delete s.imagenCabecera;
     this.marcar();
   }
@@ -730,7 +767,7 @@ export class Backend {
    * Vista previa de la conversión con estas opciones, sin cambiar el libro abierto: un capítulo del original
    * (si es un EPUB) y el mismo capítulo convertido, como páginas servidas en /muestra/.
    */
-  async vistaPreviaConversion(o: Partial<OpcionesConversionSencilla> = {}): Promise<{ original?: string; convertido: string }> {
+  async vistaPreviaConversion(o: Partial<OpcionesConversionSencilla> & { capitulos?: CapitulosConversion } = {}): Promise<{ original?: string; convertido: string }> {
     const p = this.conversionPendiente;
     if (!p) throw new ErrorUsuario('Elige primero el archivo que quieres convertir.');
     const otro = new Backend(this.carpetaRecuperacion);
@@ -766,10 +803,13 @@ export class Backend {
    * Segundo paso: abre el archivo analizado y conserva del original lo que se haya elegido
    * (párrafos, espaciado, líneas en blanco, títulos, fuentes e imágenes).
    */
-  async conversionSencilla(entrada: Partial<OpcionesConversionSencilla> & { metadatos?: unknown; portada?: PortadaConversion } = {}): Promise<ResumenConversion> {
+  async conversionSencilla(
+    entrada: Partial<OpcionesConversionSencilla> & { metadatos?: unknown; portada?: PortadaConversion; capitulos?: CapitulosConversion } = {},
+  ): Promise<ResumenConversion> {
     const p = this.conversionPendiente;
     if (!p) throw new ErrorUsuario('Elige primero el archivo que quieres convertir.');
-    const { metadatos: metadatosNuevos, portada: portadaNueva, ...o } = entrada;
+    const { metadatos: metadatosNuevos, portada: portadaNueva, capitulos, ...o } = entrada;
+    const cortar: CorteCapitulos = capitulos?.cortar === 'h2' || capitulos?.cortar === 'saltos' ? capitulos.cortar : 'h1';
     const op: OpcionesConversionSencilla = { ...OPCIONES_CONVERSION, ...o };
     const d = p.diseno;
     const ext = p.nombre.toLowerCase().split('.').pop();
@@ -785,8 +825,10 @@ export class Backend {
               ...(op.estilosParrafo && d?.css && d.estilos?.length ? { estiloPropio: asignadorEstilos(d.css, d.estilos) } : {}),
               ...(op.separadores ? { esSeparador: pareceSeparador, ...(d?.separador?.imagen ? { separadorImagen: d.separador.imagen } : {}) } : {}),
               ...(d?.clasesCapitular?.length ? { ignorarClases: d.clasesCapitular } : {}),
+              ...(cortar === 'h2' ? { cortarEnH2: true } : {}),
+              ...(cortar === 'saltos' ? { saltoPagina: detectorSaltos(d?.css ?? '') } : {}),
             })
-          : await importarDocx(p.datos, { vacios: op.lineasEnBlanco });
+          : await importarDocx(p.datos, { vacios: op.lineasEnBlanco, ...(cortar === 'h2' ? { cortarEnH2: true } : {}) });
       if (ext === 'docx' && d && ((op.espacioPorParrafo && d.parrafosConEspacio) || (op.estilosParrafo && d.estilos?.length))) {
         await aplicarDisenoDocx(r.libro, p.datos, { espacio: op.espacioPorParrafo, ...(op.estilosParrafo ? { estilos: d.estilos } : {}) });
       }
@@ -896,6 +938,7 @@ export class Backend {
     }
     if (op.optimizarImagenes) this.libro.optimizarImagenes = true;
     else conservado.push('imágenes originales');
+    if (capitulos) this.aplicarCapitulos(capitulos, avisos);
     // Metadatos y portada revisados en el asistente.
     if (metadatosNuevos) this.metadatos(metadatosValidos(metadatosNuevos) as Partial<Metadatos>);
     if (portadaNueva?.datos) this.cambiarPortada(portadaNueva);
@@ -912,6 +955,71 @@ export class Backend {
       conservado,
       avisos,
     };
+  }
+
+  /** Cambios de la lista de capítulos del asistente: títulos, índice, uniones, niveles y página de índice. */
+  private aplicarCapitulos(c: CapitulosConversion, avisos: string[]) {
+    const secciones = this.libro.secciones;
+    const cambios = Array.isArray(c.cambios) ? c.cambios.filter((x) => x && Number.isInteger(x.indice) && x.indice >= 0 && x.indice < secciones.length) : [];
+    if (cambios.length && c.total !== undefined && c.total !== secciones.length) {
+      avisos.push('La lista de capítulos cambió desde que la revisaste; los cambios de capítulos no se aplicaron.');
+    } else {
+      const ids = secciones.map((s) => s.id);
+      for (const x of cambios) {
+        const s = secciones[x.indice];
+        if (typeof x.titulo === 'string' && x.titulo.trim()) {
+          s.titulo = x.titulo.replace(/\s+/g, ' ').trim().slice(0, 300);
+          if (!['portada', 'ilustracion'].includes(s.tipo)) s.mostrarTitulo = true;
+        }
+        if (typeof x.tituloIndice === 'string') {
+          const v = x.tituloIndice.replace(/\s+/g, ' ').trim().slice(0, 300);
+          if (v && v !== s.titulo) s.tituloIndice = v;
+          else delete s.tituloIndice;
+        }
+        if (typeof x.enIndice === 'boolean') s.enIndice = x.enIndice;
+      }
+      // Uniones de atrás hacia delante, para que las posiciones sigan valiendo.
+      for (const x of [...cambios].filter((x) => x.unirConSiguiente).sort((a, b) => b.indice - a.indice)) {
+        try {
+          this.unirSinVersion(ids[x.indice]);
+        } catch (e) {
+          avisos.push((e as Error).message);
+        }
+      }
+    }
+    if (c.profundidad === 2) this.libro.profundidadIndice = 2;
+    if (c.paginaIndice && !this.libro.secciones.some((s) => s.tipo === 'indice')) {
+      const s = nuevaSeccion('indice', 'Índice');
+      s.enIndice = false;
+      const k = Math.max(this.libro.secciones.findIndex((x) => x.tipo === 'creditos'), this.libro.secciones.findIndex((x) => x.tipo === 'portada'));
+      this.libro.secciones.splice(k + 1, 0, s);
+    }
+  }
+
+  /**
+   * Lista de capítulos que saldría de la conversión con estas opciones y este corte, sin tocar el libro abierto.
+   */
+  async capitulosConversion(entrada: Partial<OpcionesConversionSencilla> & { cortar?: CorteCapitulos } = {}): Promise<CapituloVista[]> {
+    const p = this.conversionPendiente;
+    if (!p) throw new ErrorUsuario('Elige primero el archivo que quieres convertir.');
+    const { cortar, ...o } = entrada;
+    const otro = new Backend(this.carpetaRecuperacion);
+    otro.sistema = this.sistema;
+    otro.conversionPendiente = { ...p };
+    await otro.conversionSencilla({ ...o, fuentesArchivo: false, fuentesSistema: false, capitulos: { cortar: cortar ?? 'h1' } });
+    clearTimeout(otro.temporizador);
+    return otro.libro.secciones.map((s, indice) => {
+      const texto = s.bloques.map((b) => (b.tipo === 'parrafo' || b.tipo === 'subtitulo' ? textoPlano(b.contenido) : '')).join(' ').replace(/\s+/g, ' ').trim();
+      return {
+        indice,
+        tipo: s.tipo,
+        titulo: s.titulo,
+        enIndice: s.enIndice,
+        palabras: contarPalabras(s),
+        inicio: texto.slice(0, 90),
+        subtitulos: s.bloques.filter((b) => b.tipo === 'subtitulo' && b.nivel === 2).length,
+      };
+    });
   }
 
   /** Pone otra imagen como portada: la nueva se añade y, si no había página de portada, se crea al principio. */
@@ -992,6 +1100,94 @@ export class Backend {
    * Divide una ilustración horizontal en dos páginas (mitad izquierda y derecha), para lectores que
    * no muestran dobles páginas. En los libros verticales (de derecha a izquierda) va primero la derecha.
    */
+  /**
+   * Parte una sección en dos: los bloques desde `indice` pasan a una sección nueva justo después.
+   * Si el primer bloque que pasa es un subtítulo, se convierte en el título de la nueva sección.
+   * Las notas y los comentarios van con el texto que los cita.
+   */
+  partirSeccion(id: string, indice: number, actual?: { bloques?: unknown; notas?: unknown }): string {
+    const s = this.seccion(id);
+    if (actual?.bloques) this.actualizarSeccion(id, actual as Partial<Seccion>);
+    if (s.cambios?.length) throw new ErrorUsuario('Acepta o rechaza antes los cambios propuestos de esta sección.');
+    if (!Number.isInteger(indice) || indice <= 0 || indice >= s.bloques.length) throw new ErrorUsuario('Coloca el cursor en el párrafo donde debe empezar la nueva sección (no en el primero).');
+    this.conVersion(() => crearVersion(this.libro, `Antes de partir «${s.titulo || 'sección'}»`));
+    const movidos = s.bloques.slice(indice);
+    s.bloques = s.bloques.slice(0, indice);
+    let titulo = '';
+    const primero = movidos[0];
+    if (primero.tipo === 'subtitulo') {
+      titulo = textoPlano(primero.contenido).replace(/\s+/g, ' ').trim();
+      if (titulo) movidos.shift();
+    }
+    if (movidos[0]?.tipo === 'saltoPagina') movidos.shift();
+    if (s.bloques[s.bloques.length - 1]?.tipo === 'saltoPagina') s.bloques.pop();
+    const notasDe = new Set<string>();
+    const comentariosDe = new Set<string>();
+    for (const b of movidos) for (const l of inlinesBloque(b)) for (const i of l) {
+      if (i.tipo === 'nota') notasDe.add(i.id);
+      if (i.tipo === 'texto') i.comentarios?.forEach((c) => comentariosDe.add(c));
+    }
+    const nueva = nuevaSeccion(s.tipo === 'indice' || s.tipo === 'portada' ? 'capitulo' : s.tipo, titulo);
+    nueva.mostrarTitulo = !!titulo;
+    nueva.enIndice = !!titulo && s.enIndice;
+    nueva.bloques = movidos.length ? movidos : [parrafo('')];
+    nueva.notas = s.notas.filter((n) => notasDe.has(n.id));
+    s.notas = s.notas.filter((n) => !notasDe.has(n.id));
+    const comentarios = (s.comentarios ?? []).filter((c) => comentariosDe.has(c.id));
+    if (comentarios.length) nueva.comentarios = comentarios;
+    s.comentarios = (s.comentarios ?? []).filter((c) => !comentariosDe.has(c.id));
+    if (!s.comentarios.length) delete s.comentarios;
+    if (!s.bloques.length) s.bloques = [parrafo('')];
+    this.libro.secciones.splice(this.libro.secciones.indexOf(s) + 1, 0, nueva);
+    this.marcar();
+    return nueva.id;
+  }
+
+  /** Niveles del índice: 1 (secciones) o 2 (también los subtítulos de nivel 2). */
+  profundidadIndice(p: unknown) {
+    if (p === 2) this.libro.profundidadIndice = 2;
+    else delete this.libro.profundidadIndice;
+    this.marcar();
+  }
+
+  /** Une una sección con la siguiente; el título de la siguiente queda como subtítulo para no perderlo. */
+  unirConSiguiente(id: string): void {
+    const s = this.seccion(id);
+    const sig = this.libro.secciones[this.libro.secciones.indexOf(s) + 1];
+    this.comprobarUnion(s, sig);
+    this.conVersion(() => crearVersion(this.libro, `Antes de unir «${s.titulo || 'sección'}» y «${sig!.titulo || 'sección'}»`));
+    this.unirSinVersion(id);
+  }
+
+  private comprobarUnion(s: Seccion, sig: Seccion | undefined): asserts sig is Seccion {
+    if (!sig) throw new ErrorUsuario('Es la última sección: no hay ninguna después para unir.');
+    if (s.cambios?.length || sig.cambios?.length) throw new ErrorUsuario('Acepta o rechaza antes los cambios propuestos de las dos secciones.');
+    if (['portada', 'indice'].includes(s.tipo) || ['portada', 'indice'].includes(sig.tipo)) throw new ErrorUsuario('La portada y el índice no se pueden unir con otra sección.');
+  }
+
+  private unirSinVersion(id: string): void {
+    const s = this.seccion(id);
+    const k = this.libro.secciones.indexOf(s);
+    const sig = this.libro.secciones[k + 1];
+    this.comprobarUnion(s, sig);
+    const vacia = (b: Bloque[]) => b.length === 1 && b[0].tipo === 'parrafo' && !b[0].contenido.length;
+    const base = vacia(s.bloques) ? [] : s.bloques;
+    const titulo: Bloque[] = sig.titulo && sig.mostrarTitulo ? [{ tipo: 'subtitulo', nivel: 2, contenido: [{ tipo: 'texto', texto: sig.titulo }] }] : [];
+    s.bloques = [...base, ...titulo, ...(vacia(sig.bloques) ? [] : sig.bloques)];
+    if (!s.bloques.length) s.bloques = [parrafo('')];
+    s.notas = [...s.notas, ...sig.notas];
+    const comentarios = [...(s.comentarios ?? []), ...(sig.comentarios ?? [])];
+    if (comentarios.length) s.comentarios = comentarios;
+    if (!s.titulo && sig.titulo) {
+      s.titulo = sig.titulo;
+      s.mostrarTitulo = sig.mostrarTitulo;
+      s.enIndice = sig.enIndice;
+      s.bloques = s.bloques.filter((b) => !titulo.includes(b));
+    }
+    this.libro.secciones.splice(k + 1, 1);
+    this.marcar();
+  }
+
   async dividirIlustracion(id: string): Promise<string> {
     const s = this.seccion(id);
     const b = s.bloques.find((x): x is Imagen => x.tipo === 'imagen');

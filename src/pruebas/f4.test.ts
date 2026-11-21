@@ -39,7 +39,7 @@ test('escritura vertical: CSS, progresión rtl, tcy, énfasis y páginas fijas c
   const l = libroVertical();
   const archivos = compilarArchivos(l);
   const opf = archivos.get('package.opf') as string;
-  assert.match(opf, /<spine page-progression-direction="rtl">/);
+  assert.match(opf, /<spine toc="ncx" page-progression-direction="rtl">/);
   const [ilu, doble] = l.secciones.slice(1, 3);
   assert.match(opf, new RegExp(`<itemref idref="${ilu.id}" properties="rendition:layout-pre-paginated rendition:spread-none"/>`));
   // Vertical: la doble página empieza por la mitad derecha.

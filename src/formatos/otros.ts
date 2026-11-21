@@ -128,7 +128,8 @@ const CAPITULO_TXT = /^\s*(cap[ií]tulo|chapter|pr[oó]logo|prologue|ep[ií]logo
 
 /** Texto plano: un párrafo por línea (o por bloque si el texto separa párrafos con líneas en blanco), capítulos por su título. */
 function deTexto(txt: string, nombreArchivo: string): Contenido {
-  const lineas = txt.replace(/\r\n?/g, '\n').split('\n');
+  // El salto de página del texto plano (form feed) se conserva como salto de página.
+  const lineas = txt.replace(/\r\n?/g, '\n').replace(/\f/g, '\n\f\n').split('\n');
   const llenas = lineas.filter((l) => l.trim()).length;
   const blancas = lineas.length - llenas;
   // Con párrafos separados por líneas en blanco, una línea sola dentro de un párrafo es un salto de línea.
@@ -136,6 +137,12 @@ function deTexto(txt: string, nombreArchivo: string): Contenido {
   const bloques: string[][] = [];
   let actual: string[] = [];
   for (const l of lineas) {
+    if (l === '\f') {
+      if (actual.length) bloques.push(actual);
+      actual = [];
+      bloques.push(['\f']);
+      continue;
+    }
     if (!l.trim()) {
       if (actual.length) bloques.push(actual);
       actual = [];
@@ -150,6 +157,7 @@ function deTexto(txt: string, nombreArchivo: string): Contenido {
   const cuerpo = bloques
     .map((b) => {
       if (!b.length) return '<p>&#160;</p>';
+      if (b.length === 1 && b[0] === '\f') return '<div class="salto-pagina"></div>';
       const t = b.map((x) => esc(x.trim())).join('<br/>');
       if (b.length === 1 && CAPITULO_TXT.test(b[0])) return `<h1>${t}</h1>`;
       return `<p>${t}</p>`;
@@ -196,6 +204,8 @@ function cssDeEstilo(s: Nodo, fuentes: Map<string, string>): Record<string, stri
     if (fuente) d['font-family'] = `"${fuentes.get(fuente) ?? fuente}"`;
     if (attr(p, 'style:text-underline-style') && attr(p, 'style:text-underline-style') !== 'none') d['text-decoration'] = 'underline';
     if (attr(p, 'style:text-line-through-style') && attr(p, 'style:text-line-through-style') !== 'none') d['text-decoration'] = 'line-through';
+    // Saltos de página de LibreOffice/Word: sirven para cortar capítulos.
+    for (const [odf, css] of [['fo:break-before', 'page-break-before'], ['fo:break-after', 'page-break-after']] as const) if (attr(p, odf) === 'page') d[css] = 'always';
     const pos = attr(p, 'style:text-position');
     if (/^super/.test(pos)) d['vertical-align'] = 'super';
     else if (/^sub/.test(pos)) d['vertical-align'] = 'sub';

@@ -67,6 +67,8 @@ export function textoBloques(bloques: Bloque[]): string {
             ? [b.titulo ? `[${b.titulo}]` : '', ...b.lineas.map((l) => (l.etiqueta ? `${l.etiqueta}: ` : '') + textoPlano(l.contenido))].filter(Boolean).join('\n')
           : b.tipo === 'separador'
             ? '* * *'
+            : b.tipo === 'saltoPagina'
+              ? '[Salto de página]'
             : b.tipo === 'imagen'
               ? `[Imagen: ${b.alt}]`
               : '[Bloque XHTML]',

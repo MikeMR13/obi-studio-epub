@@ -19,6 +19,7 @@ import { Versiones } from './paneles/Versiones';
 import { Colaborar } from './paneles/Colaborar';
 import { Configuracion } from './paneles/Configuracion';
 import { Publicar } from './paneles/Publicar';
+import { IndiceLibro } from './paneles/IndiceLibro';
 import { Muestra } from './paneles/Muestra';
 import { Cubierta } from './paneles/Cubierta';
 import { Sencillo } from './paneles/Sencillo';
@@ -41,6 +42,7 @@ export function App() {
   const [verColaborar, setVerColaborar] = useState(false);
   const [verConfiguracion, setVerConfiguracion] = useState(false);
   const [verPublicar, setVerPublicar] = useState(false);
+  const [verIndice, setVerIndice] = useState(false);
   const [verMuestra, setVerMuestra] = useState(false);
   const [verCubierta, setVerCubierta] = useState(false);
   const [configuracion, setConfiguracion] = useState<{ colaboracion: boolean }>({ colaboracion: false });
@@ -418,6 +420,34 @@ export function App() {
 
   return (
     <div className="app">
+      {verIndice && (
+        <IndiceLibro
+          estado={estado}
+          onCerrar={() => setVerIndice(false)}
+          onSeccion={(id, cambios) => llamar(async () => aplicar(await api.seccion(id, cambios), 'bloques' in cambios))}
+          onProfundidad={(p) => llamar(async () => aplicar(await api.profundidadIndice(p), false))}
+          onUnir={async (id) => {
+            const s = estado.libro.secciones.find((x) => x.id === id);
+            const sig = estado.libro.secciones[estado.libro.secciones.findIndex((x) => x.id === id) + 1];
+            if (!s || !sig) return;
+            if (await confirmar(t('Unir secciones'), t('¿Unir «{0}» con «{1}»? El título de la segunda queda como subtítulo. Se guarda una versión antes.', { 0: s.titulo || '—', 1: sig.titulo || '—' }), t('Unir'))) {
+              await llamar(async () => aplicar(await api.unirSeccion(id)));
+            }
+          }}
+          onIrA={(id) => {
+            setVerIndice(false);
+            setActual(id);
+            setPestana('seccion');
+          }}
+          onPaginaIndice={() =>
+            llamar(async () => {
+              const despues = estado.libro.secciones.find((s) => s.tipo === 'creditos') ?? estado.libro.secciones.find((s) => s.tipo === 'portada');
+              const r = await api.anadirSeccion('indice', t('Índice'), despues?.id ?? estado.libro.secciones[0]?.id);
+              aplicar(r.estado);
+            })
+          }
+        />
+      )}
       {verPublicar && (
         <Publicar
           onCerrar={() => setVerPublicar(false)}
@@ -515,6 +545,7 @@ export function App() {
             setActual(r.seccion);
           })
         }
+        onIndice={() => setVerIndice(true)}
         onEliminar={async (s) => {
           if (await confirmar(t('Eliminar sección'), t('¿Eliminar «{0}»? Se borra su texto.', { 0: s.titulo || t(TIPOS_SECCION.find((x) => x.id === s.tipo)?.nombre ?? '') }), t('Eliminar'), true)) {
             await llamar(async () => aplicar(await api.eliminarSeccion(s.id)));
@@ -573,6 +604,14 @@ export function App() {
             idioma={estado.libro.metadatos.idioma}
             estilosPropios={estado.libro.tema.estilosParrafo}
             onCambio={(b, n) => guardarTexto(seccion.id, b, n)}
+            onPartir={(indice, bloques, notas) =>
+              llamar(async () => {
+                const r = await api.partirSeccion(seccion.id, indice, { bloques, notas });
+                aplicar(r.estado, true);
+                setActual(r.seccion);
+                aviso(t('Sección partida: lo que seguía al cursor está en una sección nueva.'), 'ok');
+              })
+            }
             onEstado={() => api.estado().then((e) => aplicar(e))}
             onComentar={(c) => {
               cambiarSeccion({ comentarios: [...(seccion.comentarios ?? []), { id: c.id, autor: c.autor, fecha: new Date().toISOString(), texto: c.texto }] });

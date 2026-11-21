@@ -1,6 +1,6 @@
 // Esquema del editor visual: solo admite lo que el modelo del libro sabe guardar.
 
-import { Mark, Node, mergeAttributes } from '@tiptap/core';
+import { Extension, Mark, Node, mergeAttributes } from '@tiptap/core';
 import { Plugin, TextSelection } from '@tiptap/pm/state';
 import StarterKit from '@tiptap/starter-kit';
 import Paragraph from '@tiptap/extension-paragraph';
@@ -19,6 +19,7 @@ declare module '@tiptap/core' {
       insertarNota: (id: string) => ReturnType;
       insertarImagen: (attrs: { recurso: string; alt: string }) => ReturnType;
       insertarRecuadro: (variante: string) => ReturnType;
+      insertarSaltoPagina: () => ReturnType;
     };
   }
 }
@@ -185,6 +186,41 @@ export const Crudo = Node.create({
     const tipo = String(node.attrs.xhtml).match(/^<(\w+)/)?.[1] ?? 'XHTML';
     return ['div', { 'data-crudo': '1', class: 'bloque-crudo', title: t('Este bloque se edita en la pestaña Código') }, `⟨${tipo}⟩ ${resumen || t('(sin texto)')}`];
   },
+});
+
+/** Salto de página dentro de la sección. */
+export const SaltoPaginaObi = Node.create({
+  name: 'saltoPagina',
+  group: 'block',
+  atom: true,
+  selectable: true,
+  parseHTML: () => [{ tag: 'div[data-salto-pagina]' }],
+  renderHTML: () => ['div', { 'data-salto-pagina': '1', class: 'salto-pagina-editor', title: t('Lo que sigue empieza en una página nueva') }, t('Salto de página')],
+  addCommands() {
+    return {
+      insertarSaltoPagina:
+        () =>
+        ({ commands }: any) =>
+          commands.insertContent({ type: this.name }),
+    } as any;
+  },
+});
+
+/** Subtítulos que no salen en el índice de dos niveles. */
+export const SubtituloFueraDeIndice = Extension.create({
+  name: 'subtituloFueraDeIndice',
+  addGlobalAttributes: () => [
+    {
+      types: ['heading'],
+      attributes: {
+        fueraDeIndice: {
+          default: false,
+          parseHTML: (el: HTMLElement) => el.hasAttribute('data-fuera-indice'),
+          renderHTML: (a: Record<string, unknown>) => (a.fueraDeIndice ? { 'data-fuera-indice': '1' } : {}),
+        },
+      },
+    },
+  ],
 });
 
 /** Tamaño, color y fondo propios de un fragmento (los del original). */
@@ -426,5 +462,7 @@ export function extensiones(op: { colaborativo?: boolean } = {}) {
     RecuadroObi,
     LineaRecuadroObi,
     AspectoObi,
+    SaltoPaginaObi,
+    SubtituloFueraDeIndice,
   ];
 }

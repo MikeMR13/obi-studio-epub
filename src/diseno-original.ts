@@ -49,6 +49,8 @@ export interface DisenoOriginal {
   avisosCss?: string[];
   /** Fragmentos (span, em…) con tamaño, color o fondo propios. */
   fragmentosConAspecto?: number;
+  /** Posibles cortes de capítulo además de los h1: subtítulos h2 y saltos de página del original. */
+  cortes?: { h2: number; saltos: number };
   fuentes: FuenteOriginal[];
   avisos: string[];
 }
@@ -292,6 +294,18 @@ export function temaDeCss(css: string, xhtmls: string[]): Omit<DisenoOriginal, '
     }
   }
 
+  // Cortes posibles: h2 y elementos con salto de página (CSS o el div.salto-pagina de Obi Studio).
+  const salto = detectorSaltos(css);
+  let h2 = 0;
+  let saltos = 0;
+  for (const d of docs) {
+    h2 += todos(d, (n) => nombre(n) === 'h2').length;
+    for (const n of todos(d, (x) => x.nodeType === ELEMENTO && nombre(x) !== 'body' && nombre(x) !== 'html')) {
+      const s = salto(n);
+      if (s.antes || s.despues) saltos++;
+    }
+  }
+
   // Espaciado general y párrafos con espacio propio.
   const espacio = ordenados.length ? { general: Math.min(2, Math.max(0, Math.round(Math.max(general.arriba, general.abajo) * 100) / 100)), arriba: general.arriba, abajo: general.abajo } : undefined;
   let parrafosConEspacio = 0;
@@ -319,6 +333,18 @@ export function temaDeCss(css: string, xhtmls: string[]): Omit<DisenoOriginal, '
     css,
     avisosCss: avisos,
     fragmentosConAspecto,
+    cortes: { h2, saltos },
+  };
+}
+
+/** ¿Tiene el elemento un salto de página antes o después (CSS propio, no heredado)? */
+export function detectorSaltos(css: string): (n: Nodo) => { antes: boolean; despues: boolean } {
+  const hoja = hojaDeCss(css);
+  const es = (v?: string) => !!v && /^(always|page|left|right|recto|verso)$/i.test(v.trim());
+  return (n) => {
+    if (nombre(n) === 'div' && clases(n).includes('salto-pagina')) return { antes: true, despues: false };
+    const pr = propias(hoja, n);
+    return { antes: es(pr['page-break-before']) || es(pr['break-before']), despues: es(pr['page-break-after']) || es(pr['break-after']) };
   };
 }
 
@@ -533,6 +559,7 @@ export async function disenoDeDocx(datos: Uint8Array): Promise<DisenoOriginal> {
     familiaTexto: primeraFamilia(familiaTexto),
     familiaTitulos: primeraFamilia(familiaTitulos),
     ...(estilosWord.length ? { estilos: estilosWord } : {}),
+    cortes: { h2: w.parrafos.filter((x) => /^(heading 2|t[íi]tulo 2)$/i.test(w.estilos.get(x.estilo)?.nombre ?? x.estilo)).length, saltos: 0 },
     fuentes,
     avisos: [],
   };

@@ -30,6 +30,8 @@ interface Props {
   idioma?: string;
   /** Estilos de párrafo propios del libro (los del original en la conversión sencilla). */
   estilosPropios?: EstiloPropio[];
+  /** Partir la sección en el bloque del cursor (con el texto actual del editor). */
+  onPartir?: (indice: number, bloques: Bloque[], notas: Nota[]) => void;
   /** Colaboración en tiempo real: sala de esta sección en el servidor de colaboración. */
   sala?: { url: string; codigo: string; nombre: string; color: string };
 }
@@ -45,7 +47,7 @@ function idsNotas(bloques: Bloque[]): Set<string> {
   return ids;
 }
 
-export function Editor({ seccion, onCambio, onEstado, onComentar, vertical, idioma: idiomaLibro, sala, estilosPropios }: Props) {
+export function Editor({ seccion, onCambio, onEstado, onComentar, onPartir, vertical, idioma: idiomaLibro, sala, estilosPropios }: Props) {
   const [notas, setNotas] = useState<Nota[]>(seccion.notas);
   const notasRef = useRef(notas);
   notasRef.current = notas;
@@ -453,6 +455,21 @@ export function Editor({ seccion, onCambio, onEstado, onComentar, vertical, idio
         <B titulo={t('Comentar')} onClick={comentar}>💬</B>
         <span className="sep" />
         <B titulo={t('Separador de escena')} onClick={() => c().setHorizontalRule().run()}>⁂</B>
+        <B titulo={t('Salto de página')} onClick={() => c().insertarSaltoPagina().run()}>⤓</B>
+        {onPartir && !colab && (
+          <B
+            titulo={t('Partir la sección aquí (lo que sigue al cursor pasa a una sección nueva)')}
+            onClick={() => {
+              window.clearTimeout(temporizador.current);
+              pendiente.current = false;
+              const bloques = pmABloques(editor.getJSON() as any);
+              const usadas = idsNotas(bloques);
+              onPartir(editor.state.selection.$from.index(0), bloques, notasRef.current.filter((n) => usadas.has(n.id)));
+            }}
+          >
+            ✂
+          </B>
+        )}
         <B titulo={t('Imagen')} onClick={() => entradaImagen.current?.click()}>🖼</B>
         <B titulo={t('Lista')} activo={editor.isActive('bulletList')} onClick={() => c().toggleBulletList().run()}>•≡</B>
         <select

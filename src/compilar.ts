@@ -4,9 +4,9 @@
 
 import { createHash } from 'node:crypto';
 import JSZip from 'jszip';
-import type { Bloque, Imagen, Inline, Libro, Marca, Nota, Recuadro, Recurso, Seccion, TipoSeccion, VarianteRecuadro } from './model.js';
+import type { Bloque, EntradaIndice, Imagen, Inline, Libro, Marca, Nota, Recuadro, Recurso, Seccion, TipoSeccion, VarianteRecuadro } from './model.js';
 import { esc, escAttr, limpiarXml } from './xml.js';
-import { temaCompleto, esVertical, VARIANTES_RECUADRO } from './model.js';
+import { anclaSubtitulo, entradasIndice, temaCompleto, esVertical, VARIANTES_RECUADRO } from './model.js';
 import { cssTema, cssEstilosPropios, separadorXhtml as separadorTema, contenidoTitulo } from './estilo-tema.js';
 import { cssPropioSeguro } from './css-propio.js';
 import { fuentesTema, caraFuente, familiaCss, datosArchivoFuente, MIME_FUENTE } from './fuentes.js';
@@ -64,6 +64,8 @@ export interface Contexto {
   rutaImg?: (nombre: string) => string;
   /** Escritura vertical: números de una o dos cifras y «!?» en horizontal dentro de la línea (tate-chū-yoko). */
   vertical?: boolean;
+  /** Prefijo de las anclas de los subtítulos (la impresión une todas las secciones en un documento). */
+  prefijoAncla?: string;
 }
 
 /** Tate-chū-yoko automático sobre texto ya escapado. */
@@ -128,6 +130,7 @@ function separadorXhtml(ctx: Contexto): string {
 
 export function bloquesXhtml(bloques: Bloque[], ctx: Contexto, seccion?: Seccion): string {
   const partes: string[] = [];
+  let subtitulos = 0;
   for (const b of bloques) {
     switch (b.tipo) {
       case 'parrafo': {
@@ -140,10 +143,14 @@ export function bloquesXhtml(bloques: Bloque[], ctx: Contexto, seccion?: Seccion
         break;
       }
       case 'subtitulo':
-        partes.push(`<h${b.nivel}>${inlinesXhtml(b.contenido, ctx)}</h${b.nivel}>`);
+        // Los de nivel 2 llevan ancla para el índice de dos niveles.
+        partes.push(b.nivel === 2 ? `<h2 id="${ctx.prefijoAncla ?? ''}${anclaSubtitulo(++subtitulos)}"${b.fueraDeIndice ? ' class="fuera-indice"' : ''}>${inlinesXhtml(b.contenido, ctx)}</h2>` : `<h${b.nivel}>${inlinesXhtml(b.contenido, ctx)}</h${b.nivel}>`);
         break;
       case 'separador':
         partes.push(separadorXhtml(ctx));
+        break;
+      case 'saltoPagina':
+        partes.push('<div class="salto-pagina"></div>');
         break;
       case 'imagen':
         partes.push(imagenXhtml(b, ctx.libro, seccion?.tipo === 'ilustracion' ? 'ilustracion' : 'imagen', ctx.rutaImg));
@@ -314,19 +321,25 @@ export function seccionXhtml(libro: Libro, s: Seccion): string {
   return documento(libro, tituloDocumento(libro, s), cuerpo, sem.cuerpo);
 }
 
+/** Lista del índice en XHTML (página de índice y menú del lector). */
+function listaIndice(entradas: EntradaIndice[], libro: Libro, clase = ''): string {
+  const archivo = (id: string) => {
+    const s = libro.secciones.find((x) => x.id === id);
+    return s ? archivoSeccion(s) : '';
+  };
+  const li = (e: EntradaIndice): string =>
+    `<li><a href="${escAttr(archivo(e.seccion) + (e.ancla ? `#${e.ancla}` : ''))}">${esc(e.texto)}</a>${e.hijos.length ? `\n<ol>\n${e.hijos.map(li).join('\n')}\n</ol>` : ''}</li>`;
+  return `<ol${clase ? ` class="${clase}"` : ''}>\n${entradas.map(li).join('\n')}\n</ol>`;
+}
+
 function indiceXhtml(libro: Libro): string {
-  const items = libro.secciones
-    .filter((s) => s.enIndice && s.tipo !== 'indice' && s.titulo)
-    .map((s) => `<li><a href="${archivoSeccion(s)}">${esc(s.titulo)}</a></li>`)
-    .join('\n');
-  return `<ol class="indice">\n${items}\n</ol>`;
+  return listaIndice(entradasIndice(libro), libro, 'indice');
 }
 
 export function navXhtml(libro: Libro): string {
-  const secciones = libro.secciones.filter((s) => s.enIndice && s.titulo && s.tipo !== 'portada');
-  const toc = (secciones.length ? secciones : libro.secciones.slice(0, 1))
-    .map((s) => `<li><a href="${archivoSeccion(s)}">${esc(s.titulo || libro.metadatos.titulo)}</a></li>`)
-    .join('\n');
+  const entradas = entradasIndice(libro, { conPaginaIndice: true });
+  const primera = libro.secciones[0];
+  const toc = entradas.length ? listaIndice(entradas, libro) : `<ol>\n<li><a href="${primera ? archivoSeccion(primera) : 'nav.xhtml'}">${esc(primera?.titulo || libro.metadatos.titulo)}</a></li>\n</ol>`;
   const marcas: string[] = [];
   const portada = libro.secciones.find((s) => s.tipo === 'portada');
   if (portada) marcas.push(`<li><a epub:type="cover" href="${archivoSeccion(portada)}">Portada</a></li>`);
@@ -334,11 +347,9 @@ export function navXhtml(libro: Libro): string {
   if (indice) marcas.push(`<li><a epub:type="toc" href="${archivoSeccion(indice)}">Índice</a></li>`);
   const inicio = libro.secciones.find((s) => SEMANTICA[s.tipo].cuerpo === 'bodymatter');
   if (inicio) marcas.push(`<li><a epub:type="bodymatter" href="${archivoSeccion(inicio)}">Comienzo</a></li>`);
-  const cuerpo = `<nav epub:type="toc" id="toc">
+  const cuerpo = `<nav epub:type="toc" id="toc"${libro.profundidadIndice === 2 ? ' class="dos-niveles"' : ''}>
 <h1>Índice</h1>
-<ol>
 ${toc}
-</ol>
 </nav>
 <nav epub:type="landmarks" id="landmarks" hidden="hidden">
 <h2>Puntos de referencia</h2>
@@ -373,6 +384,7 @@ p.cita { margin: 0.5em 2em; text-indent: 0; }
 .escena { text-align: center; margin: 1em 0; text-indent: 0; }
 .escena.espacio { height: 1.5em; margin: 0; }
 hr.escena { width: 25%; margin: 1.5em auto; }
+div.salto-pagina { page-break-after: always; break-after: page; height: 0; margin: 0; }
 .vs { font-variant: small-caps; }
 figure { margin: 1em 0; text-align: center; page-break-inside: avoid; break-inside: avoid; }
 figure img { max-width: 100%; max-height: 95vh; }
@@ -418,12 +430,20 @@ function fechaModificacion(): string {
   return new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
 }
 
+// Un libro sin identificador recibe uno al compilar; el mismo en el OPF y en el toc.ncx.
+const idsGenerados = new Map<string, string>();
+
 function identificador(id: string): string {
   const limpio = id.trim();
+  if (!limpio) {
+    const generado = idsGenerados.get('') ?? `urn:uuid:${globalThis.crypto.randomUUID()}`;
+    idsGenerados.set('', generado);
+    return generado;
+  }
   if (/^(urn:|https?:)/i.test(limpio)) return limpio;
   const digitos = limpio.replace(/[-\s]/g, '');
   if (/^(97[89])?\d{9}[\dX]$/i.test(digitos)) return `urn:isbn:${digitos}`;
-  return limpio || `urn:uuid:${globalThis.crypto.randomUUID()}`;
+  return limpio;
 }
 
 function usaRuby(libro: Libro): boolean {
@@ -512,7 +532,7 @@ ${meta.join('\n')}
 <manifest>
 ${manifiesto}
 </manifest>
-<spine${esVertical(libro) ? ' page-progression-direction="rtl"' : ''}>
+<spine${archivos.some((a) => a.id === 'ncx') ? ' toc="ncx"' : ''}${esVertical(libro) ? ' page-progression-direction="rtl"' : ''}>
 ${spine}
 </spine>
 </package>
@@ -527,13 +547,46 @@ export const CONTAINER = `<?xml version="1.0" encoding="UTF-8"?>
 </container>
 `;
 
+/** Índice en NCX (EPUB 2), con los mismos niveles que el nav. */
+export function ncx(libro: Libro): string {
+  let orden = 0;
+  const entradas = entradasIndice(libro, { conPaginaIndice: true });
+  const primera = libro.secciones[0];
+  const lista: EntradaIndice[] = entradas.length ? entradas : primera ? [{ seccion: primera.id, texto: primera.titulo || libro.metadatos.titulo || 'Inicio', hijos: [] }] : [];
+  const punto = (e: EntradaIndice): string => {
+    const s = libro.secciones.find((x) => x.id === e.seccion)!;
+    const n = ++orden;
+    return `<navPoint id="np-${n}" playOrder="${n}"><navLabel><text>${esc(e.texto)}</text></navLabel><content src="${escAttr(archivoSeccion(s) + (e.ancla ? `#${e.ancla}` : ''))}"/>${e.hijos.map(punto).join('')}</navPoint>`;
+  };
+  const puntos = lista.map(punto).join('\n');
+  const profundidad = lista.some((e) => e.hijos.length) ? 2 : 1;
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<ncx xmlns="http://www.daisy.org/z3986/2005/ncx/" version="2005-1" xml:lang="${esc(libro.metadatos.idioma || 'es')}">
+<head>
+<meta name="dtb:uid" content="${escAttr(identificador(libro.metadatos.identificador))}"/>
+<meta name="dtb:depth" content="${profundidad}"/>
+<meta name="dtb:totalPageCount" content="0"/>
+<meta name="dtb:maxPageNumber" content="0"/>
+</head>
+<docTitle><text>${esc(libro.metadatos.titulo || 'Sin título')}</text></docTitle>
+<navMap>
+${puntos}
+</navMap>
+</ncx>
+`;
+}
+
 /** Archivos del EPUB en memoria, con rutas relativas a la carpeta EPUB/. */
 export function compilarArchivos(libro: Libro): Map<string, string | Uint8Array> {
+  idsGenerados.clear();
   const archivos = new Map<string, string | Uint8Array>();
   const manifiesto: { href: string; id: string; tipo: string; props?: string }[] = [];
 
   manifiesto.push({ href: 'nav.xhtml', id: 'nav', tipo: 'application/xhtml+xml', props: 'nav' });
   archivos.set('nav.xhtml', navXhtml(libro));
+  // toc.ncx para los lectores antiguos que no leen el nav de EPUB 3.
+  manifiesto.push({ href: 'toc.ncx', id: 'ncx', tipo: 'application/x-dtbncx+xml' });
+  archivos.set('toc.ncx', ncx(libro));
   manifiesto.push({ href: 'estilos.css', id: 'css', tipo: 'text/css' });
   archivos.set('estilos.css', cssLibro(libro));
 

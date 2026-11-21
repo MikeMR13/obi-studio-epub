@@ -133,6 +133,10 @@ export interface OpcionesConversion {
   aspectos?: boolean;
   /** Estilo de párrafo propio que corresponde a este párrafo del original (conversión sencilla). */
   estiloPropio?: (n: Nodo) => string | undefined;
+  /** Los h2 también abren capítulo (además de los h1). */
+  cortarEnH2?: boolean;
+  /** Los saltos de página del original abren capítulo; devuelve dónde hay salto en este elemento. */
+  saltoPagina?: (n: Nodo) => { antes: boolean; despues: boolean };
   /** Párrafos de símbolos que son separadores de escena del original (además de los habituales). */
   esSeparador?: (texto: string) => boolean;
   /** ¿Esta imagen es el separador de escena del original? */
@@ -436,7 +440,21 @@ export function convertirBloques(raiz: Nodo, o: OpcionesConversion, idiomaLibro?
       }
       vaciar();
       const marcasBloque: EstadoInline = { ...base, marcas: [...base.marcas, ...marcasDeEstilo(est)] };
-      if (et === 'h1') {
+      const salto = o.saltoPagina?.(h);
+      const nuevaParte = () => {
+        if (actual().bloques.length || actual().titulo !== undefined) partes.push({ tipos: [], bloques: [] });
+      };
+      // Salto antes de este elemento, o después del elemento anterior.
+      const anterior = o.saltoPagina ? hijos(h.parentNode as Nodo).filter((x) => x.nodeType === ELEMENTO) : [];
+      const previo = anterior[anterior.indexOf(h) - 1];
+      if (salto?.antes || (previo && o.saltoPagina!(previo).despues)) nuevaParte();
+      // Salto de página de Obi Studio: corta el capítulo si se pidió; si no, se conserva como bloque.
+      if (et === 'div' && clases(h).includes('salto-pagina') && !hijos(h).some((x) => x.nodeType === ELEMENTO) && !texto(h).trim()) {
+        if (o.saltoPagina) nuevaParte();
+        else actual().bloques.push({ tipo: 'saltoPagina' });
+        continue;
+      }
+      if (et === 'h1' || (et === 'h2' && o.cortarEnH2)) {
         const t = texto(h).replace(/\s+/g, ' ').trim();
         if (actual().bloques.length || actual().titulo !== undefined) partes.push({ tipos: [], bloques: [] });
         actual().titulo = t;
@@ -450,7 +468,7 @@ export function convertirBloques(raiz: Nodo, o: OpcionesConversion, idiomaLibro?
           actual().titulo = texto(h).replace(/\s+/g, ' ').trim();
           continue;
         }
-        actual().bloques.push({ tipo: 'subtitulo', nivel: et === 'h2' ? 2 : 3, contenido });
+        actual().bloques.push({ tipo: 'subtitulo', nivel: et === 'h2' ? 2 : 3, contenido, ...(et === 'h2' && clases(h).includes('fuera-indice') ? { fueraDeIndice: true } : {}) });
         continue;
       }
       if (et === 'hr') {

@@ -76,10 +76,13 @@ export function bloquesAPM(bloques: Bloque[]): PMNodo {
         });
         break;
       case 'subtitulo':
-        content.push({ type: 'heading', attrs: { level: b.nivel }, content: inlinesAPM(b.contenido) });
+        content.push({ type: 'heading', attrs: { level: b.nivel, ...(b.fueraDeIndice ? { fueraDeIndice: true } : {}) }, content: inlinesAPM(b.contenido) });
         break;
       case 'separador':
         content.push({ type: 'horizontalRule' });
+        break;
+      case 'saltoPagina':
+        content.push({ type: 'saltoPagina' });
         break;
       case 'imagen':
         content.push({ type: 'imagen', attrs: { recurso: b.recurso, alt: b.alt, decorativa: !!b.decorativa, pie: b.pie ?? '' } });
@@ -166,11 +169,14 @@ export function pmABloques(doc: PMNodo): Bloque[] {
       }
       case 'heading': {
         const nivel = Number(n.attrs?.level) >= 3 ? 3 : 2;
-        bloques.push({ tipo: 'subtitulo', nivel, contenido: pmAInlines(n.content) });
+        bloques.push({ tipo: 'subtitulo', nivel, contenido: pmAInlines(n.content), ...(nivel === 2 && n.attrs?.fueraDeIndice ? { fueraDeIndice: true } : {}) });
         break;
       }
       case 'horizontalRule':
         bloques.push({ tipo: 'separador' });
+        break;
+      case 'saltoPagina':
+        bloques.push({ tipo: 'saltoPagina' });
         break;
       case 'imagen': {
         const b: Bloque = { tipo: 'imagen', recurso: String(n.attrs?.recurso ?? ''), alt: String(n.attrs?.alt ?? '') };

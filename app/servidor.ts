@@ -107,6 +107,9 @@ export async function iniciarServidor(op: OpcionesServidor = {}) {
     ['POST', /^\/api\/conversion\/analisis$/, async (q, r, _m, url) => {
       enviar(r, 200, await backend.analizarConversion(url.searchParams.get('nombre') ?? 'archivo', await cuerpo(q)));
     }],
+    ['POST', /^\/api\/conversion\/capitulos$/, async (q, r) => {
+      enviar(r, 200, await backend.capitulosConversion(await json(q)));
+    }],
     ['POST', /^\/api\/conversion\/vista$/, async (q, r) => {
       enviar(r, 200, await backend.vistaPreviaConversion(await json(q)));
     }],
@@ -172,6 +175,19 @@ export async function iniciarServidor(op: OpcionesServidor = {}) {
     }],
     ['POST', /^\/api\/recursos\/([\w-]+)\/editar$/, async (q, r, m) => {
       await backend.editarImagen(m[1], await json(q));
+      enviar(r, 200, backend.estado());
+    }],
+    ['POST', /^\/api\/secciones\/([\w-]+)\/partir$/, async (q, r, m) => {
+      const d = await json(q);
+      const nueva = backend.partirSeccion(m[1], Number(d.indice), { bloques: d.bloques, notas: d.notas });
+      enviar(r, 200, { seccion: nueva, estado: backend.estado() });
+    }],
+    ['POST', /^\/api\/secciones\/([\w-]+)\/unir$/, async (_q, r, m) => {
+      backend.unirConSiguiente(m[1]);
+      enviar(r, 200, backend.estado());
+    }],
+    ['PUT', /^\/api\/indice$/, async (q, r) => {
+      backend.profundidadIndice((await json(q)).profundidad);
       enviar(r, 200, backend.estado());
     }],
     ['POST', /^\/api\/secciones\/([\w-]+)\/dividir$/, async (_q, r, m) => {

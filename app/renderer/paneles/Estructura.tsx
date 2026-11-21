@@ -13,6 +13,7 @@ interface Props {
   onOrdenar: (ids: string[]) => void;
   onAnadir: (tipo: string) => void;
   onEliminar: (s: Seccion) => void;
+  onIndice: () => void;
   version: number;
 }
 
@@ -21,7 +22,7 @@ const ICONO: Record<string, string> = {
   interludio: '◈', epilogo: '◆', posfacio: '✎', apendice: '+', otro: '·',
 };
 
-export function Estructura({ estado, actual, avisosPorSeccion, onElegir, onOrdenar, onAnadir, onEliminar, version }: Props) {
+export function Estructura({ estado, actual, avisosPorSeccion, onElegir, onOrdenar, onAnadir, onEliminar, onIndice, version }: Props) {
   const [arrastrando, setArrastrando] = useState<string | null>(null);
   const [sobre, setSobre] = useState<string | null>(null);
   const [menu, setMenu] = useState(false);
@@ -53,6 +54,7 @@ export function Estructura({ estado, actual, avisosPorSeccion, onElegir, onOrden
     <nav className="estructura" aria-label={t('Estructura del libro')}>
       <div className="cabecera-panel">
         <h2>{t('Estructura')}</h2>
+        <button className="pequeno boton-indice" onClick={onIndice} title={t('Tabla de contenido: qué sale en el índice y cómo')} aria-label={t('Tabla de contenido')}>☰</button>
         <div className="menu-anadir">
           <button className="principal pequeno" onClick={() => setMenu(!menu)} aria-expanded={menu}>
             {t('+ Sección')}

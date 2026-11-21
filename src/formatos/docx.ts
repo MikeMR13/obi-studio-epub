@@ -61,7 +61,7 @@ export function rubiesDeTexto(lista: Inline[]): Inline[] {
   return normalizarInlines(salida);
 }
 
-export async function importarDocx(datos: Uint8Array, importacion: { vacios?: boolean } = {}): Promise<ResultadoImportacion> {
+export async function importarDocx(datos: Uint8Array, importacion: { vacios?: boolean; cortarEnH2?: boolean } = {}): Promise<ResultadoImportacion> {
   const avisos: ResultadoImportacion['avisos'] = [];
   const recursos: Recurso[] = [];
   const usados = new Set<string>();
@@ -135,6 +135,7 @@ export async function importarDocx(datos: Uint8Array, importacion: { vacios?: bo
 
   const opciones: OpcionesConversion = {
     vacios: importacion.vacios,
+    ...(importacion.cortarEnH2 ? { cortarEnH2: true } : {}),
     css: new Map(),
     imagen: (src) => (src.startsWith('obi-recurso:') ? src.slice('obi-recurso:'.length) : undefined),
     rutaCruda: (src) => {
