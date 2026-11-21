@@ -143,6 +143,7 @@
     ]
   },
   "dependencies": {
-    "harfbuzzjs": "^1.6.4"
+    "harfbuzzjs": "^1.6.4",
+    "marked": "^15.0.12"
   }
 }

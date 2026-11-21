@@ -15,7 +15,7 @@ import { buscarFuentesSistema, type FamiliaSistema } from '../src/fuentes-sistem
 import { ErrorImagen, girar, libroConImagenesOptimizadas, recortar } from '../src/procesar-imagen.js';
 import { esVertical } from '../src/model.js';
 import { revisarCss, type ProblemaCss } from '../src/css-propio.js';
-import { asignadorEstilos, disenoDeDocx, disenoDeEpub, pareceSeparador, type DisenoOriginal } from '../src/diseno-original.js';
+import { aplicarDisenoDocx, asignadorEstilos, disenoDeDocx, disenoDeEpub, pareceSeparador, type DisenoOriginal } from '../src/diseno-original.js';
 import { PAPELES_KDP, archivosCubierta, cubiertaCompleta, medidasCubierta, posprocesarCubierta, revisarCubierta, type AvisoCubierta, type MedidasCubierta } from '../src/cubierta.js';
 import { ArchivoConfiguracion } from '../src/configuracion.js';
 import { CATALOGO_INTEGRADO, ListaCatalogos, archivoCatalogos, leerCatalogo, normalizarUrlCatalogo, paqueteDeCatalogo, versionMayor, type EntradaCatalogo } from '../src/catalogo.js';
@@ -46,6 +46,7 @@ import { libroNuevo, nuevaSeccion, nuevoId, contarPalabras } from '../src/model.
 import { compilar, compilarArchivos, archivoSeccion, rutaImagen, cssLibro, CONTAINER } from '../src/compilar.js';
 import { importarEpub } from '../src/formatos/epub.js';
 import { importarDocx } from '../src/formatos/docx.js';
+import { epubDeOtroFormato, esFormatoOtro } from '../src/formatos/otros.js';
 import { errorXhtml } from '../src/formatos/dom.js';
 import { deserializarProyecto, guardarProyecto, serializarProyecto } from '../src/proyecto.js';
 import { validarDatos, type Resultado } from '../src/validar.js';
@@ -127,7 +128,7 @@ export const OPCIONES_CONVERSION: OpcionesConversionSencilla = {
 
 export interface AnalisisConversion {
   nombre: string;
-  tipo: 'epub' | 'docx';
+  tipo: 'epub' | 'docx' | 'odt' | 'html' | 'htm' | 'xhtml' | 'md' | 'markdown' | 'txt';
   titulo: string;
   diseno?: Omit<DisenoOriginal, 'fuentes'>;
   fuentesArchivo: { familia: string; archivo: string; permiso: PermisoFuente }[];
@@ -137,6 +138,8 @@ export interface AnalisisConversion {
   ilustraciones: number;
   imagenes: number;
   notas: number;
+  /** Serie del libro (para recordar las opciones elegidas en sus otros volúmenes). */
+  serie?: string;
 }
 
 export interface ResumenConversion {
@@ -284,9 +287,15 @@ export class Backend {
         const r = await ejecutarPlugin(plugin, 'importador', [datos, nombre]);
         libro = validarLibroPlugin(r.resultado, { ...base, recursos: [] }, p.permisos);
         avisos = [`Importado con el plugin «${p.nombre}».`];
+      } else if (esFormatoOtro(ext)) {
+        // Un plugin instalado para ese formato tiene preferencia (arriba).
+        const o = await epubDeOtroFormato(nombre, datos);
+        const r = await importarEpub(o.epub);
+        libro = r.libro;
+        avisos = [...o.avisos, ...r.avisos.map((a) => a.mensaje)];
       } else if (ext === 'doc' || ext === 'rtf') {
         throw new ErrorUsuario('Abre el archivo en Word o LibreOffice y guárdalo como .docx para importarlo.');
-      } else throw new ErrorUsuario('Formato no admitido. Usa .epub, .docx u .obi, o instala un plugin que lo importe.');
+      } else throw new ErrorUsuario('Formato no admitido. Usa .epub, .docx, .odt, .html, .md, .txt u .obi, o instala un plugin que lo importe.');
     } catch (e) {
       if (e instanceof ErrorUsuario) throw e;
       throw new ErrorUsuario(`No se pudo abrir el archivo: ${(e as Error).message}`);
@@ -596,7 +605,7 @@ export class Backend {
 
   // ----- Conversión sencilla -----
 
-  private conversionPendiente?: { nombre: string; datos: Uint8Array; diseno?: DisenoOriginal };
+  private conversionPendiente?: { nombre: string; datos: Uint8Array; diseno?: DisenoOriginal; original: string };
 
   private async leerDiseno(nombre: string, datos: Uint8Array): Promise<DisenoOriginal | undefined> {
     const ext = nombre.toLowerCase().split('.').pop();
@@ -610,9 +619,24 @@ export class Backend {
   }
 
   /** Primer paso de la conversión sencilla: qué trae el archivo y qué se puede conservar. No cambia el libro abierto. */
-  async analizarConversion(nombre: string, datos: Uint8Array): Promise<AnalisisConversion> {
+  async analizarConversion(nombreOriginal: string, datosOriginales: Uint8Array): Promise<AnalisisConversion> {
+    let nombre = nombreOriginal;
+    let datos = datosOriginales;
+    const extOriginal = nombre.toLowerCase().split('.').pop();
+    const avisosPrevios: string[] = [];
+    // HTML, Markdown, texto y OpenDocument pasan antes a un EPUB con su HTML y su CSS.
+    if (esFormatoOtro(extOriginal)) {
+      try {
+        const o = await epubDeOtroFormato(nombre, datos);
+        datos = o.epub;
+        avisosPrevios.push(...o.avisos);
+        nombre = nombre.replace(/\.[^.]+$/, '') + '.epub';
+      } catch (e) {
+        throw new ErrorUsuario(`No se pudo abrir el archivo: ${(e as Error).message}`);
+      }
+    }
     const ext = nombre.toLowerCase().split('.').pop();
-    if (ext !== 'epub' && ext !== 'docx') throw new ErrorUsuario('La conversión sencilla admite archivos .epub y .docx.');
+    if (ext !== 'epub' && ext !== 'docx') throw new ErrorUsuario('La conversión sencilla admite archivos .epub, .docx, .odt, .html, .md y .txt.');
     let libro: Libro;
     try {
       libro = (ext === 'epub' ? await importarEpub(datos) : await importarDocx(datos)).libro;
@@ -620,7 +644,8 @@ export class Backend {
       throw new ErrorUsuario(`No se pudo abrir el archivo: ${(e as Error).message}`);
     }
     const diseno = await this.leerDiseno(nombre, datos);
-    this.conversionPendiente = { nombre, datos, diseno };
+    if (diseno) diseno.avisos.unshift(...avisosPrevios);
+    this.conversionPendiente = { nombre, datos, diseno, original: nombreOriginal };
     const fuentesArchivo = (diseno?.fuentes ?? []).map((f) => {
       try {
         const info = leerFuentePropia(f.datos);
@@ -639,8 +664,8 @@ export class Backend {
     });
     const { fuentes: _f, css: _c, ...resto } = diseno ?? { fuentes: [] };
     return {
-      nombre,
-      tipo: ext,
+      nombre: nombreOriginal,
+      tipo: esFormatoOtro(extOriginal) ? (extOriginal as AnalisisConversion['tipo']) : ext,
       diseno: diseno ? (resto as Omit<DisenoOriginal, 'fuentes'>) : undefined,
       fuentesArchivo,
       letras,
@@ -649,7 +674,44 @@ export class Backend {
       imagenes: libro.recursos.length,
       notas: libro.secciones.reduce((n, x) => n + x.notas.length, 0),
       titulo: libro.metadatos.titulo,
+      ...(libro.metadatos.serie ? { serie: libro.metadatos.serie } : {}),
     };
+  }
+
+  /**
+   * Vista previa de la conversión con estas opciones, sin cambiar el libro abierto: un capítulo del original
+   * (si es un EPUB) y el mismo capítulo convertido, como páginas servidas en /muestra/.
+   */
+  async vistaPreviaConversion(o: Partial<OpcionesConversionSencilla> = {}): Promise<{ original?: string; convertido: string }> {
+    const p = this.conversionPendiente;
+    if (!p) throw new ErrorUsuario('Elige primero el archivo que quieres convertir.');
+    const otro = new Backend(this.carpetaRecuperacion);
+    otro.sistema = this.sistema;
+    otro.conversionPendiente = { ...p };
+    await otro.conversionSencilla(o);
+    clearTimeout(otro.temporizador);
+    const libro = otro.libro;
+    const conTexto = (s: Seccion) => s.bloques.filter((b) => b.tipo === 'parrafo' && b.contenido.length).length;
+    const cap = libro.secciones.find((s) => s.tipo === 'capitulo' && conTexto(s) >= 3) ?? [...libro.secciones].sort((a, b) => conTexto(b) - conTexto(a))[0];
+    const v = Date.now();
+    this.muestras.clear();
+    this.muestras.set(String(v + 1), compilarArchivos(libro));
+    const convertido = `/muestra/${v + 1}/${archivoSeccion(cap)}`;
+    if (!p.nombre.toLowerCase().endsWith('.epub')) return { convertido };
+    // Original: el documento del capítulo (el que contiene su título o, si no, el que tiene más párrafos).
+    const zip = await JSZip.loadAsync(p.datos);
+    const archivos = new Map<string, Uint8Array>();
+    for (const [ruta, f] of Object.entries(zip.files)) if (!f.dir) archivos.set(ruta, await f.async('uint8array'));
+    const docs = [...archivos.keys()].filter((r) => /\.x?html?$/i.test(r));
+    const textoDe = (r: string) => new TextDecoder().decode(archivos.get(r));
+    const titulo = cap.titulo.trim();
+    const sinEtiquetas = (r: string) => textoDe(r).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
+    const elegido =
+      (titulo && docs.find((r) => !/<nav\b/.test(textoDe(r)) && sinEtiquetas(r).includes(titulo))) ||
+      docs.filter((r) => !/<nav\b/.test(textoDe(r))).sort((a, b) => (textoDe(b).match(/<p\b/g)?.length ?? 0) - (textoDe(a).match(/<p\b/g)?.length ?? 0))[0];
+    if (!elegido) return { convertido };
+    this.muestras.set(String(v), archivos as Map<string, string | Uint8Array>);
+    return { original: `/muestra/${v}/${elegido.split('/').map(encodeURIComponent).join('/')}`, convertido };
   }
 
   /**
@@ -676,6 +738,9 @@ export class Backend {
               ...(d?.clasesCapitular?.length ? { ignorarClases: d.clasesCapitular } : {}),
             })
           : await importarDocx(p.datos, { vacios: op.lineasEnBlanco });
+      if (ext === 'docx' && d && ((op.espacioPorParrafo && d.parrafosConEspacio) || (op.estilosParrafo && d.estilos?.length))) {
+        await aplicarDisenoDocx(r.libro, p.datos, { espacio: op.espacioPorParrafo, ...(op.estilosParrafo ? { estilos: d.estilos } : {}) });
+      }
     } catch (e) {
       throw new ErrorUsuario(`No se pudo abrir el archivo: ${(e as Error).message}`);
     }
@@ -683,7 +748,7 @@ export class Backend {
     this.avisos = r.avisos.map((a) => (a.archivo ? `${a.mensaje} (${a.archivo})` : a.mensaje));
     avisos.push(...this.avisos);
     this.antesDePlugin = undefined;
-    this.nombreArchivo = nombreDeArchivo(this.libro.metadatos.titulo || p.nombre.replace(/\.[^.]+$/, '')) + '.obi';
+    this.nombreArchivo = nombreDeArchivo(this.libro.metadatos.titulo || p.original.replace(/\.[^.]+$/, '')) + '.obi';
     this.ultimaValidacion = undefined;
     this.ultimasPaginas = this.ultimasPaginasColor = undefined;
 

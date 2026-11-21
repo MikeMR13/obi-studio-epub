@@ -315,7 +315,7 @@ export function App() {
       ref={entradaArchivo}
       type="file"
       hidden
-      accept=".epub,.docx,.obi"
+      accept=".epub,.docx,.odt,.html,.htm,.xhtml,.md,.markdown,.txt,.obi"
       onChange={(e) => {
         const f = e.target.files?.[0];
         if (f) void importar(f);
@@ -376,18 +376,18 @@ export function App() {
             <button className="tarjeta" onClick={() => entradaArchivo.current?.click()}>
               <span className="icono-tarjeta">⇪</span>
               <strong>{t('Importar o abrir')}</strong>
-              <span>{t('EPUB, Word (.docx) o un proyecto de Obi Studio (.obi).')}</span>
+              <span>{t('EPUB, Word, OpenDocument, HTML, Markdown, texto o un proyecto de Obi Studio (.obi).')}</span>
             </button>
             <button className="tarjeta" onClick={() => entradaConversion.current?.click()}>
               <span className="icono-tarjeta">⇄</span>
               <strong>{t('Conversión sencilla')}</strong>
-              <span>{t('De EPUB o Word a EPUB, conservando el diseño, los formatos y las imágenes del original.')}</span>
+              <span>{t('De EPUB, Word, OpenDocument, HTML, Markdown o texto a EPUB, conservando el diseño, los formatos y las imágenes del original.')}</span>
             </button>
             <input
               ref={entradaConversion}
               type="file"
               hidden
-              accept=".epub,.docx"
+              accept=".epub,.docx,.odt,.html,.htm,.xhtml,.md,.markdown,.txt"
               aria-label={t('Archivo para la conversión sencilla')}
               onChange={(e) => {
                 const f = e.target.files?.[0];

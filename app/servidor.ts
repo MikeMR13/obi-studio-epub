@@ -19,6 +19,11 @@ const TIPOS: Record<string, string> = {
   '.js': 'text/javascript; charset=utf-8',
   '.css': 'text/css; charset=utf-8',
   '.xhtml': 'application/xhtml+xml; charset=utf-8',
+  '.htm': 'text/html; charset=utf-8',
+  '.jpeg': 'image/jpeg',
+  '.ttf': 'font/ttf',
+  '.otf': 'font/otf',
+  '.woff': 'font/woff',
   '.svg': 'image/svg+xml',
   '.png': 'image/png',
   '.jpg': 'image/jpeg',
@@ -101,6 +106,9 @@ export async function iniciarServidor(op: OpcionesServidor = {}) {
     }],
     ['POST', /^\/api\/conversion\/analisis$/, async (q, r, _m, url) => {
       enviar(r, 200, await backend.analizarConversion(url.searchParams.get('nombre') ?? 'archivo', await cuerpo(q)));
+    }],
+    ['POST', /^\/api\/conversion\/vista$/, async (q, r) => {
+      enviar(r, 200, await backend.vistaPreviaConversion(await json(q)));
     }],
     ['POST', /^\/api\/conversion$/, async (q, r) => {
       enviar(r, 200, await backend.conversionSencilla(await json(q)));

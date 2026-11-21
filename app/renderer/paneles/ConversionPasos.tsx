@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import type { AnalisisConversion, OpcionesConversionSencilla } from '../api';
+import { useEffect, useState } from 'react';
+import { api, type AnalisisConversion, type OpcionesConversionSencilla } from '../api';
 import { t } from '../i18n';
 
 interface Props {
@@ -21,6 +21,28 @@ interface Opcion {
 }
 
 const em = (v?: number) => (v === undefined ? '' : `${Math.round(v * 100) / 100} em`);
+
+const CLAVE_SERIE = 'obi-conversion-serie:';
+
+/** Opciones elegidas antes para otro volumen de la misma serie. */
+function recordadas(serie?: string): Partial<OpcionesConversionSencilla> | undefined {
+  if (!serie) return undefined;
+  try {
+    const v = localStorage.getItem(CLAVE_SERIE + serie.toLowerCase());
+    return v ? (JSON.parse(v) as Partial<OpcionesConversionSencilla>) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function recordar(serie: string | undefined, o: OpcionesConversionSencilla) {
+  if (!serie) return;
+  try {
+    localStorage.setItem(CLAVE_SERIE + serie.toLowerCase(), JSON.stringify(o));
+  } catch {
+    /* sin almacenamiento: no se recuerda */
+  }
+}
 
 /** Asistente de la conversión sencilla: el usuario confirma paso a paso qué conservar del original. */
 export function ConversionPasos({ analisis, ocupado, onCancelar, onConvertir }: Props) {
@@ -89,7 +111,6 @@ export function ConversionPasos({ analisis, ocupado, onCancelar, onConvertir }: 
           titulo: t('Espacio propio de cada párrafo'),
           detalle: d?.parrafosConEspacio ? t('{0} párrafos con un espacio distinto', { 0: d.parrafosConEspacio }) : '',
           disponible: !!d?.parrafosConEspacio,
-          ayuda: analisis.tipo === 'docx' ? t('De un Word solo se puede leer el espacio general.') : undefined,
         },
         { clave: 'lineasEnBlanco', titulo: t('Líneas en blanco'), detalle: d?.lineasEnBlanco ? t('{0} líneas en blanco', { 0: d.lineasEnBlanco }) : '', disponible: !!d?.lineasEnBlanco },
         {
@@ -129,17 +150,32 @@ export function ConversionPasos({ analisis, ocupado, onCancelar, onConvertir }: 
     },
   ];
 
+  const previas = recordadas(analisis.serie);
   const [op, setOp] = useState<OpcionesConversionSencilla>(() => {
     const o = {} as OpcionesConversionSencilla;
-    for (const p of pasos) for (const x of p.opciones) o[x.clave] = x.clave === 'optimizarImagenes' ? false : x.disponible;
+    for (const p of pasos) for (const x of p.opciones) o[x.clave] = x.clave === 'optimizarImagenes' ? !!previas?.optimizarImagenes : x.disponible && (previas?.[x.clave] ?? true);
     return o;
   });
+  const [vista, setVista] = useState<{ original?: string; convertido: string } | 'cargando' | 'error'>();
   const [paso, setPaso] = useState(0);
   const total = pasos.length + 1;
   const todas = pasos.flatMap((p) => p.opciones);
   const conservar = todas.filter((x) => x.disponible && op[x.clave] && x.clave !== 'optimizarImagenes');
   const noConservar = todas.filter((x) => x.disponible && !op[x.clave] && x.clave !== 'optimizarImagenes');
   const nombres = [...pasos.map((p) => p.titulo), t('Confirmar')];
+  const enConfirmar = paso === pasos.length;
+  // Vista previa del original y del resultado al llegar a «Confirmar» (y cada vez que cambian las opciones).
+  const claveOp = JSON.stringify(op);
+  useEffect(() => {
+    if (!enConfirmar) return;
+    let vivo = true;
+    setVista('cargando');
+    api.vistaConversion(op).then((r) => vivo && setVista(r)).catch(() => vivo && setVista('error'));
+    return () => {
+      vivo = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [enConfirmar, claveOp]);
 
   return (
     <div className="sencillo">
@@ -156,6 +192,7 @@ export function ConversionPasos({ analisis, ocupado, onCancelar, onConvertir }: 
             3: analisis.notas,
           })}
         </p>
+        {previas && analisis.serie && <p className="nota-serie">{t('Se usan las opciones que elegiste para la serie «{0}».', { 0: analisis.serie })}</p>}
         <ol className="pasos-asistente">
           {nombres.map((n, k) => (
             <li key={n} className={k === paso ? 'actual' : k < paso ? 'hecho' : ''} aria-current={k === paso ? 'step' : undefined}>
@@ -198,6 +235,24 @@ export function ConversionPasos({ analisis, ocupado, onCancelar, onConvertir }: 
                 </ul>
               </>
             )}
+            <h2>{t('Vista previa')}</h2>
+            {vista === 'cargando' && <p className="ayuda">{t('Preparando la vista previa…')}</p>}
+            {vista === 'error' && <p className="ayuda">{t('No se pudo preparar la vista previa.')}</p>}
+            {vista && typeof vista === 'object' && (
+              <div className={`comparar-conversion${vista.original ? '' : ' solo'}`}>
+                {vista.original && (
+                  <figure>
+                    <figcaption>{t('Original')}</figcaption>
+                    <iframe key={vista.original} src={vista.original} title={t('Original')} sandbox="allow-same-origin" />
+                  </figure>
+                )}
+                <figure>
+                  <figcaption>{t('Resultado')}</figcaption>
+                  <iframe key={vista.convertido} src={vista.convertido} title={t('Resultado')} sandbox="allow-same-origin" />
+                </figure>
+              </div>
+            )}
+            {vista && typeof vista === 'object' && !vista.original && <p className="ayuda">{t('Del Word solo se muestra el resultado.')}</p>}
           </div>
         )}
 
@@ -206,7 +261,10 @@ export function ConversionPasos({ analisis, ocupado, onCancelar, onConvertir }: 
           {paso < total - 1 ? (
             <button className="principal" onClick={() => setPaso(paso + 1)}>{t('Siguiente')}</button>
           ) : (
-            <button className="principal grande" disabled={ocupado} onClick={() => onConvertir(op)}>{ocupado ? t('Convirtiendo…') : t('Convertir')}</button>
+            <button className="principal grande" disabled={ocupado} onClick={() => {
+                recordar(analisis.serie, op);
+                onConvertir(op);
+              }}>{ocupado ? t('Convirtiendo…') : t('Convertir')}</button>
           )}
         </div>
       </div>

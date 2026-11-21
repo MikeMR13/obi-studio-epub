@@ -492,6 +492,16 @@ span.rojo { color: #cc0000; } p.ini::first-line { font-variant: small-caps; }`;
   const a = await b.analizarConversion('fiel.epub', datos);
   assert.equal(a.fuentesArchivo.length, 2, JSON.stringify(a.fuentesArchivo));
   assert.equal((a.diseno as Record<string, unknown>).css, undefined, 'el CSS no va a la interfaz');
+  // Vista previa: original y resultado servidos en /muestra/, sin tocar el libro abierto ni gastar el análisis.
+  const vp = await b.vistaPreviaConversion({});
+  const archivo = (u: string) => {
+    const [, , ver, ...resto] = u.split('/');
+    return b.archivoMuestra(ver, decodeURIComponent(resto.join('/')));
+  };
+  assert.ok(vp.original?.endsWith('OEBPS/Text/uno.xhtml'), vp.original);
+  assert.ok(String(new TextDecoder().decode(archivo(vp.original!) as Uint8Array)).includes('Querido diario'));
+  assert.ok(String(archivo(vp.convertido)).includes('Querido diario'));
+  assert.equal(b.libro.metadatos.titulo, 'Libro sin título');
   const r = await b.conversionSencilla();
   const t = b.libro.tema;
   assert.equal(t.separador, 'imagen');
@@ -515,4 +525,153 @@ span.rojo { color: #cc0000; } p.ini::first-line { font-variant: small-caps; }`;
   const { libro: vuelta } = await importarEpub(epub);
   const pv = vuelta.secciones.flatMap((s) => s.bloques).find((x) => x.tipo === 'parrafo' && JSON.stringify(x).includes('Querido'));
   assert.ok(pv?.tipo === 'parrafo' && pv.clase === carta.id, 'la clase vuelve en la ida y vuelta');
+});
+
+test('Conversión sencilla de Word: estilos propios, espacio de cada párrafo y fuentes incrustadas', async () => {
+  const { readFileSync } = await import('node:fs');
+  const { join } = await import('node:path');
+  const { mkdtemp } = await import('node:fs/promises');
+  const { tmpdir } = await import('node:os');
+  const { Backend } = await import('../../app/backend.js');
+  const { disenoDeDocx } = await import('../diseno-original.js');
+  const { Document, Packer, Paragraph, HeadingLevel, AlignmentType, TextRun } = await import('docx');
+  const regular = new Uint8Array(readFileSync(join(import.meta.dirname, 'fuentes', 'CrimsonText-Regular.ttf')));
+  const docx = new Document({
+    fonts: [{ name: 'Crimson Text', data: Buffer.from(regular), characterSet: '00' as never }],
+    styles: {
+      default: { document: { run: { font: 'Crimson Text', size: 24 }, paragraph: { indent: { firstLine: 360 }, spacing: { after: 120 } } } },
+      paragraphStyles: [
+        { id: 'Heading1', name: 'Heading 1', run: { size: 32 } },
+        { id: 'DialogoInterior', name: 'Diálogo interior', basedOn: 'Normal', run: { italics: true, color: '335577' }, paragraph: { indent: { left: 720, firstLine: 0 } } },
+        { id: 'Firma', name: 'Firma', basedOn: 'Normal', run: { size: 20 }, paragraph: { alignment: AlignmentType.RIGHT } },
+      ],
+    },
+    sections: [
+      {
+        children: [
+          new Paragraph({ text: 'Capítulo', heading: HeadingLevel.HEADING_1 }),
+          new Paragraph('Texto normal.'),
+          new Paragraph({ children: [new TextRun('Pienso en voz baja.')], style: 'DialogoInterior' }),
+          new Paragraph({ text: 'Mucho después.', spacing: { before: 480 } }),
+          new Paragraph({ text: 'La autora', style: 'Firma' }),
+        ],
+      },
+    ],
+  });
+  const datos = new Uint8Array(await Packer.toBuffer(docx));
+  const d = await disenoDeDocx(datos);
+  assert.deepEqual(
+    d.estilos?.map(({ clave: _c, ...e }) => e),
+    [
+      { id: 'word-1', nombre: 'Word: Diálogo interior', parrafos: 1, sangria: 0, cursiva: true, color: '#335577', izquierda: 3 },
+      { id: 'word-2', nombre: 'Word: Firma', parrafos: 1, sangria: 1.8, alinear: 'derecha', tamano: 0.83 }, // misma sangría física en em de su letra más pequeña
+    ],
+  );
+  assert.equal(d.parrafosConEspacio, 2, '«Mucho después» y la firma (el mismo espacio en puntos es más em con su letra menor)');
+  assert.equal(d.fuentes.length, 1, 'la fuente incrustada');
+  assert.deepEqual([...d.fuentes[0].datos.slice(0, 4)], [0, 1, 0, 0], 'sin la ofuscación de Office');
+
+  const b = new Backend(await mkdtemp(join(tmpdir(), 'obi-word-')));
+  const a = await b.analizarConversion('libro.docx', datos);
+  assert.deepEqual(a.letras, [{ familia: 'Crimson Text', origen: 'archivo' }]);
+  const r = await b.conversionSencilla();
+  const bloques = b.libro.secciones.flatMap((s) => s.bloques);
+  const busca = (t: string) => bloques.find((x) => x.tipo === 'parrafo' && JSON.stringify(x.contenido).includes(t));
+  const pi = busca('voz baja');
+  assert.ok(pi?.tipo === 'parrafo' && pi.clase === 'word-1', JSON.stringify(pi));
+  const pd = busca('Mucho después');
+  assert.ok(pd?.tipo === 'parrafo' && pd.espacioAntes === 2 && pd.espacioDespues === undefined, JSON.stringify(pd));
+  assert.ok(bloques.filter((x) => x.tipo === 'parrafo' && x.espacioAntes !== undefined).length === 1);
+  assert.equal(b.libro.tema.estilosParrafo?.length, 2);
+  assert.ok(b.libro.fuentesPropias?.some((f) => f.familia === 'Crimson Text'));
+  assert.ok(r.conservado.some((x) => x.includes('estilos de párrafo')), r.conservado.join());
+  const { datos: epub } = await b.exportar();
+  const v = await validarDatos(epub);
+  assert.equal(v.mensajes.length, 0, JSON.stringify(v.mensajes));
+});
+
+test('Otros formatos: texto, Markdown, HTML y OpenDocument se importan y conservan su diseño', async () => {
+  const { join } = await import('node:path');
+  const { mkdtemp } = await import('node:fs/promises');
+  const { tmpdir } = await import('node:os');
+  const { Backend } = await import('../../app/backend.js');
+  const { epubDeOtroFormato, decodificarTexto } = await import('../formatos/otros.js');
+  const { pngSolido } = await import('./fixtures.js');
+  const cod = (t: string) => new TextEncoder().encode(t);
+  const parrafos = (l: Libro) => l.secciones.flatMap((s) => s.bloques).filter((b) => b.tipo === 'parrafo');
+
+  // Texto: un párrafo por línea, capítulos por su título y la línea en blanco como espacio de escena.
+  const txt = 'Prólogo\n　Era de noche.\n　Llovía.\n\nCapítulo 1: El gremio\nEntró en el gremio.\n';
+  const { libro: lt } = await importarEpub((await epubDeOtroFormato('novela.txt', cod(txt))).epub);
+  assert.deepEqual(lt.secciones.map((s) => s.titulo), ['Prólogo', 'Capítulo 1: El gremio']);
+  assert.equal(parrafos(lt).length, 3, 'sin la sangría de espacios ideográficos');
+  // Por bloques: las líneas sueltas dentro de un párrafo son saltos de línea.
+  const { libro: lb } = await importarEpub((await epubDeOtroFormato('b.txt', cod('Uno\nsigue.\n\nDos.\n\nTres.\n'))).epub);
+  assert.equal(parrafos(lb).length, 3);
+  assert.ok(JSON.stringify(parrafos(lb)[0]).includes('"salto"'));
+  // Codificaciones: Windows-1252 y Shift_JIS.
+  assert.equal(decodificarTexto(Uint8Array.from([0x43, 0x61, 0x66, 0xe9])), 'Café');
+  assert.equal(decodificarTexto(Uint8Array.from([0x82, 0xa0, 0x82, 0xa2, 0x82, 0xa4])), 'あいう');
+
+  // Markdown.
+  const md = '# Capítulo uno\n\nTexto con *cursiva* y **negrita**.\n\n***\n\nOtra escena.\n';
+  const { libro: lm } = await importarEpub((await epubDeOtroFormato('libro.md', cod(md))).epub);
+  assert.equal(lm.secciones[0].titulo, 'Capítulo uno');
+  assert.ok(JSON.stringify(lm).includes('"cursiva"') && JSON.stringify(lm).includes('"negrita"'));
+  assert.ok(lm.secciones[0].bloques.some((b) => b.tipo === 'separador'));
+
+  // HTML (no XML) con <style> e imagen incrustada.
+  const png = Buffer.from(pngSolido(40, 20, [200, 0, 0])).toString('base64');
+  const html = `<html><head><title>Mi libro</title><style>p { text-indent: 2em; } p.carta { font-style: italic; text-indent: 0; }</style></head><body><h1>Uno</h1><p>Hola<br>mundo</p><p class=carta>Querida amiga.</p><p><img src="data:image/png;base64,${png}" alt="Rojo"></p><script>alert(1)</script></body></html>`;
+  const b = new Backend(await mkdtemp(join(tmpdir(), 'obi-otros-')));
+  const a = await b.analizarConversion('mi.html', cod(html));
+  assert.equal(a.tipo, 'html');
+  assert.equal(a.titulo, 'Mi libro');
+  assert.equal(a.diseno?.tema.sangria, 2);
+  assert.equal(a.diseno?.estilos?.[0].nombre, 'Original: carta');
+  await b.conversionSencilla();
+  assert.equal(b.libro.recursos.length, 1);
+  assert.ok(!JSON.stringify(b.libro).includes('alert'));
+  assert.ok(parrafos(b.libro).some((p) => p.tipo === 'parrafo' && p.clase === 'orig-1'));
+
+  // OpenDocument: estilos con nombre y automáticos, nota al pie, imagen y título del documento.
+  const z = new JSZip();
+  z.file('mimetype', 'application/vnd.oasis.opendocument.text', { compression: 'STORE' });
+  const ns = 'xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" xmlns:style="urn:oasis:names:tc:opendocument:xmlns:style:1.0" xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0" xmlns:fo="urn:oasis:names:tc:opendocument:xmlns:xsl-fo-compatible:1.0" xmlns:draw="urn:oasis:names:tc:opendocument:xmlns:drawing:1.0" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:svg="urn:oasis:names:tc:opendocument:xmlns:svg-compatible:1.0"';
+  z.file(
+    'styles.xml',
+    `<?xml version="1.0" encoding="UTF-8"?><office:document-styles ${ns}><office:styles><style:default-style style:family="paragraph"><style:paragraph-properties fo:text-align="justify"/></style:default-style><style:style style:name="Standard" style:family="paragraph"><style:paragraph-properties fo:text-indent="1.5em" fo:margin-top="0cm" fo:margin-bottom="0cm"/></style:style><style:style style:name="Diario" style:family="paragraph" style:parent-style-name="Standard"><style:paragraph-properties fo:margin-left="2em" fo:text-indent="0em"/><style:text-properties fo:font-style="italic" fo:color="#225588"/></style:style></office:styles></office:document-styles>`,
+  );
+  z.file(
+    'content.xml',
+    `<?xml version="1.0" encoding="UTF-8"?><office:document-content ${ns}><office:automatic-styles><style:style style:name="T1" style:family="text"><style:text-properties fo:font-weight="bold"/></style:style><style:style style:name="P1" style:family="paragraph" style:parent-style-name="Standard"><style:paragraph-properties fo:text-align="center"/></style:style></office:automatic-styles><office:body><office:text>
+<text:h text:outline-level="1">Capítulo 1</text:h>
+<text:p text:style-name="Standard">Primer párrafo con <text:span text:style-name="T1">negrita</text:span> y nota<text:note text:note-class="footnote"><text:note-citation>1</text:note-citation><text:note-body><text:p>La nota.</text:p></text:note-body></text:note>.</text:p>
+<text:p text:style-name="Standard">Segundo<text:s/>párrafo.</text:p>
+<text:p text:style-name="Diario">Querido diario.</text:p>
+<text:p text:style-name="P1">◆◆◆</text:p>
+<text:p text:style-name="Standard"><draw:frame><draw:image xlink:href="Pictures/foto.png"/><svg:title>Una foto</svg:title></draw:frame></text:p>
+</office:text></office:body></office:document-content>`,
+  );
+  z.file('meta.xml', '<?xml version="1.0"?><office:document-meta xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" xmlns:dc="http://purl.org/dc/elements/1.1/"><office:meta><dc:title>Novela ODT</dc:title></office:meta></office:document-meta>');
+  z.file('Pictures/foto.png', pngSolido(300, 200, [0, 100, 200]));
+  const odt = await z.generateAsync({ type: 'uint8array' });
+  const ao = await b.analizarConversion('novela.odt', odt);
+  assert.equal(ao.tipo, 'odt');
+  assert.equal(ao.titulo, 'Novela ODT');
+  assert.equal(ao.notas, 1);
+  assert.equal(ao.imagenes, 1);
+  assert.deepEqual([ao.diseno?.tema.sangria, ao.diseno?.tema.alinear], [1.5, 'justificado']);
+  const diario = ao.diseno?.estilos?.find((e) => e.nombre === 'Original: odf-diario');
+  assert.ok(diario && diario.cursiva && diario.color === '#225588' && diario.izquierda === 2, JSON.stringify(ao.diseno?.estilos));
+  assert.deepEqual(ao.diseno?.separador, { texto: '◆◆◆', veces: 1 });
+  await b.conversionSencilla();
+  assert.equal(b.libro.tema.separadorTexto, '◆◆◆');
+  assert.ok(JSON.stringify(b.libro).includes('"negrita"'));
+  const { datos: epub } = await b.exportar();
+  const v = await validarDatos(epub);
+  assert.equal(v.mensajes.length, 0, JSON.stringify(v.mensajes));
+  // Importación normal (sin el asistente).
+  await b.importar('novela.odt', odt);
+  assert.equal(b.libro.metadatos.titulo, 'Novela ODT');
 });

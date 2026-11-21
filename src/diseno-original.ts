@@ -4,7 +4,8 @@
 
 import { inflateSync } from 'node:zlib';
 import JSZip from 'jszip';
-import type { EstiloPropio, EstiloSubtitulo, Tema } from './model.js';
+import type { EstiloPropio, EstiloSubtitulo, Libro, Tema } from './model.js';
+import { aplicarWord, espaciosDeWord, estilosDeWord, fuentesDeWord, lectorWord } from './diseno-word.js';
 import { ELEMENTO, analizarXhtml, attr, buscar, clases, hijos, nombre, texto, todos, type Nodo } from './formatos/dom.js';
 import { calcular, claveFirma, familia, firmaParrafo, hojaDeCss, longitud, propias, type Calculado, type FirmaParrafo } from './estilo-calculado.js';
 import { claveOfuscacion, ofuscarFuente } from './compilar.js';
@@ -463,6 +464,12 @@ export function desofuscarAdobe(d: Uint8Array, uuids: string[]): Uint8Array | un
   return undefined;
 }
 
+/** Lleva al libro importado de un Word el espacio propio de cada párrafo y sus estilos propios. */
+export async function aplicarDisenoDocx(libro: Libro, datos: Uint8Array, o: { espacio: boolean; estilos?: EstiloOriginal[] }): Promise<void> {
+  const w = await lectorWord(await JSZip.loadAsync(datos));
+  aplicarWord(libro, w, o);
+}
+
 function atributo(xml: string, etiqueta: string, attr: string): string | undefined {
   return xml.match(new RegExp(`<w:${etiqueta}\\b[^>]*\\bw:${attr}="([^"]*)"`))?.[1];
 }
@@ -510,18 +517,22 @@ export async function disenoDeDocx(datos: Uint8Array): Promise<DisenoOriginal> {
   if (tamTituloEm >= 1 && tamTituloEm <= 3) titulos.tituloTamano = tamTituloEm;
   const familiaTexto = de(normal, 'rFonts', 'ascii') ?? de(defecto, 'rFonts', 'ascii');
   const familiaTitulos = de(titulo, 'rFonts', 'ascii');
+  const w = await lectorWord(zip);
+  const estilosWord = estilosDeWord(w);
+  const { distintos } = espaciosDeWord(w);
+  const fuentes = await fuentesDeWord(zip).catch(() => []);
   return {
     tema,
     titulos,
     ...(espacio ? { espacio } : {}),
     ...(espacioTitulos !== undefined ? { espacioTitulos } : {}),
     ...(espaciadoLetras ? { espaciadoLetras } : {}),
-    // Word no guarda espacios por párrafo que el importador pueda leer: solo el general.
-    parrafosConEspacio: 0,
+    parrafosConEspacio: distintos,
     lineasEnBlanco,
     familiaTexto: primeraFamilia(familiaTexto),
     familiaTitulos: primeraFamilia(familiaTitulos),
-    fuentes: [],
+    ...(estilosWord.length ? { estilos: estilosWord } : {}),
+    fuentes,
     avisos: [],
   };
 }

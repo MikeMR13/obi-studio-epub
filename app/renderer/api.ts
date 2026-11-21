@@ -49,6 +49,7 @@ export const api = {
   nuevo: (titulo: string, autor: string) => pedir<Estado>('POST', '/api/nuevo', { titulo, autor }),
   analizarConversion: (archivo: File) => pedir<AnalisisConversion>('POST', `/api/conversion/analisis?nombre=${encodeURIComponent(archivo.name)}`, undefined, archivo),
   conversion: (opciones: OpcionesConversionSencilla) => pedir<ResumenConversion>('POST', '/api/conversion', opciones),
+  vistaConversion: (opciones: OpcionesConversionSencilla) => pedir<{ original?: string; convertido: string }>('POST', '/api/conversion/vista', opciones),
   importar: (archivo: File) => pedir<Estado>('POST', `/api/importar?nombre=${encodeURIComponent(archivo.name)}`, undefined, archivo),
   metadatos: (cambios: object) => pedir<Estado>('PUT', '/api/metadatos', cambios),
   tema: (cambios: object) => pedir<Estado>('PUT', '/api/tema', cambios),

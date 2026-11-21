@@ -531,6 +531,12 @@ p.error { font-weight: 600; }
 .opcion-asistente .ayuda-opcion { color: var(--tenue); }
 .opcion-asistente.no-disponible { opacity: 0.55; cursor: default; }
 .confirmar-asistente h2 { font-size: 15px; margin: 6px 0 4px; }
+.comparar-conversion { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.comparar-conversion.solo { grid-template-columns: 1fr; }
+.comparar-conversion figure { margin: 0; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.comparar-conversion figcaption { font-size: 12.5px; font-weight: 600; color: var(--suave, #666); }
+.comparar-conversion iframe { width: 100%; height: 340px; border: 1px solid var(--linea); border-radius: 8px; background: #fff; }
+.nota-serie { margin: 0; font-size: 13px; background: #f3f6fb; border: 1px solid var(--linea); border-radius: 8px; padding: 6px 10px; }
 .confirmar-asistente ul { margin: 0; padding-left: 20px; font-size: 13.5px; display: flex; flex-direction: column; gap: 3px; }
 .opcion-asistente { text-align: left; justify-content: flex-start; }
 .opcion-asistente input { width: auto; flex: none; }
