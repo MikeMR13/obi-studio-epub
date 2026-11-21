@@ -123,7 +123,7 @@ export function App() {
     if (a) setAsistente(a);
   };
 
-  const confirmarConversion = async (opciones: OpcionesConversionSencilla) => {
+  const confirmarConversion = async (opciones: Parameters<typeof api.conversion>[0]) => {
     setConvirtiendo(true);
     try {
       const r = await api.conversion(opciones);

@@ -39,8 +39,9 @@ Maquetador visual de novelas ligeras para Windows, macOS y Linux. Escribes y das
   2. Estilos y adornos: los demás tipos de párrafo (cartas, citas, firmas, notas del autor…) como estilos de párrafo del libro; tamaño, color y fondo de fragmentos; separador de escena original (ornamento de texto o imagen repetida); capitular (`::first-letter` o un `span` flotante) y primera línea destacada. En un Word, sus estilos de párrafo propios.
   3. Espaciado: espacio entre párrafos, espacio propio de cada párrafo que se aparte del general (también en Word, heredado atributo a atributo), líneas en blanco, espacio antes y después de los títulos y espaciado entre letras y palabras.
   4. Letras e imágenes: las fuentes del archivo (TTF, OTF, WOFF, WOFF2, ofuscadas con el algoritmo del IDPF o de Adobe, e incrustadas en un Word, si su licencia lo permite), las instaladas en el equipo, e imágenes originales o reducidas.
-  5. Confirmación con lo que se conservará y lo que no y una vista previa del original y del resultado lado a lado; después, título, autor y exportar a EPUB, KEPUB o PDF digital.
-  Las opciones elegidas se recuerdan por serie: el siguiente volumen empieza con las mismas.
+  5. Metadatos: título, subtítulo, créditos, serie y volumen, idioma, fecha, ISBN, editorial, descripción, derechos y portada, rellenos con los del original para revisarlos o corregirlos.
+  6. Confirmación con lo que se conservará y lo que no y una vista previa del original y del resultado lado a lado; después, exportar a EPUB, KEPUB o PDF digital.
+  Las opciones elegidas se recuerdan por serie: el siguiente volumen empieza con las mismas, y la editorial, los derechos y los créditos que el original no traiga (traductor, ilustrador…) se proponen con los del volumen anterior.
   HTML, Markdown, texto y OpenDocument pasan antes a un EPUB intermedio (`src/formatos/otros.ts`) y usan el mismo análisis. Si hay un plugin instalado para el formato, se usa el plugin.
   `npx tsx scripts/validar-conversion.mts` convierte un EPUB de prueba con cada opción y compara en el navegador los estilos calculados del original y del convertido (sangría, interlineado, márgenes, líneas en blanco, espaciado, letras y títulos).
   El espacio propio de cada párrafo es parte del modelo: sale en el EPUB y el PDF, vuelve al importar y sobrevive al Word de corrección (como las líneas en blanco).

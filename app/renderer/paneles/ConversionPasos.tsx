@@ -1,12 +1,13 @@
-import { useEffect, useState } from 'react';
-import { api, type AnalisisConversion, type OpcionesConversionSencilla } from '../api';
+import { useEffect, useRef, useState } from 'react';
+import { api, type AnalisisConversion, type DatosLibroConversion, type OpcionesConversionSencilla, type PortadaConversion } from '../api';
+import { ROLES, type Credito } from '../../../src/model';
 import { t } from '../i18n';
 
 interface Props {
   analisis: AnalisisConversion;
   ocupado: boolean;
   onCancelar: () => void;
-  onConvertir: (o: OpcionesConversionSencilla) => void;
+  onConvertir: (o: OpcionesConversionSencilla & { metadatos?: DatosLibroConversion; portada?: PortadaConversion }) => void;
 }
 
 type Clave = keyof OpcionesConversionSencilla;
@@ -23,6 +24,44 @@ interface Opcion {
 const em = (v?: number) => (v === undefined ? '' : `${Math.round(v * 100) / 100} em`);
 
 const CLAVE_SERIE = 'obi-conversion-serie:';
+const CLAVE_DATOS_SERIE = 'obi-conversion-datos-serie:';
+
+/** Datos que suelen repetirse en todos los volúmenes de una serie. */
+type DatosSerie = Pick<DatosLibroConversion, 'editorial' | 'derechos' | 'idioma'> & { creditos?: Credito[] };
+
+function datosRecordados(serie?: string): DatosSerie | undefined {
+  if (!serie?.trim()) return undefined;
+  try {
+    const v = localStorage.getItem(CLAVE_DATOS_SERIE + serie.trim().toLowerCase());
+    return v ? (JSON.parse(v) as DatosSerie) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function recordarDatos(m: DatosLibroConversion) {
+  if (!m.serie?.trim()) return;
+  try {
+    const d: DatosSerie = { editorial: m.editorial, derechos: m.derechos, idioma: m.idioma, creditos: m.creditos };
+    localStorage.setItem(CLAVE_DATOS_SERIE + m.serie.trim().toLowerCase(), JSON.stringify(d));
+  } catch {
+    /* sin almacenamiento: no se recuerda */
+  }
+}
+
+/** Completa con los datos de la serie lo que el original no trae (nunca pisa lo que sí trae). */
+function completarConSerie(m: DatosLibroConversion, d?: DatosSerie): { datos: DatosLibroConversion; usados: boolean } {
+  if (!d) return { datos: m, usados: false };
+  const r = { ...m };
+  let usados = false;
+  if (!r.editorial && d.editorial) (r.editorial = d.editorial), (usados = true);
+  if (!r.derechos && d.derechos) (r.derechos = d.derechos), (usados = true);
+  // Traductores, ilustradores y editores de la serie que el original no nombra.
+  const faltan = (d.creditos ?? []).filter((c) => c.rol !== 'aut' && !r.creditos.some((x) => x.rol === c.rol));
+  if (faltan.length) (r.creditos = [...r.creditos, ...faltan]), (usados = true);
+  return { datos: r, usados };
+}
+
 
 /** Opciones elegidas antes para otro volumen de la misma serie. */
 function recordadas(serie?: string): Partial<OpcionesConversionSencilla> | undefined {
@@ -157,13 +196,36 @@ export function ConversionPasos({ analisis, ocupado, onCancelar, onConvertir }: 
     return o;
   });
   const [vista, setVista] = useState<{ original?: string; convertido: string } | 'cargando' | 'error'>();
+  const [inicial] = useState(() => completarConSerie(analisis.metadatos, datosRecordados(analisis.metadatos.serie)));
+  const [meta, setMeta] = useState<DatosLibroConversion>(inicial.datos);
+  const [portada, setPortada] = useState<{ vista: string; nueva?: PortadaConversion } | undefined>(analisis.portada ? { vista: analisis.portada } : undefined);
   const [paso, setPaso] = useState(0);
-  const total = pasos.length + 1;
+  const pasoMeta = pasos.length;
+  const entradaPortada = useRef<HTMLInputElement>(null);
+  const idiomas: [string, string][] = [
+    ['es', t('Español')],
+    ['es-MX', t('Español (México)')],
+    ['es-ES', t('Español (España)')],
+    ['en', t('Inglés')],
+    ['pt-BR', t('Portugués (Brasil)')],
+    ['ja', t('Japonés')],
+  ];
+  const total = pasos.length + 2;
+  const cambiar = <K extends keyof DatosLibroConversion>(k: K, v: DatosLibroConversion[K]) => setMeta({ ...meta, [k]: v });
+  const elegirPortada = (f?: File) => {
+    if (!f) return;
+    const lector = new FileReader();
+    lector.onload = () => {
+      const url = String(lector.result);
+      setPortada({ vista: url, nueva: { nombre: f.name, datos: url.slice(url.indexOf(',') + 1) } });
+    };
+    lector.readAsDataURL(f);
+  };
   const todas = pasos.flatMap((p) => p.opciones);
   const conservar = todas.filter((x) => x.disponible && op[x.clave] && x.clave !== 'optimizarImagenes');
   const noConservar = todas.filter((x) => x.disponible && !op[x.clave] && x.clave !== 'optimizarImagenes');
-  const nombres = [...pasos.map((p) => p.titulo), t('Confirmar')];
-  const enConfirmar = paso === pasos.length;
+  const nombres = [...pasos.map((p) => p.titulo), t('Metadatos'), t('Confirmar')];
+  const enConfirmar = paso === pasos.length + 1;
   // Vista previa del original y del resultado al llegar a «Confirmar» (y cada vez que cambian las opciones).
   const claveOp = JSON.stringify(op);
   useEffect(() => {
@@ -215,6 +277,89 @@ export function ConversionPasos({ analisis, ocupado, onCancelar, onConvertir }: 
               </label>
             ))}
           </fieldset>
+        ) : paso === pasoMeta ? (
+          <fieldset className="opciones-asistente metadatos-asistente">
+            <legend>{t('Metadatos')}</legend>
+            <p className="ayuda">{t('Vienen del original; revísalos o corrígelos antes de convertir.')}</p>
+            {inicial.usados && <p className="nota-serie">{t('Se completaron con los datos del volumen anterior de la serie «{0}».', { 0: meta.serie ?? '' })}</p>}
+            <div className="rejilla-metadatos">
+              <div className="campos-metadatos">
+                <label>
+                  <span>{t('Título')}</span>
+                  <input value={meta.titulo} onChange={(e) => cambiar('titulo', e.target.value)} />
+                </label>
+                <label>
+                  <span>{t('Subtítulo')}</span>
+                  <input value={meta.subtitulo ?? ''} onChange={(e) => cambiar('subtitulo', e.target.value)} />
+                </label>
+                <div className="fila-metadatos">
+                  <label>
+                    <span>{t('Serie')}</span>
+                    <input value={meta.serie ?? ''} onChange={(e) => cambiar('serie', e.target.value)} />
+                  </label>
+                  <label className="corto">
+                    <span>{t('Volumen')}</span>
+                    <input type="number" min={0} step={0.5} value={meta.volumen ?? ''} onChange={(e) => cambiar('volumen', e.target.value ? Number(e.target.value) : undefined)} />
+                  </label>
+                </div>
+                <div className="creditos-metadatos">
+                  <span>{t('Créditos')}</span>
+                  {meta.creditos.map((c, k) => (
+                    <div key={k} className="fila-credito">
+                      <input aria-label={t('Nombre')} value={c.nombre} onChange={(e) => cambiar('creditos', meta.creditos.map((x, j) => (j === k ? { ...x, nombre: e.target.value } : x)))} />
+                      <select aria-label={t('Rol')} value={c.rol} onChange={(e) => cambiar('creditos', meta.creditos.map((x, j) => (j === k ? { ...x, rol: e.target.value as Credito['rol'] } : x)))}>
+                        {ROLES.map((r) => (
+                          <option key={r.id} value={r.id}>{r.nombre}</option>
+                        ))}
+                      </select>
+                      <button className="pequeno" aria-label={t('Quitar crédito')} onClick={() => cambiar('creditos', meta.creditos.filter((_, j) => j !== k))}>✕</button>
+                    </div>
+                  ))}
+                  <button className="pequeno" onClick={() => cambiar('creditos', [...meta.creditos, { nombre: '', rol: meta.creditos.length ? 'trl' : 'aut' }])}>{t('Añadir crédito')}</button>
+                </div>
+                <div className="fila-metadatos">
+                  <label>
+                    <span>{t('Idioma')}</span>
+                    <select value={meta.idioma} onChange={(e) => cambiar('idioma', e.target.value)}>
+                      {!idiomas.some(([c]) => c === meta.idioma) && <option value={meta.idioma}>{meta.idioma}</option>}
+                      {idiomas.map(([c, n]) => (
+                        <option key={c} value={c}>{n}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    <span>{t('Fecha')}</span>
+                    <input type="date" value={meta.fecha ?? ''} onChange={(e) => cambiar('fecha', e.target.value)} />
+                  </label>
+                </div>
+                <label>
+                  <span>{t('ISBN o identificador')}</span>
+                  <input value={meta.identificador} onChange={(e) => cambiar('identificador', e.target.value)} />
+                </label>
+                <label>
+                  <span>{t('Editorial')}</span>
+                  <input value={meta.editorial ?? ''} onChange={(e) => cambiar('editorial', e.target.value)} />
+                </label>
+                <label>
+                  <span>{t('Descripción')}</span>
+                  <textarea rows={3} value={meta.descripcion ?? ''} onChange={(e) => cambiar('descripcion', e.target.value)} />
+                </label>
+                <label>
+                  <span>{t('Derechos')}</span>
+                  <input value={meta.derechos ?? ''} onChange={(e) => cambiar('derechos', e.target.value)} />
+                </label>
+              </div>
+              <div className="portada-metadatos">
+                <span>{t('Portada')}</span>
+                {portada ? <img src={portada.vista} alt={t('Portada')} /> : <div className="sin-portada">{t('Sin portada')}</div>}
+                <input ref={entradaPortada} type="file" accept="image/jpeg,image/png,image/webp,image/gif" hidden onChange={(e) => elegirPortada(e.target.files?.[0])} />
+                <button className="pequeno" onClick={() => entradaPortada.current?.click()}>{portada ? t('Cambiar portada…') : t('Elegir portada…')}</button>
+                {portada?.nueva && (
+                  <button className="enlace" onClick={() => setPortada(analisis.portada ? { vista: analisis.portada } : undefined)}>{t('Volver a la del original')}</button>
+                )}
+              </div>
+            </div>
+          </fieldset>
         ) : (
           <div className="confirmar-asistente">
             <h2>{t('Se conservará')}</h2>
@@ -224,6 +369,12 @@ export function ConversionPasos({ analisis, ocupado, onCancelar, onConvertir }: 
                 <li key={x.clave}>{x.titulo}{x.detalle ? `: ${x.detalle}` : ''}</li>
               ))}
               <li>{op.optimizarImagenes ? t('Las imágenes, reducidas para el EPUB.') : t('Las imágenes originales, sin recomprimir.')}</li>
+              <li>
+                {t('Metadatos: «{0}»', { 0: meta.titulo || analisis.titulo })}
+                {meta.creditos.filter((c) => c.nombre.trim()).length ? ` · ${meta.creditos.filter((c) => c.nombre.trim()).map((c) => c.nombre).join(', ')}` : ''}
+                {meta.serie ? ` · ${meta.serie}${meta.volumen ? ` ${meta.volumen}` : ''}` : ''}
+                {portada?.nueva ? ` · ${t('portada nueva')}` : ''}
+              </li>
             </ul>
             {noConservar.length > 0 && (
               <>
@@ -262,8 +413,10 @@ export function ConversionPasos({ analisis, ocupado, onCancelar, onConvertir }: 
             <button className="principal" onClick={() => setPaso(paso + 1)}>{t('Siguiente')}</button>
           ) : (
             <button className="principal grande" disabled={ocupado} onClick={() => {
-                recordar(analisis.serie, op);
-                onConvertir(op);
+                const serie = meta.serie?.trim() || analisis.serie;
+                recordar(serie, op);
+                recordarDatos(meta);
+                onConvertir({ ...op, metadatos: { ...meta, creditos: meta.creditos.filter((c) => c.nombre.trim()) }, ...(portada?.nueva ? { portada: portada.nueva } : {}) });
               }}>{ocupado ? t('Convirtiendo…') : t('Convertir')}</button>
           )}
         </div>

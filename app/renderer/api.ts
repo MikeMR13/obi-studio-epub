@@ -1,4 +1,4 @@
-import type { AnalisisConversion, Estado, OpcionesConversionSencilla, ResumenConversion } from '../backend';
+import type { AnalisisConversion, DatosLibroConversion, Estado, OpcionesConversionSencilla, PortadaConversion, ResumenConversion } from '../backend';
 import type { Resultado } from '../../src/validar';
 
 import type { AvisoImpresion } from '../../src/preflight';
@@ -20,7 +20,7 @@ import { t } from './i18n';
 export type RevisionCubierta = { avisos: AvisoCubierta[]; medidas?: MedidasCubierta; paginas?: number };
 export type FamiliaSistemaPublica = { familia: string; caras: Omit<CaraSistema, 'ruta'>[] };
 export type ResultadoFuente = { familia: string; permiso: PermisoFuente; estado: Estado };
-export type { AnalisisConversion, OpcionesConversionSencilla, ResumenConversion } from '../backend';
+export type { AnalisisConversion, DatosLibroConversion, OpcionesConversionSencilla, PortadaConversion, ResumenConversion } from '../backend';
 export type { Estado, Resultado, AvisoImpresion, InformeAccesibilidad, Hallazgo, Manifiesto, PluginInstalado };
 
 export class ErrorApi extends Error {
@@ -48,7 +48,7 @@ export const api = {
   estado: () => pedir<Estado>('GET', '/api/estado'),
   nuevo: (titulo: string, autor: string) => pedir<Estado>('POST', '/api/nuevo', { titulo, autor }),
   analizarConversion: (archivo: File) => pedir<AnalisisConversion>('POST', `/api/conversion/analisis?nombre=${encodeURIComponent(archivo.name)}`, undefined, archivo),
-  conversion: (opciones: OpcionesConversionSencilla) => pedir<ResumenConversion>('POST', '/api/conversion', opciones),
+  conversion: (opciones: OpcionesConversionSencilla & { metadatos?: DatosLibroConversion; portada?: PortadaConversion }) => pedir<ResumenConversion>('POST', '/api/conversion', opciones),
   vistaConversion: (opciones: OpcionesConversionSencilla) => pedir<{ original?: string; convertido: string }>('POST', '/api/conversion/vista', opciones),
   importar: (archivo: File) => pedir<Estado>('POST', `/api/importar?nombre=${encodeURIComponent(archivo.name)}`, undefined, archivo),
   metadatos: (cambios: object) => pedir<Estado>('PUT', '/api/metadatos', cambios),

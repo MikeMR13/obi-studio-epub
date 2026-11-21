@@ -675,3 +675,44 @@ test('Otros formatos: texto, Markdown, HTML y OpenDocument se importan y conserv
   await b.importar('novela.odt', odt);
   assert.equal(b.libro.metadatos.titulo, 'Novela ODT');
 });
+
+test('Conversión sencilla: metadatos revisados y portada nueva desde el asistente', async () => {
+  const { join } = await import('node:path');
+  const { mkdtemp } = await import('node:fs/promises');
+  const { tmpdir } = await import('node:os');
+  const { Backend, metadatosValidos } = await import('../../app/backend.js');
+  const { pngSolido, epubAjeno } = await import('./fixtures.js');
+  const b = new Backend(await mkdtemp(join(tmpdir(), 'obi-meta-')));
+  const datos = await epubAjeno();
+  const a = await b.analizarConversion('ajeno.epub', datos);
+  assert.equal(a.metadatos.titulo, a.titulo);
+  assert.ok(a.metadatos.creditos.length >= 1);
+  assert.ok(a.portada?.startsWith('data:image/'), 'la portada del original para verla en el asistente');
+  assert.equal((a.metadatos as Record<string, unknown>).portada, undefined);
+
+  // Limpieza: campos desconocidos fuera, roles válidos, volumen numérico, fecha e idioma con formato.
+  assert.deepEqual(
+    metadatosValidos({ titulo: '  Otro  ', volumen: '3', fecha: 'ayer', idioma: 'xx yy', creditos: [{ nombre: 'Ana', rol: 'trl' }, { nombre: 'X', rol: 'malo' }, { nombre: ' ', rol: 'aut' }], portada: 'i1', raro: 1 }),
+    { titulo: 'Otro', fecha: '', volumen: 3, creditos: [{ nombre: 'Ana', rol: 'trl' }] },
+  );
+
+  const nueva = Buffer.from(pngSolido(600, 900, [10, 120, 60])).toString('base64');
+  await b.conversionSencilla({
+    metadatos: { ...a.metadatos, titulo: 'Título corregido', serie: 'Mi serie', volumen: 2, editorial: 'Saitou TL', descripcion: 'Una sinopsis.', creditos: [...a.metadatos.creditos, { nombre: 'Mike', rol: 'trl' }] },
+    portada: { nombre: 'nueva-portada.png', datos: nueva },
+  });
+  const m = b.libro.metadatos;
+  assert.deepEqual([m.titulo, m.serie, m.volumen, m.editorial, m.descripcion], ['Título corregido', 'Mi serie', 2, 'Saitou TL', 'Una sinopsis.']);
+  assert.ok(m.creditos.some((c) => c.nombre === 'Mike' && c.rol === 'trl'));
+  const r = b.libro.recursos.find((x) => x.id === m.portada)!;
+  assert.equal(r.nombre, 'nueva-portada.png');
+  assert.equal(r.ancho, 600);
+  assert.equal(b.libro.secciones.filter((s) => s.tipo === 'portada').length, 1);
+  assert.match(b.nombreArchivo, /corregido\.obi$/, 'el proyecto se llama como el título corregido');
+  const { datos: epub } = await b.exportar();
+  const v = await validarDatos(epub);
+  assert.equal(v.mensajes.length, 0, JSON.stringify(v.mensajes));
+  const { libro: vuelta } = await importarEpub(epub);
+  assert.equal(vuelta.metadatos.titulo, 'Título corregido');
+  assert.equal(vuelta.recursos.find((x) => x.id === vuelta.metadatos.portada)?.ancho, 600);
+});

@@ -4,7 +4,7 @@ import JSZip from 'jszip';
 import { mkdir, readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { basename, join } from 'node:path';
-import type { Bloque, CaraFuentePropia, Comentario, Cubierta, FuentePropia, Imagen, Impresion, Libro, Nota, Metadatos, Recurso, Seccion, Tema, TipoSeccion, Tipografia } from '../src/model.js';
+import type { Bloque, CaraFuentePropia, Comentario, Credito, Cubierta, FuentePropia, Imagen, Impresion, Libro, Nota, Metadatos, Recurso, Seccion, Tema, TipoSeccion, Tipografia } from '../src/model.js';
 import { ajustesImpresion, TAMANOS_IMPRESION, temaCompleto, validarTema } from '../src/model.js';
 import { TEMAS } from '../src/temas.js';
 import { libroMuestra, sitioMuestra as crearSitioMuestra, type OpcionesMuestra } from '../src/muestra.js';
@@ -140,6 +140,51 @@ export interface AnalisisConversion {
   notas: number;
   /** Serie del libro (para recordar las opciones elegidas en sus otros volúmenes). */
   serie?: string;
+  /** Metadatos del original, para revisarlos en el asistente. */
+  metadatos: DatosLibroConversion;
+  /** Portada del original como data: URL (si no es enorme). */
+  portada?: string;
+}
+
+/** Metadatos que se pueden revisar en el asistente (todo menos la portada, que va aparte). */
+export type DatosLibroConversion = Omit<Metadatos, 'portada' | 'resumenAccesibilidad'>;
+
+/** Nueva portada elegida en el asistente. */
+export interface PortadaConversion {
+  nombre: string;
+  /** Imagen en base64. */
+  datos: string;
+}
+
+const CAMPOS_TEXTO: (keyof DatosLibroConversion)[] = ['titulo', 'subtitulo', 'idioma', 'identificador', 'fecha', 'editorial', 'descripcion', 'serie', 'derechos'];
+const LARGO_MAXIMO: Partial<Record<keyof DatosLibroConversion, number>> = { descripcion: 4000, derechos: 2000 };
+
+/** Limpia los metadatos que llegan del asistente: solo campos conocidos, textos acotados y roles válidos. */
+export function metadatosValidos(x: unknown): Partial<DatosLibroConversion> {
+  if (!x || typeof x !== 'object') return {};
+  const o = x as Record<string, unknown>;
+  const r: Partial<DatosLibroConversion> = {};
+  for (const k of CAMPOS_TEXTO) {
+    if (!(k in o)) continue;
+    const v = typeof o[k] === 'string' ? (o[k] as string).trim().slice(0, LARGO_MAXIMO[k] ?? 300) : '';
+    (r as Record<string, unknown>)[k] = v;
+  }
+  if (r.fecha && !/^\d{4}(-\d{2}(-\d{2})?)?$/.test(r.fecha)) r.fecha = '';
+  if (r.idioma !== undefined && !/^[a-z]{2,3}(-[A-Za-z0-9]{2,8})*$/.test(r.idioma)) delete r.idioma;
+  if (r.identificador !== undefined && !r.identificador) delete r.identificador;
+  if ('volumen' in o) {
+    const n = Number(o.volumen);
+    (r as Record<string, unknown>).volumen = o.volumen === '' || o.volumen === null || !Number.isFinite(n) || n <= 0 ? '' : Math.min(9999, Math.round(n * 10) / 10);
+  }
+  if (Array.isArray(o.creditos)) {
+    const roles = new Set(['aut', 'ill', 'trl', 'edt']);
+    r.creditos = o.creditos
+      .filter((c): c is { nombre: string; rol: string } => !!c && typeof c === 'object' && typeof (c as { nombre?: unknown }).nombre === 'string' && roles.has((c as { rol?: string }).rol ?? ''))
+      .map((c) => ({ nombre: c.nombre.trim().slice(0, 200), rol: c.rol as Credito['rol'] }))
+      .filter((c) => c.nombre)
+      .slice(0, 30);
+  }
+  return r;
 }
 
 export interface ResumenConversion {
@@ -663,6 +708,7 @@ export class Backend {
       return { familia, origen: archivo ? ('archivo' as const) : instalada ? ('sistema' as const) : ('falta' as const) };
     });
     const { fuentes: _f, css: _c, ...resto } = diseno ?? { fuentes: [] };
+    const portada = libro.recursos.find((x) => x.id === libro.metadatos.portada);
     return {
       nombre: nombreOriginal,
       tipo: esFormatoOtro(extOriginal) ? (extOriginal as AnalisisConversion['tipo']) : ext,
@@ -675,6 +721,8 @@ export class Backend {
       notas: libro.secciones.reduce((n, x) => n + x.notas.length, 0),
       titulo: libro.metadatos.titulo,
       ...(libro.metadatos.serie ? { serie: libro.metadatos.serie } : {}),
+      metadatos: (({ portada: _p, resumenAccesibilidad: _r, ...m }) => m)(libro.metadatos),
+      ...(portada && portada.datos.length <= 4_000_000 ? { portada: `data:${portada.tipoMime};base64,${Buffer.from(portada.datos).toString('base64')}` } : {}),
     };
   }
 
@@ -718,9 +766,10 @@ export class Backend {
    * Segundo paso: abre el archivo analizado y conserva del original lo que se haya elegido
    * (párrafos, espaciado, líneas en blanco, títulos, fuentes e imágenes).
    */
-  async conversionSencilla(o: Partial<OpcionesConversionSencilla> = {}): Promise<ResumenConversion> {
+  async conversionSencilla(entrada: Partial<OpcionesConversionSencilla> & { metadatos?: unknown; portada?: PortadaConversion } = {}): Promise<ResumenConversion> {
     const p = this.conversionPendiente;
     if (!p) throw new ErrorUsuario('Elige primero el archivo que quieres convertir.');
+    const { metadatos: metadatosNuevos, portada: portadaNueva, ...o } = entrada;
     const op: OpcionesConversionSencilla = { ...OPCIONES_CONVERSION, ...o };
     const d = p.diseno;
     const ext = p.nombre.toLowerCase().split('.').pop();
@@ -847,6 +896,10 @@ export class Backend {
     }
     if (op.optimizarImagenes) this.libro.optimizarImagenes = true;
     else conservado.push('imágenes originales');
+    // Metadatos y portada revisados en el asistente.
+    if (metadatosNuevos) this.metadatos(metadatosValidos(metadatosNuevos) as Partial<Metadatos>);
+    if (portadaNueva?.datos) this.cambiarPortada(portadaNueva);
+    this.nombreArchivo = nombreDeArchivo(this.libro.metadatos.titulo || p.original.replace(/\.[^.]+$/, '')) + '.obi';
     this.cambiado = true;
     this.marcar();
     this.conversionPendiente = undefined;
@@ -859,6 +912,31 @@ export class Backend {
       conservado,
       avisos,
     };
+  }
+
+  /** Pone otra imagen como portada: la nueva se añade y, si no había página de portada, se crea al principio. */
+  private cambiarPortada(nueva: PortadaConversion) {
+    let datos: Uint8Array;
+    try {
+      datos = Uint8Array.from(Buffer.from(nueva.datos, 'base64'));
+    } catch {
+      throw new ErrorUsuario('La imagen de la portada no se pudo leer.');
+    }
+    const r = this.anadirRecurso(nueva.nombre || 'portada', datos);
+    const anterior = this.libro.metadatos.portada;
+    this.libro.metadatos.portada = r.id;
+    const seccion = this.libro.secciones.find((x) => x.tipo === 'portada');
+    if (seccion) {
+      for (const b of seccion.bloques) if (b.tipo === 'imagen' && b.recurso === anterior) b.recurso = r.id;
+    } else {
+      const s = nuevaSeccion('portada', 'Portada');
+      s.bloques = [];
+      this.libro.secciones.unshift(s);
+    }
+    // La portada anterior se quita si ya no se usa en ninguna parte.
+    if (anterior && anterior !== r.id && !JSON.stringify(this.libro.secciones).includes(`"${anterior}"`) && this.libro.tema.separadorImagen !== anterior) {
+      this.libro.recursos = this.libro.recursos.filter((x) => x.id !== anterior);
+    }
   }
 
   quitarFuente(id: string) {
