@@ -28,6 +28,8 @@ with sync_playwright() as p:
     navegador = p.chromium.launch(executable_path="/usr/bin/google-chrome", args=["--no-sandbox"])
     pagina = navegador.new_page(viewport={"width": 1366, "height": 860}, accept_downloads=True, locale="es-MX")
     pagina.on("console", lambda m: m.type == "error" and errores_consola.append(m.text))
+    respuestas_fallidas = []
+    pagina.on("response", lambda r: r.status >= 400 and respuestas_fallidas.append(f"{r.status} {r.request.method} {r.url}"))
     pagina.on("pageerror", lambda e: errores_consola.append(str(e)))
     pagina.on("response", lambda r: r.status == 404 and print("404:", r.url, flush=True))
     pagina.goto(URL)
@@ -36,7 +38,7 @@ with sync_playwright() as p:
     paso("Pantalla de inicio", True)
 
     # Importar un EPUB ajeno.
-    pagina.locator('input[type=file][accept=".epub,.docx,.obi"]').set_input_files(f"{DOCS}/ajeno.epub")
+    pagina.locator('input[type=file][accept$=".obi"]').set_input_files(f"{DOCS}/ajeno.epub")
     expect(pagina.locator(".titulo-libro strong")).to_have_text("Mi vida en otro mundo")
     secciones = pagina.locator(".lista-secciones > li")
     paso("Importar EPUB ajeno", secciones.count() == 3, f"{secciones.count()} secciones")
@@ -300,7 +302,7 @@ with sync_playwright() as p:
     paso("Guardar proyecto .obi", os.path.getsize(ruta_obi) > 1000)
 
     # Importar Word.
-    pagina.locator('input[type=file][accept=".epub,.docx,.obi"]').set_input_files(f"{DOCS}/prueba.docx")
+    pagina.locator('input[type=file][accept$=".obi"]').set_input_files(f"{DOCS}/prueba.docx")
     expect(pagina.locator(".titulo-libro strong")).to_have_text("La espada del alba")
     nombres = pagina.locator(".titulo-seccion").all_inner_texts()
     paso("Importar Word", nombres == ["Prólogo", "Capítulo 1: El despertar"], ", ".join(nombres))
@@ -309,7 +311,7 @@ with sync_playwright() as p:
     pagina.screenshot(path=f"{CAPTURAS}/08-word-importado.png")
 
     # Volver a abrir el proyecto guardado.
-    pagina.locator('input[type=file][accept=".epub,.docx,.obi"]').set_input_files(ruta_obi)
+    pagina.locator('input[type=file][accept$=".obi"]').set_input_files(ruta_obi)
     pagina.get_by_role("dialog").get_by_role("button", name="Abrir").click()  # confirmar: hay cambios sin guardar
     expect(pagina.locator(".titulo-libro strong")).to_have_text("Mi vida en otro mundo")
     nombres = pagina.locator(".titulo-seccion").all_inner_texts()
@@ -706,6 +708,11 @@ with sync_playwright() as p:
     expect(asistente).to_be_visible(timeout=30000)
     pagina.screenshot(path=f"{CAPTURAS}/38-asistente-paso1.png")
     asistente.get_by_role("button", name="Siguiente").click()
+    expect(asistente.locator("legend")).to_have_text("Estilos y adornos")
+    pagina.screenshot(path=f"{CAPTURAS}/38b-asistente-estilos.png")
+    estilos_txt = asistente.locator(".opciones-asistente").inner_text()
+    paso("Asistente: paso de estilos y adornos", "Otros tipos de párrafo" in estilos_txt and "Separador de escena" in estilos_txt, estilos_txt.replace("\n", " · ")[:160])
+    asistente.get_by_role("button", name="Siguiente").click()
     expect(asistente.locator("legend")).to_have_text("Espaciado")
     espacio = asistente.get_by_label("Espacio entre párrafos")
     marcado_inicial = espacio.is_checked()
@@ -714,8 +721,17 @@ with sync_playwright() as p:
         espacio.click()
     asistente.get_by_role("button", name="Siguiente").click()
     asistente.get_by_role("button", name="Siguiente").click()
+    expect(asistente.locator(".comparar-conversion iframe")).to_have_count(2, timeout=60000)
+    original_txt = asistente.frame_locator(".comparar-conversion figure:first-child iframe").locator("body").inner_text(timeout=30000)
+    resultado_txt = asistente.frame_locator(".comparar-conversion figure:last-child iframe").locator("body").inner_text(timeout=30000)
+    pagina.wait_for_timeout(800)
     confirmar = asistente.locator(".confirmar-asistente").inner_text()
-    pagina.screenshot(path=f"{CAPTURAS}/40-asistente-confirmar.png")
+    pagina.screenshot(path=f"{CAPTURAS}/40-asistente-confirmar.png", full_page=True)
+    paso("Asistente: vista previa del original y del resultado", len(original_txt) > 20 and len(resultado_txt) > 20, f"{original_txt[:40]!r} | {resultado_txt[:40]!r}")
+    pagina.set_viewport_size({"width": 1024, "height": 768})
+    pagina.wait_for_timeout(400)
+    pagina.screenshot(path=f"{CAPTURAS}/40b-asistente-confirmar-1024.png", full_page=True)
+    pagina.set_viewport_size({"width": 1366, "height": 860})
     paso("Asistente de conversión: pasos y confirmación", marcado_inicial and "No se conservará" in confirmar and "Espacio entre párrafos" in confirmar.split("No se conservará")[1], confirmar.replace("\n", " · ")[:160])
     asistente.get_by_role("button", name="Convertir").click()
     expect(pagina.locator(".sencillo .resumen-sencillo")).to_be_visible(timeout=30000)
@@ -728,8 +744,14 @@ with sync_playwright() as p:
     expect(pagina.locator(".lista-secciones")).to_be_visible(timeout=15000)
     navegador.close()
 
+# Errores buscados a propósito: código mal formado, colaboración desactivada y cubierta sin diseño todavía.
+ESPERADAS = ["400 PUT /api/codigo/", "403 POST /api/colaboracion", "400 GET /api/cubierta/visor"]
+inesperadas = [r for r in respuestas_fallidas if not any(r.startswith(e.split(" /")[0]) and ("/" + e.split(" /", 1)[1]) in r for e in ESPERADAS)]
+if not inesperadas:
+    errores_consola = [e for e in errores_consola if not e.startswith("Failed to load resource")]
 fallos = [r for r in resultados if not r[1]]
 print(f"\n{len(resultados) - len(fallos)}/{len(resultados)} pasos correctos")
 if errores_consola:
     print("Errores de consola:", *errores_consola[:10], sep="\n  ")
+    print("Respuestas con error:", *respuestas_fallidas[:10], sep="\n  ")
 sys.exit(1 if fallos or errores_consola else 0)

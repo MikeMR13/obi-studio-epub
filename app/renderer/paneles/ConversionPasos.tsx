@@ -91,7 +91,7 @@ export function ConversionPasos({ analisis, ocupado, onCancelar, onConvertir }: 
         {
           clave: 'separadores',
           titulo: t('Separador de escena'),
-          detalle: sep?.texto ? t('«{0}» ({1} veces)', { 0: sep.texto, 1: sep.veces }) : sep?.imagen ? t('imagen {0} ({1} veces)', { 0: sep.imagen, 1: sep.veces }) : '',
+          detalle: sep ? (sep.texto ? t('«{0}»', { 0: sep.texto }) : t('imagen {0}', { 0: sep.imagen ?? '' })) + ' · ' + (sep.veces === 1 ? t('una vez') : t('{0} veces', { 0: sep.veces })) : '',
           disponible: !!sep,
         },
         {
@@ -221,7 +221,7 @@ export function ConversionPasos({ analisis, ocupado, onCancelar, onConvertir }: 
             <ul>
               <li>{t('El texto, los formatos (negrita, cursiva, alineaciones…), las notas, la portada y las imágenes.')}</li>
               {conservar.map((x) => (
-                <li key={x.clave}>{x.titulo}{x.detalle ? ` (${x.detalle})` : ''}</li>
+                <li key={x.clave}>{x.titulo}{x.detalle ? `: ${x.detalle}` : ''}</li>
               ))}
               <li>{op.optimizarImagenes ? t('Las imágenes, reducidas para el EPUB.') : t('Las imágenes originales, sin recomprimir.')}</li>
             </ul>

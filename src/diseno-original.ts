@@ -218,8 +218,9 @@ export function temaDeCss(css: string, xhtmls: string[]): Omit<DisenoOriginal, '
     const c = calcular(hoja, tituloNodo, cache);
     const h = c.decl;
     const pr = propias(hoja, tituloNodo);
-    const alh = (h['text-align'] ?? '').toLowerCase();
-    if (alh === 'left' || alh === 'start') titulos.tituloEstilo = 'izquierda';
+    // Sin text-align (ni heredado), el navegador alinea el título a la izquierda.
+    const alh = (h['text-align'] ?? 'left').toLowerCase();
+    if (alh === 'left' || alh === 'start' || alh === 'justify') titulos.tituloEstilo = 'izquierda';
     else if (alh === 'center') titulos.tituloEstilo = 'centrado';
     const color = colorHex(pr.color);
     if (color) titulos.colorTitulos = color;
@@ -231,8 +232,8 @@ export function temaDeCss(css: string, xhtmls: string[]): Omit<DisenoOriginal, '
       const l = longitud(hoja, pr[k], c.tamano);
       return l === undefined ? undefined : l / c.tamano;
     };
-    const arriba = enEmTitulo('margin-top');
-    if (arriba !== undefined && arriba > 0) espacioTitulos = Math.min(12, Math.round(arriba * 100) / 100);
+    const arriba = enEmTitulo('margin-top') ?? (etTitulo === 'h2' ? 0.83 : 0.67);
+    espacioTitulos = Math.min(12, Math.round(arriba * 100) / 100);
     const abajo = enEmTitulo('margin-bottom');
     espacioBajoTitulos = Math.min(6, Math.round((abajo ?? (etTitulo === 'h2' ? 0.83 : 0.67)) * 100) / 100);
     familiaTitulos = familia(h['font-family']);

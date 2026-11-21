@@ -6,7 +6,7 @@ Maquetador visual de novelas ligeras para Windows, macOS y Linux. Escribes y das
 
 ## Qué hace (versión 1.0.0-alpha.1)
 
-- **Importar:** EPUB 2 y 3 (Sigil, Calibre, InDesign, Kindle Create y los propios) y Word (.docx). Conserva capítulos, subtítulos, negrita, cursiva, versalitas, alineación, estilos de novela ligera, notas al pie (también en otro archivo), enlaces, furigana, texto en otro idioma, imágenes con su descripción, portada, serie y volumen. Lo que el editor no sabe representar (tablas, SVG, MathML) se guarda intacto como bloque XHTML.
+- **Importar:** EPUB 2 y 3 (Sigil, Calibre, InDesign, Kindle Create y los propios), Word (.docx), OpenDocument (.odt), HTML, Markdown y texto plano (UTF-8, UTF-16, Shift_JIS o Windows-1252). Conserva capítulos, subtítulos, negrita, cursiva, versalitas, alineación, estilos de novela ligera, notas al pie (también en otro archivo), enlaces, furigana, texto en otro idioma, imágenes con su descripción, portada, serie y volumen. Lo que el editor no sabe representar (tablas, SVG, MathML) se guarda intacto como bloque XHTML.
 - **Escribir:** editor visual (TipTap/ProseMirror) sobre el modelo del libro, nunca sobre HTML.
   - Estilos de párrafo: cuerpo, sin sangría, centrado, a la derecha, pensamiento, onomatopeya, carta y cita (Ctrl/⌘+Alt+0…7). Subtítulos.
   - Negrita, cursiva, subrayado, tachado, versalitas, superíndice, subíndice, enlaces.
@@ -34,11 +34,14 @@ Maquetador visual de novelas ligeras para Windows, macOS y Linux. Escribes y das
 - **CSS propio** (Tema → CSS propio): se añade después del tema en el EPUB y el PDF, y se revisa mientras se escribe con las reglas de EPUBCheck (sin `direction`, `@import`, recursos remotos ni `position: fixed`).
 - **Revisiones rápidas** en buscar y reemplazar: espacios dobles, espacio antes de un signo, falta de espacio tras coma, guion de diálogo, comillas rectas, tres puntos y preguntas sin «¿».
 - **Fuentes ofuscadas** (algoritmo del IDPF, con `encryption.xml`) para las fuentes propias que lo pidan, e **imágenes en escala de grises** para imprimir en blanco y negro.
-- **Conversión sencilla** (en el inicio): de EPUB o Word a EPUB con un asistente por pasos que muestra lo que se encontró en el original y deja elegir qué conservar:
-  1. Párrafos y títulos: sangría, interlineado, alineación; alineación, color y mayúsculas de los títulos.
-  2. Espaciado: espacio entre párrafos, espacio propio de cada párrafo que se aparte del general, líneas en blanco, espacio antes de los títulos y espaciado entre letras y palabras.
-  3. Letras e imágenes: las fuentes del archivo (también WOFF y ofuscadas, si su licencia lo permite), las instaladas en el equipo, e imágenes originales o reducidas.
-  4. Confirmación con lo que se conservará y lo que no; después, título, autor y exportar a EPUB, KEPUB o PDF digital.
+- **Conversión sencilla** (en el inicio): de EPUB, Word, OpenDocument, HTML, Markdown o texto a EPUB con un asistente por pasos que muestra lo que se encontró en el original y deja elegir qué conservar. El diseño se lee con una cascada CSS reducida (`src/estilo-calculado.ts`: especificidad, selectores de descendiente e hijo, herencia, tamaño base en px de `html`/`body`, `%`, `pt`, `cm`…); las medidas `vh`/`vw` se avisan y no se conservan.
+  1. Párrafos y títulos: sangría, interlineado y alineación del párrafo general (elegido por su aspecto calculado, no por su clase); alineación, color, tamaño y mayúsculas de los títulos y de los subtítulos.
+  2. Estilos y adornos: los demás tipos de párrafo (cartas, citas, firmas, notas del autor…) como estilos de párrafo del libro; tamaño, color y fondo de fragmentos; separador de escena original (ornamento de texto o imagen repetida); capitular (`::first-letter` o un `span` flotante) y primera línea destacada. En un Word, sus estilos de párrafo propios.
+  3. Espaciado: espacio entre párrafos, espacio propio de cada párrafo que se aparte del general (también en Word, heredado atributo a atributo), líneas en blanco, espacio antes y después de los títulos y espaciado entre letras y palabras.
+  4. Letras e imágenes: las fuentes del archivo (TTF, OTF, WOFF, WOFF2, ofuscadas con el algoritmo del IDPF o de Adobe, e incrustadas en un Word, si su licencia lo permite), las instaladas en el equipo, e imágenes originales o reducidas.
+  5. Confirmación con lo que se conservará y lo que no y una vista previa del original y del resultado lado a lado; después, título, autor y exportar a EPUB, KEPUB o PDF digital.
+  Las opciones elegidas se recuerdan por serie: el siguiente volumen empieza con las mismas.
+  HTML, Markdown, texto y OpenDocument pasan antes a un EPUB intermedio (`src/formatos/otros.ts`) y usan el mismo análisis. Si hay un plugin instalado para el formato, se usa el plugin.
   `npx tsx scripts/validar-conversion.mts` convierte un EPUB de prueba con cada opción y compara en el navegador los estilos calculados del original y del convertido (sangría, interlineado, márgenes, líneas en blanco, espaciado, letras y títulos).
   El espacio propio de cada párrafo es parte del modelo: sale en el EPUB y el PDF, vuelve al importar y sobrevive al Word de corrección (como las líneas en blanco).
 
@@ -172,7 +175,10 @@ En local: `npm run instaladores` construye el del sistema actual en `instaladore
 | `src/configuracion.ts` | Configuración de la app (colaboración desactivada por defecto) |
 | `src/cubierta.ts` | Cubierta de imprenta: medidas, lomo, revisión, HTML y posproceso del PDF |
 | `src/css-propio.ts`, `src/revisiones.ts` | CSS propio revisado y revisiones rápidas de ortotipografía |
-| `src/diseno-original.ts` | Diseño y fuentes del archivo original para la conversión sencilla (incluye WOFF → TTF) |
+| `src/diseno-original.ts`, `src/estilo-calculado.ts` | Diseño y fuentes del archivo original para la conversión sencilla: cascada CSS reducida, tipos de párrafo, separadores, capitular, WOFF → TTF y fuentes de Adobe |
+| `src/diseno-word.ts` | Word párrafo a párrafo: estilos propios, espacio de cada párrafo y fuentes incrustadas (.odttf) |
+| `src/woff2.ts` | WOFF2 → TrueType (Brotli y transformaciones de glyf/loca y hmtx) |
+| `src/formatos/otros.ts` | HTML, Markdown, texto plano y OpenDocument a un EPUB intermedio |
 | `app/colaboracion.ts`, `app/renderer/colaborar.tsx` | Servidor de colaboración (Yjs) y página de invitados |
 | `app/renderer/i18n.ts`, `app/renderer/i18n-en.ts` | Idioma de la interfaz y catálogo inglés |
 | `src/plugins.ts` | Plugins: manifiesto, ejecución aislada, validación de lo que devuelven, plugins instalados |
