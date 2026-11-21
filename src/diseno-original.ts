@@ -4,9 +4,12 @@
 
 import { inflateSync } from 'node:zlib';
 import JSZip from 'jszip';
-import type { Tema } from './model.js';
+import type { EstiloPropio, EstiloSubtitulo, Tema } from './model.js';
+import { ELEMENTO, analizarXhtml, attr, buscar, clases, hijos, nombre, texto, todos, type Nodo } from './formatos/dom.js';
+import { calcular, claveFirma, familia, firmaParrafo, hojaDeCss, longitud, propias, type Calculado, type FirmaParrafo } from './estilo-calculado.js';
 import { claveOfuscacion, ofuscarFuente } from './compilar.js';
 import { resolverRuta } from './formatos/epub.js';
+import { woff2ASfnt } from './woff2.js';
 
 export interface FuenteOriginal {
   familia: string;
@@ -31,6 +34,20 @@ export interface DisenoOriginal {
   lineasEnBlanco: number;
   familiaTexto?: string;
   familiaTitulos?: string;
+  /** Otros tipos de párrafo del original (citas, cartas, notas del autor…). */
+  estilos?: EstiloOriginal[];
+  subtitulo?: EstiloSubtitulo;
+  /** Separador de escena del original: el ornamento de texto o el nombre de la imagen. */
+  separador?: { texto?: string; imagen?: string; veces: number };
+  capitular?: boolean;
+  primeraLinea?: boolean;
+  /** Clases de las capitulares hechas con un span flotante (el importador no convierte su tamaño). */
+  clasesCapitular?: string[];
+  /** CSS del original (lo usa el importador para asignar los estilos; no se envía a la interfaz). */
+  css?: string;
+  avisosCss?: string[];
+  /** Fragmentos (span, em…) con tamaño, color o fondo propios. */
+  fragmentosConAspecto?: number;
   fuentes: FuenteOriginal[];
   avisos: string[];
 }
@@ -46,38 +63,6 @@ export function primeraFamilia(valor?: string): string | undefined {
   return undefined;
 }
 
-/** Valor CSS de longitud en em (16 px = 1 em, 12 pt = 1 em). */
-function enEm(v?: string): number | undefined {
-  if (!v) return undefined;
-  const m = v.trim().match(/^(-?\d*\.?\d+)(em|rem|px|pt|%)?$/i);
-  if (!m) return v.trim() === '0' ? 0 : undefined;
-  const n = parseFloat(m[1]);
-  switch ((m[2] ?? '').toLowerCase()) {
-    case 'em':
-    case 'rem':
-      return n;
-    case 'px':
-      return n / 16;
-    case 'pt':
-      return n / 12;
-    case '':
-      return n === 0 ? 0 : undefined;
-    default:
-      return undefined;
-  }
-}
-
-function interlineado(v?: string): number | undefined {
-  if (!v) return undefined;
-  const t = v.trim().toLowerCase();
-  if (t === 'normal') return 1.2;
-  const m = t.match(/^(\d*\.?\d+)(em|%|px|pt)?$/);
-  if (!m) return undefined;
-  const n = parseFloat(m[1]);
-  const r = !m[2] || m[2] === 'em' ? n : m[2] === '%' ? n / 100 : m[2] === 'px' ? n / 16 : n / 12;
-  return Math.min(2.2, Math.max(1.1, Math.round(r * 100) / 100));
-}
-
 function colorHex(v?: string): string | undefined {
   if (!v) return undefined;
   const t = v.trim().toLowerCase();
@@ -88,157 +73,269 @@ function colorHex(v?: string): string | undefined {
   return { black: '#000000', white: '#ffffff' }[t];
 }
 
-interface Regla {
-  selector: string;
-  decl: Record<string, string>;
+/** Estilo de párrafo del original distinto del general (se convierte en un estilo propio del libro). */
+export interface EstiloOriginal extends EstiloPropio {
+  /** Clave de la firma calculada: la usa el importador para asignar el estilo a cada párrafo. */
+  clave: string;
+  /** Familia de letra del original, si es distinta de la del texto. */
+  familia?: string;
+  parrafos: number;
 }
 
-function reglas(css: string): Regla[] {
-  const sin = css.replace(/\/\*[\s\S]*?\*\//g, '');
-  const salida: Regla[] = [];
-  for (const m of sin.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
-    const decl: Record<string, string> = {};
-    for (const d of m[2].split(';')) {
-      const i = d.indexOf(':');
-      if (i > 0) decl[d.slice(0, i).trim().toLowerCase()] = d.slice(i + 1).replace(/!important/i, '').trim();
-    }
-    for (const sel of m[1].split(',')) salida.push({ selector: sel.trim(), decl });
-  }
-  return salida;
+/** Texto visible de un párrafo (sin etiquetas), para saber si está vacío o es un separador. */
+function plano(n: Nodo): string {
+  return texto(n).replace(/[ \s]+/g, ' ').trim();
 }
 
-/** Declaraciones que afectan a un elemento con esa etiqueta y clases (aproximado: selectores simples). */
-function estiloDe(rs: Regla[], etiqueta: string, clases: string[]): Record<string, string> {
-  const r: Record<string, string> = {};
-  const simples = (sel: string) => {
-    const m = sel.match(/^([a-z0-9]*)((?:\.[\w-]+)*)$/i);
-    if (!m) return false;
-    const et = m[1].toLowerCase();
-    const cl = m[2].split('.').filter(Boolean);
-    return (!et || et === etiqueta) && cl.every((c) => clases.includes(c)) && (et || cl.length > 0);
-  };
-  // Orden: body, luego la etiqueta, luego clases (más específico después).
-  const aplicables = rs.filter((x) => x.selector.toLowerCase() === 'body' || x.selector.toLowerCase() === 'html' || simples(x.selector));
-  aplicables.sort((a, b) => peso(a.selector) - peso(b.selector));
-  for (const x of aplicables) Object.assign(r, x.decl);
-  return r;
+/** ¿Es un separador de escena hecho de símbolos (◆◆◆, ✽ ✽ ✽, ＊＊＊…)? */
+export function pareceSeparador(t: string): boolean {
+  const x = t.replace(/\s+/g, '');
+  return x.length > 0 && x.length <= 12 && !/[\p{L}\p{N}]/u.test(x);
 }
 
-function peso(sel: string): number {
-  const s = sel.toLowerCase();
-  if (s === 'html') return 0;
-  if (s === 'body') return 1;
-  return 2 + (sel.match(/\./g) ?? []).length * 10 + (/^[a-z]/i.test(sel) ? 1 : 0);
+function soloImagen(n: Nodo): Nodo | undefined {
+  if (plano(n)) return undefined;
+  const imgs = todos(n, (x) => nombre(x) === 'img' || nombre(x) === 'image');
+  return imgs.length === 1 ? imgs[0] : undefined;
 }
 
+const NOMBRE_PROPIEDAD: Record<string, string> = {
+  sangria: 'sangría',
+  alinear: 'alineación',
+  interlineado: 'interlineado',
+  tamano: 'tamaño',
+  cursiva: 'cursiva',
+  negrita: 'negrita',
+  versalitas: 'versalitas',
+  mayusculas: 'mayúsculas',
+  color: 'color',
+  familia: 'letra',
+  izquierda: 'margen',
+  derecha: 'margen',
+};
 
-/** Tema a partir del CSS de un EPUB y de la clase de párrafo más usada en sus XHTML. */
+/** Diferencias de un tipo de párrafo respecto al general, como estilo propio. */
+function diferencias(f: FirmaParrafo, g: FirmaParrafo): Partial<EstiloOriginal> {
+  const e: Partial<EstiloOriginal> = {};
+  if (Math.abs(f.sangria - g.sangria) > 0.05) e.sangria = Math.min(4, Math.max(-4, f.sangria));
+  if (f.alinear !== g.alinear) e.alinear = f.alinear;
+  if ((f.interlineado ?? 1.2) !== (g.interlineado ?? 1.2) && f.interlineado !== undefined) e.interlineado = Math.min(2.2, Math.max(0.9, f.interlineado));
+  if (Math.abs(f.tamano / g.tamano - 1) > 0.03) e.tamano = Math.round(Math.min(3, Math.max(0.5, f.tamano / g.tamano)) * 100) / 100;
+  if (f.cursiva !== g.cursiva) e.cursiva = f.cursiva;
+  if (f.negrita !== g.negrita) e.negrita = f.negrita;
+  if (f.versalitas && !g.versalitas) e.versalitas = true;
+  if (f.mayusculas && !g.mayusculas) e.mayusculas = true;
+  if (f.color && f.color !== g.color) e.color = f.color;
+  if (f.familia && f.familia !== g.familia) e.familia = f.familia;
+  if (Math.abs(f.izquierda - g.izquierda) > 0.05) e.izquierda = Math.min(10, f.izquierda);
+  if (Math.abs(f.derecha - g.derecha) > 0.05) e.derecha = Math.min(10, f.derecha);
+  return e;
+}
+
+/** Tema a partir del CSS de un EPUB y del estilo calculado de sus párrafos. */
 export function temaDeCss(css: string, xhtmls: string[]): Omit<DisenoOriginal, 'fuentes' | 'avisos'> {
-  const rs = reglas(css);
-  const cuentas = new Map<string, number>();
-  for (const x of xhtmls) {
-    for (const m of x.matchAll(/<p\b([^>]*)>/g)) {
-      const clase = m[1].match(/\bclass\s*=\s*["']([^"']*)["']/)?.[1].trim() ?? '';
-      cuentas.set(clase, (cuentas.get(clase) ?? 0) + 1);
-    }
-  }
-  const dominante = [...cuentas].sort((a, b) => b[1] - a[1])[0]?.[0] ?? '';
-  const p = estiloDe(rs, 'p', dominante.split(/\s+/).filter(Boolean));
-  // Títulos: los h1 o, si el libro no los usa, los h2 (Sigil y Calibre usan mucho h2 con clase).
-  // Se toma el primer título que aparece en el libro (sin contar la navegación).
-  const primero = xhtmls
-    .filter((x) => !/<nav\b/.test(x))
-    .map((x) => x.match(/<(h[12])\b([^>]*)>/))
-    .find(Boolean);
-  const titulo = primero?.[1] ?? 'h1';
-  const claseTitulo = primero?.[2].match(/\bclass\s*=\s*["']([^"']*)["']/)?.[1] ?? '';
-  const h = estiloDe(rs, titulo, claseTitulo.split(/\s+/).filter(Boolean));
-  const tema: Partial<Tema> = {};
-  const sangria = enEm(p['text-indent']);
-  if (sangria !== undefined) tema.sangria = Math.min(4, Math.max(0, Math.round(sangria * 100) / 100));
-  const li = interlineado(p['line-height']);
-  if (li !== undefined) tema.interlineado = li;
-  const al = (p['text-align'] ?? '').toLowerCase();
-  if (al === 'justify') tema.alinear = 'justificado';
-  else if (al === 'left' || al === 'start') tema.alinear = 'izquierda';
-  const titulos: Partial<Tema> = {};
-  const alh = (h['text-align'] ?? '').toLowerCase();
-  if (alh === 'left' || alh === 'start') titulos.tituloEstilo = 'izquierda';
-  else if (alh === 'center') titulos.tituloEstilo = 'centrado';
-  const color = colorHex(h.color);
-  if (color) titulos.colorTitulos = color;
-  if (/small-caps/i.test(h['font-variant'] ?? '')) titulos.tituloMayusculas = true;
-  if (/uppercase/i.test(h['text-transform'] ?? '')) titulos.tituloEnMayusculas = true;
-  // Tamaño del título (si el CSS no lo da, el del navegador: h1 = 2 em, h2 = 1,5 em). El espacio sobre el título
-  // se mide en em del propio título, así que hace falta el tamaño para que el hueco sea el mismo.
-  const tamano = h['font-size'] ? enEm(h['font-size']) : titulo === 'h1' ? 2 : 1.5;
-  // Primer párrafo tras el título: ¿lleva sangría en el original?
-  const tras = xhtmls.map((x) => x.match(new RegExp(`</${titulo}>\\s*<p\\b([^>]*)>`))).find(Boolean);
-  if (tras && tema.sangria) {
-    const clasesTras = tras[1].match(/\bclass\s*=\s*["']([^"']*)["']/)?.[1].split(/\s+/).filter(Boolean) ?? [];
-    const e = estiloDe(rs, 'p', clasesTras);
-    for (const r of rs) if (new RegExp(`^${titulo}\\s*\\+\\s*p$`, 'i').test(r.selector)) Object.assign(e, r.decl);
-    const sangriaTras = enEm(e['text-indent']);
-    tema.sangriaTrasTitulo = (sangriaTras ?? 0) > 0;
-  }
-  if (tamano !== undefined && tamano >= 1 && tamano <= 3) titulos.tituloTamano = Math.round(tamano * 100) / 100;
+  const hoja = hojaDeCss(css);
+  const cache = new Map<Nodo, Calculado>();
+  const docs = xhtmls
+    .map((x) => {
+      try {
+        return analizarXhtml(x).documento;
+      } catch {
+        return undefined;
+      }
+    })
+    .filter((d): d is Nodo => !!d && !buscar(d, (n) => nombre(n) === 'nav'));
 
-  // Espaciado.
-  const m = margenes(p);
-  const espacio = m ? { general: Math.min(2, Math.max(0, Math.round(Math.max(m.arriba, m.abajo) * 100) / 100)), arriba: m.arriba, abajo: m.abajo } : undefined;
-  const mh = margenes(h);
-  const espacioTitulos = mh && mh.arriba > 0 ? Math.min(12, Math.round(mh.arriba * 100) / 100) : undefined;
-  // Debajo del título: el del CSS o el del navegador (h1 0,67 em, h2 0,83 em).
-  const espacioBajoTitulos = Math.min(6, Math.round((mh && (h['margin-bottom'] || h.margin) ? mh.abajo : primeroTitulo(xhtmls) === 'h2' ? 0.83 : 0.67) * 100) / 100);
-  const letras = enEm(p['letter-spacing']);
-  const palabras = enEm(p['word-spacing']);
-  let parrafosConEspacio = 0;
+  // Párrafos con texto, agrupados por su aspecto calculado.
+  const grupos = new Map<string, { firma: FirmaParrafo; nodos: Nodo[]; clases: Map<string, number> }>();
+  const separadoresTexto = new Map<string, number>();
+  const imagenesSolas = new Map<string, number>();
   let lineasEnBlanco = 0;
-  const base = { arriba: m?.arriba ?? 0, abajo: m?.abajo ?? 0 };
-  for (const x of xhtmls) {
-    for (const pm of x.matchAll(/<p\b([^>]*)>([\s\S]*?)<\/p>/g)) {
-      const contenido = pm[2].replace(/<(?!img\b)[^>]*>/g, '').replace(/&nbsp;|&#160;|&#xa0;|\u00a0/gi, '').trim();
-      if (!contenido) {
-        lineasEnBlanco++;
+  const todosP: { n: Nodo; f: FirmaParrafo }[] = [];
+  for (const d of docs) {
+    for (const p of todos(d, (n) => nombre(n) === 'p')) {
+      const t = plano(p);
+      const img = soloImagen(p);
+      if (img) {
+        const src = attr(img, 'src') || attr(img, 'xlink:href') || attr(img, 'href');
+        if (src) imagenesSolas.set(src.split('/').pop()!, (imagenesSolas.get(src.split('/').pop()!) ?? 0) + 1);
         continue;
       }
-      const clasesP = pm[1].match(/\bclass\s*=\s*["']([^"']*)["']/)?.[1].split(/\s+/).filter(Boolean) ?? [];
-      const estilo = { ...estiloDe(rs, 'p', clasesP) };
-      const enLinea = pm[1].match(/\bstyle\s*=\s*["']([^"']*)["']/)?.[1];
-      if (enLinea) Object.assign(estilo, reglas(`x{${enLinea}}`)[0]?.decl ?? {});
-      const mp = margenes(estilo);
-      if (mp && (Math.abs(mp.arriba - base.arriba) > 0.05 || Math.abs(mp.abajo - base.abajo) > 0.05)) parrafosConEspacio++;
+      if (!t) {
+        if (!todos(p, (x) => nombre(x) === 'img').length) lineasEnBlanco++;
+        continue;
+      }
+      if (pareceSeparador(t)) {
+        separadoresTexto.set(t, (separadoresTexto.get(t) ?? 0) + 1);
+        continue;
+      }
+      const f = firmaParrafo(hoja, p, cache);
+      todosP.push({ n: p, f });
+      const k = claveFirma(f);
+      const g = grupos.get(k) ?? { firma: f, nodos: [] as Nodo[], clases: new Map<string, number>() };
+      g.nodos.push(p);
+      const c = clases(p).join(' ');
+      if (c) g.clases.set(c, (g.clases.get(c) ?? 0) + 1);
+      grupos.set(k, g);
     }
   }
+  const ordenados = [...grupos.entries()].sort((a, b) => b[1].nodos.length - a[1].nodos.length);
+  const general: FirmaParrafo = ordenados[0]?.[1].firma ?? { sangria: 0, alinear: 'izquierda', arriba: 0, abajo: 0, izquierda: 0, derecha: 0, tamano: 1, cursiva: false, negrita: false, versalitas: false, mayusculas: false };
+
+  // Los demás tipos de párrafo visibles: estilos propios (como mucho 12, los más usados).
+  const estilos: EstiloOriginal[] = [];
+  const usadosNombres = new Set<string>();
+  for (const [clave, g] of ordenados.slice(1)) {
+    if (estilos.length >= 12) break;
+    const dif = diferencias(g.firma, general);
+    if (!Object.keys(dif).length) continue;
+    const claseComun = [...g.clases].sort((a, b) => b[1] - a[1])[0]?.[0];
+    let nombreEstilo = claseComun ? `Original: ${claseComun}` : `Original: ${Object.keys(dif).map((k) => NOMBRE_PROPIEDAD[k] ?? k).filter((x, i, a) => a.indexOf(x) === i).join(', ')}`;
+    while (usadosNombres.has(nombreEstilo)) nombreEstilo += ' ·';
+    usadosNombres.add(nombreEstilo);
+    estilos.push({ id: `orig-${estilos.length + 1}`, nombre: nombreEstilo.slice(0, 60), clave, parrafos: g.nodos.length, ...dif } as EstiloOriginal);
+  }
+
+  const tema: Partial<Tema> = {};
+  tema.sangria = Math.min(4, Math.max(0, general.sangria));
+  if (general.interlineado !== undefined) tema.interlineado = Math.min(2.2, Math.max(1.1, general.interlineado));
+  if (general.alinear === 'justificado') tema.alinear = 'justificado';
+  else if (general.alinear === 'izquierda') tema.alinear = 'izquierda';
+
+  // Títulos: el primer h1 o, si el libro no los usa, el primer h2 (Sigil y Calibre usan mucho h2 con clase).
+  let tituloNodo: Nodo | undefined;
+  for (const d of docs) {
+    tituloNodo = buscar(d, (n) => nombre(n) === 'h1') ?? buscar(d, (n) => nombre(n) === 'h2');
+    if (tituloNodo) break;
+  }
+  const etTitulo = tituloNodo ? nombre(tituloNodo) : 'h1';
+  const titulos: Partial<Tema> = {};
+  let espacioTitulos: number | undefined;
+  let espacioBajoTitulos: number | undefined;
+  let familiaTitulos: string | undefined;
+  if (tituloNodo) {
+    const c = calcular(hoja, tituloNodo, cache);
+    const h = c.decl;
+    const pr = propias(hoja, tituloNodo);
+    const alh = (h['text-align'] ?? '').toLowerCase();
+    if (alh === 'left' || alh === 'start') titulos.tituloEstilo = 'izquierda';
+    else if (alh === 'center') titulos.tituloEstilo = 'centrado';
+    const color = colorHex(pr.color);
+    if (color) titulos.colorTitulos = color;
+    if (/small-caps/i.test(h['font-variant'] ?? '')) titulos.tituloMayusculas = true;
+    if (/uppercase/i.test(h['text-transform'] ?? '')) titulos.tituloEnMayusculas = true;
+    if (c.tamano >= 1 && c.tamano <= 3) titulos.tituloTamano = Math.round(c.tamano * 100) / 100;
+    // Márgenes en em del propio título (si el CSS no los da, los del navegador: 0,67 em en h1 y 0,83 em en h2).
+    const enEmTitulo = (k: string) => {
+      const l = longitud(hoja, pr[k], c.tamano);
+      return l === undefined ? undefined : l / c.tamano;
+    };
+    const arriba = enEmTitulo('margin-top');
+    if (arriba !== undefined && arriba > 0) espacioTitulos = Math.min(12, Math.round(arriba * 100) / 100);
+    const abajo = enEmTitulo('margin-bottom');
+    espacioBajoTitulos = Math.min(6, Math.round((abajo ?? (etTitulo === 'h2' ? 0.83 : 0.67)) * 100) / 100);
+    familiaTitulos = familia(h['font-family']);
+    // Primer párrafo tras el título: ¿lleva sangría en el original?
+    if (tema.sangria) {
+      const hermanos = tituloNodo.parentNode ? hijos(tituloNodo.parentNode).filter((x) => x.nodeType === ELEMENTO) : [];
+      const sig = hermanos[hermanos.indexOf(tituloNodo) + 1];
+      if (sig && nombre(sig) === 'p') tema.sangriaTrasTitulo = firmaParrafo(hoja, sig, cache).sangria > 0;
+    }
+  }
+
+  // Subtítulos (h2/h3 que no hacen de título de capítulo).
+  let subtitulo: EstiloSubtitulo | undefined;
+  for (const d of docs) {
+    const h = todos(d, (n) => (nombre(n) === 'h2' || nombre(n) === 'h3') && n !== tituloNodo && etTitulo !== nombre(n))[0];
+    if (!h) continue;
+    const c = calcular(hoja, h, cache);
+    const pr = propias(hoja, h);
+    const al = (c.decl['text-align'] ?? '').toLowerCase();
+    subtitulo = {
+      ...(al === 'center' ? { alinear: 'centro' as const } : al === 'right' ? { alinear: 'derecha' as const } : al === 'left' || al === 'start' ? { alinear: 'izquierda' as const } : {}),
+      ...(colorHex(pr.color) ? { color: colorHex(pr.color) } : {}),
+      ...(c.tamano >= 0.8 && c.tamano <= 3 ? { tamano: Math.round(c.tamano * 100) / 100 } : {}),
+      ...(/uppercase/i.test(c.decl['text-transform'] ?? '') ? { mayusculas: true } : {}),
+    };
+    break;
+  }
+
+  // Capitular y primera línea del original (::first-letter / ::first-line, o un span flotante grande).
+  let capitular = false;
+  let primeraLinea = false;
+  const clasesCapitular: string[] = [];
+  for (const r of hoja.reglas) {
+    if (r.pseudo === 'first-letter' && (r.decl.float || (longitud(hoja, r.decl['font-size']) ?? 1) >= 1.5)) capitular = true;
+    if (r.pseudo === 'first-line' && /small-caps|uppercase/i.test(`${r.decl['font-variant'] ?? ''} ${r.decl['text-transform'] ?? ''}`)) primeraLinea = true;
+    const cls = r.selector.match(/^(?:span)?\.([\w-]+)$/)?.[1];
+    if (!r.pseudo && cls && /left/i.test(r.decl.float ?? '') && (nuevoTamanoAprox(r.decl['font-size']) ?? 1) >= 1.5) {
+      capitular = true;
+      clasesCapitular.push(cls);
+    }
+  }
+
+  // Separador de escena: el ornamento de texto o la imagen que más se repite sola en un párrafo.
+  const sepTexto = [...separadoresTexto].sort((a, b) => b[1] - a[1])[0];
+  const sepImagen = [...imagenesSolas].filter(([, n]) => n >= 2).sort((a, b) => b[1] - a[1])[0];
+  const separador: DisenoOriginal['separador'] = sepImagen && (!sepTexto || sepImagen[1] > sepTexto[1]) ? { imagen: sepImagen[0], veces: sepImagen[1] } : sepTexto ? { texto: sepTexto[0], veces: sepTexto[1] } : undefined;
+
+  // Fragmentos con tamaño, color o fondo propios (los que no son capitulares).
+  let fragmentosConAspecto = 0;
+  const EN_LINEA = new Set(['span', 'em', 'strong', 'i', 'b', 'small', 'big', 'font', 'a', 'sup', 'sub']);
+  for (const d of docs) {
+    for (const n of todos(d, (x) => EN_LINEA.has(nombre(x)))) {
+      if (clases(n).some((c) => clasesCapitular.includes(c))) continue;
+      const pr = propias(hoja, n);
+      if ((pr['font-size'] && !/^(1em|100%|inherit|medium)$/i.test(pr['font-size'])) || (pr.color && colorHex(pr.color) && !/^#(0{6}|1{6}|2{6})$/.test(colorHex(pr.color)!)) || pr['background-color']) fragmentosConAspecto++;
+    }
+  }
+
+  // Espaciado general y párrafos con espacio propio.
+  const espacio = ordenados.length ? { general: Math.min(2, Math.max(0, Math.round(Math.max(general.arriba, general.abajo) * 100) / 100)), arriba: general.arriba, abajo: general.abajo } : undefined;
+  let parrafosConEspacio = 0;
+  for (const { f } of todosP) if (Math.abs(f.arriba - general.arriba) > 0.05 || Math.abs(f.abajo - general.abajo) > 0.05) parrafosConEspacio++;
+  const avisos: string[] = [];
+  if (hoja.ignoradas.size) avisos.push(`El original usa medidas que dependen de la pantalla (${[...hoja.ignoradas].join(', ')}); esas medidas no se conservan.`);
   return {
     tema,
     titulos,
     ...(espacio ? { espacio } : {}),
     ...(espacioTitulos !== undefined ? { espacioTitulos } : {}),
-    espacioBajoTitulos,
-    ...(letras ? { espaciadoLetras: Math.round(letras * 1000) / 1000 } : {}),
-    ...(palabras ? { espaciadoPalabras: Math.round(palabras * 1000) / 1000 } : {}),
+    ...(espacioBajoTitulos !== undefined ? { espacioBajoTitulos } : {}),
+    ...(general.letras ? { espaciadoLetras: general.letras } : {}),
+    ...(general.palabras ? { espaciadoPalabras: general.palabras } : {}),
     parrafosConEspacio,
     lineasEnBlanco,
-    familiaTexto: primeraFamilia(p['font-family']),
-    familiaTitulos: primeraFamilia(h['font-family']),
+    familiaTexto: general.familia,
+    familiaTitulos,
+    estilos,
+    ...(subtitulo && Object.keys(subtitulo).length ? { subtitulo } : {}),
+    ...(separador ? { separador } : {}),
+    ...(capitular ? { capitular: true } : {}),
+    ...(primeraLinea ? { primeraLinea: true } : {}),
+    ...(clasesCapitular.length ? { clasesCapitular } : {}),
+    css,
+    avisosCss: avisos,
+    fragmentosConAspecto,
   };
 }
 
-function primeroTitulo(xhtmls: string[]): string | undefined {
-  return xhtmls.filter((x) => !/<nav\b/.test(x)).map((x) => x.match(/<(h[12])\b/)?.[1]).find(Boolean);
+function nuevoTamanoAprox(v?: string): number | undefined {
+  if (!v) return undefined;
+  const m = v.trim().match(/^(\d*\.?\d+)(em|rem|%)$/i);
+  if (!m) return undefined;
+  return m[2] === '%' ? parseFloat(m[1]) / 100 : parseFloat(m[1]);
 }
 
-function margenes(e: Record<string, string>): { arriba: number; abajo: number } | undefined {
-  let arriba = enEm(e['margin-top']);
-  let abajo = enEm(e['margin-bottom']);
-  if (e.margin) {
-    const partes = e.margin.split(/\s+/);
-    arriba ??= enEm(partes[0]);
-    abajo ??= enEm(partes[2] ?? partes[0]);
-  }
-  if (arriba === undefined && abajo === undefined) return undefined;
-  return { arriba: Math.max(0, arriba ?? 0), abajo: Math.max(0, abajo ?? 0) };
+/**
+ * Asigna a cada párrafo del original su estilo propio (por su aspecto calculado), para el importador.
+ * Devuelve undefined en los párrafos con el aspecto general.
+ */
+export function asignadorEstilos(css: string, estilos: { id: string; clave: string }[]): (n: Nodo) => string | undefined {
+  const hoja = hojaDeCss(css);
+  const cache = new Map<Nodo, Calculado>();
+  const porClave = new Map(estilos.map((e) => [e.clave, e.id]));
+  return (n) => (porClave.size ? porClave.get(claveFirma(firmaParrafo(hoja, n, cache))) : undefined);
 }
 
 /** WOFF 1.0 → TrueType/OpenType (las tablas van comprimidas con zlib). */
@@ -300,6 +397,7 @@ export async function disenoDeEpub(datos: Uint8Array): Promise<DisenoOriginal> {
   }
   const css = hojas.join('\n');
   const leido = temaDeCss(css, xhtmls);
+  if (leido.avisosCss?.length) avisos.push(...leido.avisosCss);
 
   // Fuentes: familia según los @font-face que las citan.
   const familiaDe = new Map<string, string>();
@@ -315,22 +413,54 @@ export async function disenoDeEpub(datos: Uint8Array): Promise<DisenoOriginal> {
   const cifrado = (await leer('META-INF/encryption.xml')) ?? '';
   const fuentes: FuenteOriginal[] = [];
   for (const [ruta, f] of Object.entries(zip.files)) {
-    if (f.dir || !/\.(ttf|otf|woff)$/i.test(ruta)) continue;
+    if (f.dir || !/\.(ttf|otf|woff2?)$/i.test(ruta)) continue;
     let d: Uint8Array | undefined = await f.async('uint8array');
     const entrada = [...cifrado.matchAll(/<(?:enc:)?EncryptedData\b[\s\S]*?<\/(?:enc:)?EncryptedData>/g)].map((x) => x[0]).find((x) => x.includes(`URI="${ruta}"`));
     if (entrada) {
       if (entrada.includes('http://www.idpf.org/2008/embedding')) d = ofuscarFuente(d, claveOfuscacion(identificadorUnico));
-      else {
+      else if (entrada.includes('http://ns.adobe.com/pdf/enc#RC')) {
+        // Ofuscación de Adobe: los 1024 primeros bytes con la clave de 16 bytes del UUID del libro.
+        const claro = desofuscarAdobe(d, uuidsDe(opf, identificadorUnico));
+        if (!claro) {
+          avisos.push(`La fuente «${ruta.split('/').pop()}» está protegida y no se pudo leer; se usará otra.`);
+          continue;
+        }
+        d = claro;
+      } else {
         avisos.push(`La fuente «${ruta.split('/').pop()}» está protegida de una forma que no se puede leer; se usará otra.`);
         continue;
       }
     }
     if (/\.woff$/i.test(ruta)) d = woffASfnt(d);
+    else if (/\.woff2$/i.test(ruta)) {
+      const sfnt = woff2ASfnt(d);
+      if (!sfnt) avisos.push(`La fuente «${ruta.split('/').pop()}» (WOFF2) no se pudo leer; se usará otra.`);
+      d = sfnt;
+    }
     if (!d) continue;
     const nombre = ruta.split('/').pop()!;
     fuentes.push({ familia: familiaDe.get(nombre.toLowerCase()) ?? '', nombre, datos: d });
   }
   return { ...leido, fuentes, avisos };
+}
+
+/** Identificadores UUID del libro (el único primero): la clave de Adobe sale de uno de ellos. */
+function uuidsDe(opf: string, unico: string): string[] {
+  const todos = [unico, ...[...opf.matchAll(/<dc:identifier\b[^>]*>([^<]*)</g)].map((m) => m[1].trim())];
+  return [...new Set(todos.map((x) => x.replace(/^urn:uuid:/i, '').replace(/[-\s]/g, '').toLowerCase()).filter((x) => /^[0-9a-f]{32}$/.test(x)))];
+}
+
+const CABECERAS_SFNT = [0x00010000, 0x4f54544f, 0x74727565, 0x774f4646, 0x774f4632];
+
+/** Quita la ofuscación de Adobe (XOR de los 1024 primeros bytes con el UUID); comprueba que salga una fuente. */
+export function desofuscarAdobe(d: Uint8Array, uuids: string[]): Uint8Array | undefined {
+  for (const u of uuids) {
+    const clave = Uint8Array.from(u.match(/../g)!.map((x) => parseInt(x, 16)));
+    const r = d.slice();
+    for (let i = 0; i < Math.min(1024, r.length); i++) r[i] ^= clave[i % 16];
+    if (r.length >= 4 && CABECERAS_SFNT.includes(new DataView(r.buffer).getUint32(0))) return r;
+  }
+  return undefined;
 }
 
 function atributo(xml: string, etiqueta: string, attr: string): string | undefined {

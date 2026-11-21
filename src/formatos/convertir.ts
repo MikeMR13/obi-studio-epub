@@ -133,6 +133,12 @@ export interface OpcionesConversion {
   aspectos?: boolean;
   /** Estilo de párrafo propio que corresponde a este párrafo del original (conversión sencilla). */
   estiloPropio?: (n: Nodo) => string | undefined;
+  /** Párrafos de símbolos que son separadores de escena del original (además de los habituales). */
+  esSeparador?: (texto: string) => boolean;
+  /** ¿Esta imagen es el separador de escena del original? */
+  imagenSeparador?: (src: string) => boolean;
+  /** Clases cuyo CSS no se convierte en marcas ni aspecto (capitulares hechas con un span). */
+  ignorarClases?: Set<string>;
   /**
    * Conservar el espacio propio de cada párrafo que se aparte del general (márgenes de sus clases CSS).
    * El margen escrito en el propio párrafo (atributo style, como lo escribe Obi Studio) se lee siempre.
@@ -164,7 +170,7 @@ const CLASES_PROPIAS = new Set<string>(ESTILOS_PARRAFO.map((e) => e.id));
 function estiloDeNodo(n: Nodo, o: OpcionesConversion): EstiloCss {
   let e: EstiloCss = {};
   // Las clases de estilo de párrafo de Obi Studio ya se traducen a estilos; no se convierten en marcas.
-  for (const c of clases(n)) if (!CLASES_PROPIAS.has(c) && !c.startsWith('ep-')) e = { ...e, ...(o.css.get(c) ?? {}) };
+  for (const c of clases(n)) if (!CLASES_PROPIAS.has(c) && !c.startsWith('ep-') && !o.ignorarClases?.has(c)) e = { ...e, ...(o.css.get(c) ?? {}) };
   const enLinea = attr(n, 'style');
   if (enLinea) e = { ...e, ...estiloDeDeclaraciones(enLinea) };
   return e;
@@ -349,6 +355,10 @@ export function convertirBloques(raiz: Nodo, o: OpcionesConversion, idiomaLibro?
   const anadirImagen = (n: Nodo, pie?: string): boolean => {
     const s = srcImagen(n);
     if (!s) return false;
+    if (!pie && o.imagenSeparador?.(s.src)) {
+      actual().bloques.push({ tipo: 'separador' });
+      return true;
+    }
     const id = o.imagen(s.src);
     if (!id) return false;
     const decorativa = attr(n, 'role') === 'presentation' || (nombre(n) === 'img' && n.getAttribute?.('alt') === '' && !pie);
@@ -395,7 +405,7 @@ export function convertirBloques(raiz: Nodo, o: OpcionesConversion, idiomaLibro?
       if (o.vacios && nodo) actual().bloques.push({ tipo: 'parrafo', estilo: 'cuerpo', contenido: [], ...espacioDe(nodo) });
       return;
     }
-    if (SEPARADOR.test(plano) && !contenido.some((i) => i.tipo === 'nota')) {
+    if ((SEPARADOR.test(plano) || o.esSeparador?.(plano.trim())) && !contenido.some((i) => i.tipo === 'nota')) {
       actual().bloques.push({ tipo: 'separador' });
       return;
     }

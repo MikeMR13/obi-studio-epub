@@ -141,6 +141,16 @@ export interface OpcionesImportacion {
   vacios?: boolean;
   /** Espacio general del párrafo del original: los que se aparten de él conservan el suyo. */
   espaciado?: { arriba: number; abajo: number };
+  /** Tamaño, color y fondo que dan las clases CSS a los fragmentos. */
+  aspectos?: boolean;
+  /** Estilo propio del libro que corresponde a cada párrafo del original. */
+  estiloPropio?: (n: Nodo) => string | undefined;
+  /** Párrafos de símbolos que son separadores de escena del original. */
+  esSeparador?: (texto: string) => boolean;
+  /** Nombre del archivo de la imagen que hace de separador de escena en el original. */
+  separadorImagen?: string;
+  /** Clases de capitulares hechas con un span (no se convierte su tamaño). */
+  ignorarClases?: string[];
 }
 
 export async function importarEpub(datos: Uint8Array, importacion: OpcionesImportacion = {}): Promise<ResultadoImportacion> {
@@ -317,8 +327,21 @@ export async function importarEpub(datos: Uint8Array, importacion: OpcionesImpor
   };
 
   let rutaActual = '';
+  let idSeparador: string | undefined;
+  const { separadorImagen, ignorarClases, ...resto } = importacion;
   const opciones: OpcionesConversion = {
-    ...importacion,
+    ...resto,
+    ...(ignorarClases?.length ? { ignorarClases: new Set(ignorarClases) } : {}),
+    ...(separadorImagen
+      ? {
+          imagenSeparador: (src: string) => {
+            const ruta = resolverRuta(rutaActual, src);
+            if (ruta.split('/').pop() !== separadorImagen) return false;
+            idSeparador ??= anadirRecurso(ruta);
+            return !!idSeparador;
+          },
+        }
+      : {}),
     css,
     imagen: (src) => anadirRecurso(resolverRuta(rutaActual, src)),
     rutaCruda: (src) => {
@@ -431,7 +454,7 @@ export async function importarEpub(datos: Uint8Array, importacion: OpcionesImpor
     },
     secciones: finales,
     recursos,
-    tema: { ...TEMA_PREDETERMINADO },
+    tema: { ...TEMA_PREDETERMINADO, ...(idSeparador ? { separador: 'imagen' as const, separadorImagen: idSeparador } : {}) },
     tipografia: { ...TIPOGRAFIA_PREDETERMINADA },
     ...(vertical ? { escritura: 'vertical' as const } : {}),
   };
@@ -441,6 +464,7 @@ export async function importarEpub(datos: Uint8Array, importacion: OpcionesImpor
   // Recursos no usados (p. ej. imágenes del manifiesto que nadie muestra) quedan fuera.
   const usadosIds = new Set<string>();
   if (libro.metadatos.portada) usadosIds.add(libro.metadatos.portada);
+  if (libro.tema.separadorImagen) usadosIds.add(libro.tema.separadorImagen);
   for (const s of libro.secciones) for (const b of [...s.bloques, ...(s.imagenCabecera ? [{ tipo: 'imagen', recurso: s.imagenCabecera } as const] : [])]) {
     if (b.tipo === 'imagen') usadosIds.add(b.recurso);
     if (b.tipo === 'crudo') for (const r of recursos) if (b.xhtml.includes(rutaImagen(r.nombre))) usadosIds.add(r.id);

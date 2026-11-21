@@ -15,7 +15,7 @@ import { buscarFuentesSistema, type FamiliaSistema } from '../src/fuentes-sistem
 import { ErrorImagen, girar, libroConImagenesOptimizadas, recortar } from '../src/procesar-imagen.js';
 import { esVertical } from '../src/model.js';
 import { revisarCss, type ProblemaCss } from '../src/css-propio.js';
-import { disenoDeDocx, disenoDeEpub, type DisenoOriginal } from '../src/diseno-original.js';
+import { asignadorEstilos, disenoDeDocx, disenoDeEpub, pareceSeparador, type DisenoOriginal } from '../src/diseno-original.js';
 import { PAPELES_KDP, archivosCubierta, cubiertaCompleta, medidasCubierta, posprocesarCubierta, revisarCubierta, type AvisoCubierta, type MedidasCubierta } from '../src/cubierta.js';
 import { ArchivoConfiguracion } from '../src/configuracion.js';
 import { CATALOGO_INTEGRADO, ListaCatalogos, archivoCatalogos, leerCatalogo, normalizarUrlCatalogo, paqueteDeCatalogo, versionMayor, type EntradaCatalogo } from '../src/catalogo.js';
@@ -95,6 +95,14 @@ export interface OpcionesConversionSencilla {
   espacioTitulos: boolean;
   espaciadoLetras: boolean;
   titulos: boolean;
+  /** Otros tipos de párrafo del original (citas, cartas…) como estilos propios del libro. */
+  estilosParrafo: boolean;
+  /** Tamaño, color y fondo de fragmentos que vienen de las clases CSS. */
+  aspectos: boolean;
+  /** Separador de escena del original (ornamento o imagen). */
+  separadores: boolean;
+  /** Letra capitular y primera línea destacada del original. */
+  capitular: boolean;
   fuentesArchivo: boolean;
   fuentesSistema: boolean;
   optimizarImagenes: boolean;
@@ -108,6 +116,10 @@ export const OPCIONES_CONVERSION: OpcionesConversionSencilla = {
   espacioTitulos: true,
   espaciadoLetras: true,
   titulos: true,
+  estilosParrafo: true,
+  aspectos: true,
+  separadores: true,
+  capitular: true,
   fuentesArchivo: true,
   fuentesSistema: true,
   optimizarImagenes: false,
@@ -617,7 +629,7 @@ export class Backend {
         return { familia: f.familia, archivo: f.nombre, permiso: { incrustable: false, subconjunto: false, tipo: 'restringida' as const } };
       }
     });
-    const familias = [...new Set([diseno?.familiaTexto, diseno?.familiaTitulos].filter((x): x is string => !!x))];
+    const familias = [...new Set([diseno?.familiaTexto, diseno?.familiaTitulos, ...(diseno?.estilos ?? []).map((e) => e.familia)].filter((x): x is string => !!x))];
     const sistema = await this.fuentesSistema().catch(() => [] as FamiliaSistema[]);
     const letras = familias.map((familia) => {
       const igual = (x: string) => x.toLowerCase() === familia.toLowerCase();
@@ -625,7 +637,7 @@ export class Backend {
       const instalada = sistema.find((f) => igual(f.familia) && f.caras.some((c) => c.permiso.incrustable));
       return { familia, origen: archivo ? ('archivo' as const) : instalada ? ('sistema' as const) : ('falta' as const) };
     });
-    const { fuentes: _f, ...resto } = diseno ?? { fuentes: [] };
+    const { fuentes: _f, css: _c, ...resto } = diseno ?? { fuentes: [] };
     return {
       nombre,
       tipo: ext,
@@ -655,7 +667,14 @@ export class Backend {
     try {
       r =
         ext === 'epub'
-          ? await importarEpub(p.datos, { vacios: op.lineasEnBlanco, ...(op.espacioPorParrafo && d?.espacio ? { espaciado: { arriba: d.espacio.arriba, abajo: d.espacio.abajo } } : {}) })
+          ? await importarEpub(p.datos, {
+              vacios: op.lineasEnBlanco,
+              ...(op.espacioPorParrafo && d?.espacio ? { espaciado: { arriba: d.espacio.arriba, abajo: d.espacio.abajo } } : {}),
+              ...(op.aspectos ? { aspectos: true } : {}),
+              ...(op.estilosParrafo && d?.css && d.estilos?.length ? { estiloPropio: asignadorEstilos(d.css, d.estilos) } : {}),
+              ...(op.separadores ? { esSeparador: pareceSeparador, ...(d?.separador?.imagen ? { separadorImagen: d.separador.imagen } : {}) } : {}),
+              ...(d?.clasesCapitular?.length ? { ignorarClases: d.clasesCapitular } : {}),
+            })
           : await importarDocx(p.datos, { vacios: op.lineasEnBlanco });
     } catch (e) {
       throw new ErrorUsuario(`No se pudo abrir el archivo: ${(e as Error).message}`);
@@ -694,6 +713,25 @@ export class Backend {
         Object.assign(cambios, d.titulos);
         conservado.push('estilo de los títulos');
       }
+      if (op.titulos && d.subtitulo) {
+        cambios.subtitulo = d.subtitulo;
+        conservado.push('estilo de los subtítulos');
+      }
+      if (op.estilosParrafo && d.estilos?.length) {
+        cambios.estilosParrafo = d.estilos.map(({ clave: _k, familia: _f, parrafos: _p, ...e }) => e);
+        conservado.push(d.estilos.length === 1 ? 'un estilo de párrafo propio' : `${d.estilos.length} estilos de párrafo propios`);
+      }
+      if (op.separadores && d.separador?.texto) {
+        cambios.separador = 'texto';
+        cambios.separadorTexto = d.separador.texto;
+        conservado.push(`separador de escena «${d.separador.texto}»`);
+      } else if (op.separadores && d.separador?.imagen && this.libro.tema.separador === 'imagen') conservado.push('imagen del separador de escena');
+      if (op.capitular && (d.capitular || d.primeraLinea)) {
+        if (d.capitular) cambios.capitular = 'letra';
+        if (d.primeraLinea) cambios.primeraLinea = true;
+        conservado.push(d.capitular && d.primeraLinea ? 'letra capitular y primera línea' : d.capitular ? 'letra capitular' : 'primera línea destacada');
+      }
+      if (op.aspectos) conservado.push('tamaño y color del texto');
       if (Object.keys(cambios).length) this.libro.tema = { ...temaCompleto(this.libro), ...validarTema(cambios), nombre: 'Diseño original' };
       if (op.espacioPorParrafo && d.parrafosConEspacio) conservado.push('espacio propio de cada párrafo');
       if (op.lineasEnBlanco && d.lineasEnBlanco) conservado.push('líneas en blanco');
@@ -708,7 +746,7 @@ export class Backend {
           }
         }
       }
-      const elegir = async (familia: string | undefined, campo: 'fuenteTexto' | 'fuenteTitulos') => {
+      const elegir = async (familia: string | undefined, campo: 'fuenteTexto' | 'fuenteTitulos' | ((id: string) => void)) => {
         if (!familia || (!op.fuentesArchivo && !op.fuentesSistema)) return;
         const igual = (x: string) => x.toLowerCase() === familia.toLowerCase();
         let f = op.fuentesArchivo ? this.libro.fuentesPropias?.find((x) => igual(x.familia)) : undefined;
@@ -723,13 +761,24 @@ export class Backend {
             }
           }
         }
-        if (f) {
-          this.libro.tema = { ...temaCompleto(this.libro), [campo]: PREFIJO + f.id };
+        if (f && typeof campo === 'function') campo(PREFIJO + f.id);
+        else if (f) {
+          this.libro.tema = { ...temaCompleto(this.libro), [campo as 'fuenteTexto' | 'fuenteTitulos']: PREFIJO + f.id };
           if (!conservado.includes(`letra «${f.familia}»`)) conservado.push(`letra «${f.familia}»`);
         } else avisos.push(`La letra «${familia}» no se pudo usar: se usa Literata.`);
       };
       await elegir(d.familiaTexto, 'fuenteTexto');
       await elegir(d.familiaTitulos ?? d.familiaTexto, 'fuenteTitulos');
+      // Letras de los estilos de párrafo propios.
+      if (op.estilosParrafo) {
+        for (const e of d.estilos ?? []) {
+          if (!e.familia) continue;
+          await elegir(e.familia, (fuente) => {
+            const t = temaCompleto(this.libro);
+            this.libro.tema = { ...t, estilosParrafo: (t.estilosParrafo ?? []).map((x) => (x.id === e.id ? { ...x, fuente } : x)) };
+          });
+        }
+      }
     }
     if (op.optimizarImagenes) this.libro.optimizarImagenes = true;
     else conservado.push('imágenes originales');

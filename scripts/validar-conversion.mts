@@ -23,17 +23,31 @@ body { font-family: "Libro", serif; }
 p { text-indent: 1.5em; margin: 0 0 0.4em; line-height: 1.6; text-align: justify; letter-spacing: 0.02em; word-spacing: 0.1em; }
 p.aparte { margin-top: 2em; }
 h1 { font-family: "Crimson Text", serif; text-align: left; color: #336699; margin-top: 3em; text-transform: uppercase; }
+h2 { text-align: center; color: #884400; font-size: 1.3em; }
+p.carta { font-style: italic; margin-left: 10%; text-indent: 0; }
+p.nota { font-size: 14px; color: #666666; text-align: right; }
+div.recuerdo p { font-weight: bold; }
+p.escena { text-align: center; text-indent: 0; }
+span.grande { font-size: 1.3em; color: #aa0000; }
+span.marcado { background-color: #ffee88; }
+p.inicio::first-letter { float: left; font-size: 3em; }
 img { max-width: 100%; }`;
 
 const CAPITULO = `<?xml version="1.0" encoding="utf-8"?>
 <!DOCTYPE html><html xmlns="http://www.w3.org/1999/xhtml" xml:lang="es"><head><title>Uno</title><link rel="stylesheet" href="../Styles/estilo.css"/></head>
 <body><h1>Capítulo uno</h1>
-<p>Primer párrafo con el diseño general del libro original.</p>
+<p class="inicio">Primer párrafo con el diseño general del libro original.</p>
 <p>Segundo párrafo, seguido del primero.</p>
 <p>&#160;</p>
 <p class="aparte">Párrafo que en el original va más separado.</p>
 <p>Último <b>párrafo</b> con <i>formato</i>.</p>
 <p><img src="../Images/foto.png" alt="Una foto"/></p>
+<h2>Una parte</h2>
+<p>Texto con una palabra <span class="grande">grande</span> y otra <span class="marcado">marcada</span>.</p>
+<p class="carta">Querida amiga: esto es una carta.</p>
+<p class="escena">❖ ❖ ❖</p>
+<p class="nota">Nota del autor, pequeña y a la derecha.</p>
+<div class="recuerdo"><p>Un recuerdo en negrita.</p></div>
 </body></html>`;
 
 async function epubOrigen(): Promise<Uint8Array> {
@@ -79,7 +93,7 @@ async function estilos(archivos: Map<string, string | Uint8Array>, capitulo: str
   // Como texto: esbuild añade ayudas (__name) que no existen en la página.
   const res = (await p.evaluate(`(() => {
     const ps = [...document.querySelectorAll('p')].filter((x) => !x.querySelector('img'));
-    const cs = (e) => getComputedStyle(e);
+    const cs = (e, p) => (e ? getComputedStyle(e, p) : {});
     const px = (v) => Math.round(parseFloat(v) * 10) / 10;
     const general = ps[1];
     const aparte = ps.find((x) => x.textContent.includes('más separado'));
@@ -101,6 +115,20 @@ async function estilos(archivos: Map<string, string | Uint8Array>, capitulo: str
       espacioTitulo: px(cs(h).marginTop),
       bajoTitulo: px(cs(h).marginBottom),
       sangriaTrasTitulo: px(cs(ps[0]).textIndent),
+      cartaCursiva: cs(ps.find((x) => x.textContent.includes('carta'))).fontStyle,
+      cartaMargen: px(cs(ps.find((x) => x.textContent.includes('carta'))).marginLeft),
+      notaTamano: px(cs(ps.find((x) => x.textContent.includes('Nota del'))).fontSize),
+      notaColor: cs(ps.find((x) => x.textContent.includes('Nota del'))).color,
+      notaAlineacion: cs(ps.find((x) => x.textContent.includes('Nota del'))).textAlign,
+      recuerdoPeso: cs(ps.find((x) => x.textContent.includes('recuerdo'))).fontWeight,
+      grandeTamano: px(cs([...document.querySelectorAll('span')].find((x) => x.textContent === 'grande')).fontSize),
+      grandeColor: cs([...document.querySelectorAll('span')].find((x) => x.textContent === 'grande')).color,
+      marcadoFondo: cs([...document.querySelectorAll('span')].find((x) => x.textContent === 'marcada')).backgroundColor,
+      separador: (document.querySelector('.escena, p.escena') || {}).textContent?.trim() ?? '',
+      subtituloColor: document.querySelector('h2') ? cs(document.querySelector('h2')).color : '',
+      subtituloAlineacion: document.querySelector('h2') ? cs(document.querySelector('h2')).textAlign : '',
+      subtituloTamano: document.querySelector('h2') ? px(cs(document.querySelector('h2')).fontSize) : '',
+      capitular: cs(ps[0], '::first-letter').cssFloat,
       fuenteCargada: document.fonts.check(\`16px "\${cs(general).fontFamily.split(',')[0].replace(/["']/g, '')}"\`),
     };
 })()`)) as Record<string, string | number | boolean>;

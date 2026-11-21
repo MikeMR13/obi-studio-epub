@@ -37,7 +37,10 @@ export function ConversionPasos({ analisis, ocupado, onCancelar, onConvertir }: 
     d?.titulos.colorTitulos ? t('color {0}', { 0: d.titulos.colorTitulos }) : '',
     d?.titulos.tituloEnMayusculas ? t('en mayúsculas') : d?.titulos.tituloMayusculas ? t('en versalitas') : '',
     d?.titulos.tituloTamano ? t('tamaño {0}', { 0: em(d.titulos.tituloTamano) }) : '',
+    d?.subtitulo ? t('y subtítulos') : '',
   ].filter(Boolean);
+  const estilos = d?.estilos ?? [];
+  const sep = d?.separador;
   const letrasArchivo = [...new Set(analisis.fuentesArchivo.filter((f) => f.permiso.incrustable).map((f) => f.familia).filter(Boolean))];
   const bloqueadas = analisis.fuentesArchivo.filter((f) => !f.permiso.incrustable);
   const instaladas = analisis.letras.filter((l) => l.origen === 'sistema').map((l) => l.familia);
@@ -50,6 +53,31 @@ export function ConversionPasos({ analisis, ocupado, onCancelar, onConvertir }: 
       opciones: [
         { clave: 'parrafos', titulo: t('Forma de los párrafos'), detalle: detallesParrafo.join(' · '), disponible: detallesParrafo.length > 0 },
         { clave: 'titulos', titulo: t('Estilo de los títulos'), detalle: detallesTitulos.join(' · '), disponible: detallesTitulos.length > 0 },
+      ],
+    },
+    {
+      titulo: t('Estilos y adornos'),
+      opciones: [
+        {
+          clave: 'estilosParrafo',
+          titulo: t('Otros tipos de párrafo'),
+          detalle: estilos.length ? t('{0} tipos (citas, cartas, notas…): {1}', { 0: estilos.length, 1: estilos.slice(0, 4).map((e) => e.nombre.replace(/^Original: /, '')).join(', ') + (estilos.length > 4 ? '…' : '') }) : '',
+          disponible: estilos.length > 0,
+          ayuda: t('Se guardan como estilos del libro: puedes cambiarlos después en Diseño.'),
+        },
+        { clave: 'aspectos', titulo: t('Tamaño y color del texto'), detalle: d?.fragmentosConAspecto ? t('{0} fragmentos con tamaño, color o fondo propios', { 0: d.fragmentosConAspecto }) : '', disponible: !!d?.fragmentosConAspecto },
+        {
+          clave: 'separadores',
+          titulo: t('Separador de escena'),
+          detalle: sep?.texto ? t('«{0}» ({1} veces)', { 0: sep.texto, 1: sep.veces }) : sep?.imagen ? t('imagen {0} ({1} veces)', { 0: sep.imagen, 1: sep.veces }) : '',
+          disponible: !!sep,
+        },
+        {
+          clave: 'capitular',
+          titulo: t('Letra capitular y primera línea'),
+          detalle: [d?.capitular ? t('capitular') : '', d?.primeraLinea ? t('primera línea destacada') : ''].filter(Boolean).join(' · '),
+          disponible: !!(d?.capitular || d?.primeraLinea),
+        },
       ],
     },
     {

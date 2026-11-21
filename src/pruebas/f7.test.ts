@@ -302,7 +302,7 @@ span.negr { font-weight: bold; }
 
   // Sin conservar nada: tema predeterminado, sin líneas en blanco ni espacios propios.
   await b.analizarConversion('ajeno.epub', datos);
-  const nada = Object.fromEntries(Object.keys(r).length ? ['parrafos', 'espacioParrafos', 'espacioPorParrafo', 'lineasEnBlanco', 'espacioTitulos', 'espaciadoLetras', 'titulos', 'fuentesArchivo', 'fuentesSistema'].map((x) => [x, false]) : []);
+  const nada = Object.fromEntries(Object.keys(r).length ? ['parrafos', 'espacioParrafos', 'espacioPorParrafo', 'lineasEnBlanco', 'espacioTitulos', 'espaciadoLetras', 'titulos', 'estilosParrafo', 'aspectos', 'separadores', 'capitular', 'fuentesArchivo', 'fuentesSistema'].map((x) => [x, false]) : []);
   const r2 = await b.conversionSencilla(nada);
   assert.notEqual(b.libro.tema.nombre, 'Diseño original');
   assert.equal(b.libro.fuentesPropias, undefined);
@@ -398,4 +398,121 @@ test('Estilos propios, tamaño y color de fragmentos, subtítulos y separador de
   const c2 = copia.secciones.find((s) => s.tipo === 'capitulo')!.bloques;
   assert.deepEqual(c2[0], cap.bloques[0], 'el párrafo sin cambios se queda igual, con su tamaño y color');
   assert.ok(c2[3].tipo === 'parrafo' && c2[3].clase === 'carta' && JSON.stringify(c2[3]).includes('hoy'));
+});
+
+test('Conversión sencilla fiel: tipos de párrafo, unidades, fragmentos, separadores, capitular, subtítulos, WOFF2 y fuentes de Adobe', async () => {
+  const { readFileSync } = await import('node:fs');
+  const { join } = await import('node:path');
+  const { mkdtemp } = await import('node:fs/promises');
+  const { tmpdir } = await import('node:os');
+  const { Backend } = await import('../../app/backend.js');
+  const { temaDeCss, desofuscarAdobe, asignadorEstilos } = await import('../diseno-original.js');
+  const { woff2ASfnt } = await import('../woff2.js');
+  const { hojaDeCss, firmaParrafo } = await import('../estilo-calculado.js');
+  const { analizarXhtml, todos, nombre } = await import('../formatos/dom.js');
+
+  // WOFF2 (con glyf, loca y hmtx transformadas) → TrueType con las mismas tablas básicas.
+  const woff2 = new Uint8Array(readFileSync(join(import.meta.dirname, 'fuentes', 'CrimsonText-Bold.woff2')));
+  const ttf = woff2ASfnt(woff2)!;
+  assert.ok(ttf, 'se lee el WOFF2');
+  const { leerFuentePropia } = await import('../fuentes-propias.js');
+  const info = leerFuentePropia(ttf);
+  assert.equal(info.familia, 'Crimson Text');
+  assert.equal(woff2ASfnt(new Uint8Array(40)), undefined);
+
+  // Ofuscación de Adobe: XOR de 1024 bytes con el UUID.
+  const regular = new Uint8Array(readFileSync(join(import.meta.dirname, 'fuentes', 'CrimsonText-Regular.ttf')));
+  const uuid = '0f1e2d3c4b5a69788796a5b4c3d2e1f0';
+  const clave = Uint8Array.from(uuid.match(/../g)!.map((x) => parseInt(x, 16)));
+  const adobe = regular.slice();
+  for (let i = 0; i < 1024; i++) adobe[i] ^= clave[i % 16];
+  assert.deepEqual(desofuscarAdobe(adobe, ['ffffffffffffffffffffffffffffffff', uuid]), regular);
+  assert.equal(desofuscarAdobe(adobe, ['ffffffffffffffffffffffffffffffff']), undefined);
+
+  // Cascada: tamaño base en px, porcentajes, descendientes, especificidad y medidas en em del propio párrafo.
+  const hoja = hojaDeCss('html { font-size: 20px; } p { text-indent: 2em; margin: 0; } .cita p { margin-left: 10%; font-style: italic; } p#x.y { text-indent: 0; } p.peq { font-size: 15px; text-indent: 30px; } .a { margin-top: 5vh; }');
+  const doc = analizarXhtml('<html xmlns="http://www.w3.org/1999/xhtml"><body><div class="cita"><p>Uno</p></div><p id="x" class="y">Dos</p><p class="peq a">Tres</p></body></html>').documento;
+  const ps = todos(doc, (n) => nombre(n) === 'p');
+  const [f1, f2, f3] = ps.map((p) => firmaParrafo(hoja, p));
+  assert.equal(f1.izquierda, 3);
+  assert.equal(f1.cursiva, true);
+  assert.equal(f1.sangria, 2);
+  assert.equal(f2.sangria, 0, 'gana el selector más específico');
+  assert.equal(f3.tamano, 0.75, '15 px con base de 20 px');
+  assert.equal(f3.sangria, 2, '30 px en em del párrafo (15 px)');
+  assert.ok(hoja.ignoradas.has('vh'));
+
+  // Análisis: estilo general por aspecto (no por clase), otros tipos, separador, capitular y subtítulos.
+  const css = `p, p.normal { text-indent: 1em; } p.carta { font-style: italic; text-indent: 0; margin-left: 2em; } p.firma { text-align: right; font-size: 0.9em; color: #555555; }
+.escena { text-align: center; } h2 { color: #aa3300; text-align: center; font-size: 1.4em; } p.ini::first-letter { float: left; font-size: 3em; } span.cap { float: left; font-size: 2.5em; }
+span.rojo { color: #cc0000; } p.ini::first-line { font-variant: small-caps; }`;
+  const cuerpo = (x: string) => `<?xml version="1.0" encoding="utf-8"?><html xmlns="http://www.w3.org/1999/xhtml"><head><title>x</title></head><body>${x}</body></html>`;
+  const capitulo = cuerpo(
+    `<h1>Uno</h1><p class="ini"><span class="cap">E</span>ra una vez.</p><p class="normal">Dos.</p><p>Tres <span class="rojo">rojo</span>.</p><p class="normal">Cuatro.</p><p class="escena">✽ ✽ ✽</p><p class="carta">Querido diario.</p><p class="carta">Sigo.</p><h2>Parte</h2><p class="firma">El autor</p><p><img src="../Images/orn.png" alt=""/></p><p>Cinco.</p><p><img src="../Images/orn.png" alt=""/></p>`,
+  );
+  const d = temaDeCss(css, [capitulo]);
+  assert.equal(d.tema.sangria, 1, 'p y p.normal tienen el mismo aspecto: un solo estilo general');
+  const nombres = d.estilos!.map((e) => e.nombre);
+  assert.ok(nombres.includes('Original: carta') && nombres.includes('Original: firma'), nombres.join());
+  const carta = d.estilos!.find((e) => e.nombre === 'Original: carta')!;
+  assert.equal(carta.cursiva, true);
+  assert.equal(carta.sangria, 0);
+  assert.equal(carta.izquierda, 2);
+  const firma = d.estilos!.find((e) => e.nombre === 'Original: firma')!;
+  assert.deepEqual([firma.alinear, firma.tamano, firma.color], ['derecha', 0.9, '#555555']);
+  assert.deepEqual(d.subtitulo, { alinear: 'centro', color: '#aa3300', tamano: 1.4 });
+  assert.equal(d.capitular, true);
+  assert.equal(d.primeraLinea, true);
+  assert.deepEqual(d.clasesCapitular, ['cap']);
+  assert.deepEqual(d.separador, { imagen: 'orn.png', veces: 2 }, 'la imagen repetida gana al ornamento usado una vez');
+  assert.equal(d.fragmentosConAspecto, 1, 'el span rojo (la capitular no cuenta)');
+  const asignar = asignadorEstilos(css, d.estilos!);
+  const pCarta = todos(analizarXhtml(capitulo).documento, (n) => nombre(n) === 'p').find((p) => p.textContent === 'Sigo.')!;
+  assert.equal(asignar(pCarta), carta.id);
+
+  // Conversión completa de un EPUB con estas reglas.
+  const z = new JSZip();
+  z.file('mimetype', 'application/epub+zip', { compression: 'STORE' });
+  z.file('META-INF/container.xml', `<?xml version="1.0"?><container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container"><rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles></container>`);
+  z.file(
+    'OEBPS/content.opf',
+    `<?xml version="1.0" encoding="utf-8"?><package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="id"><metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:identifier id="id">urn:uuid:0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0</dc:identifier><dc:title>Fiel</dc:title><dc:language>es</dc:language><meta property="dcterms:modified">2026-01-01T00:00:00Z</meta></metadata>
+<manifest><item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/><item id="c1" href="Text/uno.xhtml" media-type="application/xhtml+xml"/><item id="css" href="Styles/e.css" media-type="text/css"/><item id="o" href="Images/orn.png" media-type="image/png"/><item id="f" href="Fonts/negrita.woff2" media-type="font/woff2"/><item id="g" href="Fonts/libro.ttf" media-type="font/ttf"/></manifest><spine><itemref idref="c1"/></spine></package>`,
+  );
+  z.file('OEBPS/nav.xhtml', `<?xml version="1.0" encoding="utf-8"?><html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops"><head><title>Índice</title></head><body><nav epub:type="toc"><ol><li><a href="Text/uno.xhtml">Uno</a></li></ol></nav></body></html>`);
+  z.file('OEBPS/Text/uno.xhtml', capitulo.replace('<head><title>x</title>', '<head><title>x</title><link rel="stylesheet" href="../Styles/e.css"/>'));
+  z.file('OEBPS/Styles/e.css', `@font-face { font-family: "Libro"; src: url(../Fonts/libro.ttf); } @font-face { font-family: "Libro"; font-weight: bold; src: url(../Fonts/negrita.woff2); } body { font-family: "Libro"; }\n${css}`);
+  const { pngSolido } = await import('./fixtures.js');
+  z.file('OEBPS/Images/orn.png', pngSolido(200, 40, [0, 0, 0]));
+  z.file('OEBPS/Fonts/negrita.woff2', woff2);
+  z.file('OEBPS/Fonts/libro.ttf', adobe);
+  z.file('META-INF/encryption.xml', `<?xml version="1.0"?><encryption xmlns="urn:oasis:names:tc:opendocument:xmlns:container" xmlns:enc="http://www.w3.org/2001/04/xmlenc#"><enc:EncryptedData><enc:EncryptionMethod Algorithm="http://ns.adobe.com/pdf/enc#RC"/><enc:CipherData><enc:CipherReference URI="OEBPS/Fonts/libro.ttf"/></enc:CipherData></enc:EncryptedData></encryption>`);
+  const datos = await z.generateAsync({ type: 'uint8array' });
+  const b = new Backend(await mkdtemp(join(tmpdir(), 'obi-fiel-')));
+  const a = await b.analizarConversion('fiel.epub', datos);
+  assert.equal(a.fuentesArchivo.length, 2, JSON.stringify(a.fuentesArchivo));
+  assert.equal((a.diseno as Record<string, unknown>).css, undefined, 'el CSS no va a la interfaz');
+  const r = await b.conversionSencilla();
+  const t = b.libro.tema;
+  assert.equal(t.separador, 'imagen');
+  assert.ok(b.libro.recursos.some((x) => x.id === t.separadorImagen));
+  assert.equal(t.capitular, 'letra');
+  assert.equal(t.primeraLinea, true);
+  assert.equal(t.subtitulo?.color, '#aa3300');
+  assert.ok((t.estilosParrafo ?? []).length >= 2);
+  const cap = b.libro.secciones.find((s) => s.bloques.some((x) => x.tipo === 'parrafo'))!;
+  const pc = cap.bloques.find((x) => x.tipo === 'parrafo' && JSON.stringify(x).includes('Querido'));
+  assert.ok(pc?.tipo === 'parrafo' && pc.clase === t.estilosParrafo!.find((e) => e.nombre === 'Original: carta')!.id, JSON.stringify(pc));
+  assert.equal(cap.bloques.filter((x) => x.tipo === 'separador').length, 3, 'el ornamento de texto y las dos imágenes');
+  assert.ok(JSON.stringify(cap.bloques).includes('"color":"#cc0000"'), 'el color del span');
+  assert.ok(!JSON.stringify(cap.bloques).includes('"tamano":2.5'), 'la capitular hecha con un span no agranda la letra');
+  const libro = b.libro.fuentesPropias?.find((f) => f.familia === 'Libro');
+  assert.ok(libro && libro.caras.length === 2, `la fuente de Adobe y la negrita en WOFF2: ${JSON.stringify(b.libro.fuentesPropias)?.slice(0, 300)}`);
+  assert.ok(r.conservado.some((x) => x.includes('estilos de párrafo')), r.conservado.join());
+  const { datos: epub } = await b.exportar();
+  const v = await validarDatos(epub);
+  assert.equal(v.mensajes.length, 0, JSON.stringify(v.mensajes));
+  const { libro: vuelta } = await importarEpub(epub);
+  const pv = vuelta.secciones.flatMap((s) => s.bloques).find((x) => x.tipo === 'parrafo' && JSON.stringify(x).includes('Querido'));
+  assert.ok(pv?.tipo === 'parrafo' && pv.clase === carta.id, 'la clase vuelve en la ida y vuelta');
 });
