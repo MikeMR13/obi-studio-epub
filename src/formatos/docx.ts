@@ -17,6 +17,11 @@ import { rutaImagen } from '../compilar.js';
 const MAPA_SALTOS = ["br[type='page'] => hr.salto-pagina"];
 
 const MAPA_ESTILOS = [
+  'p.ObiSeparador => hr:fresh',
+  "p[style-name='Pie de imagen'] => p.pie-imagen:fresh",
+  "p[style-name='Caption'] => p.pie-imagen:fresh",
+  "p[style-name='Descripción'] => p.pie-imagen:fresh",
+  "p[style-name='Epígrafe'] => p.pie-imagen:fresh",
   "p[style-name='Pensamiento'] => p.pensamiento:fresh",
   "p[style-name='Thought'] => p.pensamiento:fresh",
   "p[style-name='Onomatopeya'] => p.onomatopeya:fresh",
@@ -34,6 +39,8 @@ const MAPA_ESTILOS = [
   "p[style-name='Título'] => h1.titulo-documento:fresh",
   "p[style-name='Subtitle'] => p.subtitulo-documento:fresh",
   "p[style-name='Subtítulo'] => p.subtitulo-documento:fresh",
+  "p[style-name='Author'] => p.autor-documento:fresh",
+  "p[style-name='Autor'] => p.autor-documento:fresh",
   "r[style-name='Versalitas'] => span.vs",
   "r[style-name='Énfasis'] => span.boten",
   "r[style-name='Enfasis'] => span.boten",
@@ -65,10 +72,32 @@ export function rubiesDeTexto(lista: Inline[]): Inline[] {
 }
 
 /** «Salto de página antes» directo de un párrafo de Word: mammoth no lo lee, así que se cambia por un salto al principio. */
-async function conSaltosAntes(datos: Uint8Array): Promise<Uint8Array> {
+/**
+ * Líneas horizontales de Word (separadores de escena): un párrafo vacío con borde, o la «línea horizontal»
+ * (`o:hr`). Mammoth no las ve; se les pone un estilo que el mapa convierte en <hr>.
+ */
+function marcarLineas(doc: string): string {
+  return doc.replace(/<w:p\b[^>]*>(?:(?!<\/w:p>)[\s\S])*?<\/w:p>/g, (p) => {
+    if (/<w:t(?:\s[^>]*)?>[^<]*\S/.test(p) || /<w:drawing\b/.test(p)) return p;
+    const linea = /o:hr="t"/.test(p) || /<w:pBdr>(?:(?!<\/w:pBdr>)[\s\S])*?<w:(bottom|top)\b(?![^>]*w:val="(?:nil|none)")/.test(p);
+    if (!linea) return p;
+    const sinFiguras = p.replace(/<w:r\b(?:(?!<\/w:r>)[\s\S])*?<w:pict\b[\s\S]*?<\/w:r>/g, '');
+    if (/<w:pPr>/.test(sinFiguras)) return sinFiguras.replace(/<w:pPr>(\s*<w:pStyle\b[^>]*\/>)?/, '<w:pPr><w:pStyle w:val="ObiSeparador"/>');
+    return sinFiguras.replace(/(<w:p\b[^>]*>)/, '$1<w:pPr><w:pStyle w:val="ObiSeparador"/></w:pPr>');
+  });
+}
+
+async function conSaltosAntes(datos: Uint8Array, saltos = true): Promise<Uint8Array> {
   const zip = await JSZip.loadAsync(datos);
-  const doc = await zip.file('word/document.xml')?.async('string');
-  if (!doc || !/<w:pageBreakBefore(?![^>]*w:val="(0|false|off)")[^>]*\/>/.test(doc)) return datos;
+  const original = await zip.file('word/document.xml')?.async('string');
+  if (!original) return datos;
+  const doc = marcarLineas(original);
+  const conSaltos = saltos && /<w:pageBreakBefore(?![^>]*w:val="(0|false|off)")[^>]*\/>/.test(doc);
+  if (!conSaltos) {
+    if (doc === original) return datos;
+    zip.file('word/document.xml', doc);
+    return zip.generateAsync({ type: 'uint8array' });
+  }
   const nuevo = doc.replace(/(<w:p\b[^>]*>)(\s*<w:pPr>(?:(?!<\/w:pPr>)[\s\S])*?<w:pageBreakBefore(?![^>]*w:val="(?:0|false|off)")[^>]*\/>[\s\S]*?<\/w:pPr>)/g, '$1$2<w:r><w:br w:type="page"/></w:r>');
   zip.file('word/document.xml', nuevo);
   return zip.generateAsync({ type: 'uint8array' });
@@ -80,6 +109,24 @@ export function contarSaltosWord(documentXml: string): number {
 }
 
 const MARCADOR_SALTO_WORD = /^⟦Salto de página[^⟧]*⟧$/;
+
+/** Un pie de imagen (estilo «Pie de imagen» o «Descripción» de Word) justo después de una imagen: figure con figcaption. */
+function piesDeImagen(cuerpo: Nodo) {
+  type Elemento = Nodo & { ownerDocument: { createElement(n: string): Nodo }; previousElementSibling?: Nodo | null };
+  for (const pie of todos(cuerpo, (n) => nombre(n) === 'p' && attr(n, 'class').split(/\s+/).includes('pie-imagen'))) {
+    const previo = (pie as Elemento).previousElementSibling;
+    const img = previo && nombre(previo) === 'p' && !texto(previo).trim() ? todos(previo, (n) => nombre(n) === 'img') : [];
+    if (!previo || img.length !== 1) continue;
+    const doc = (pie as Elemento).ownerDocument;
+    const figura = doc.createElement('figure') as Nodo & { appendChild(x: Nodo): void };
+    const leyenda = doc.createElement('figcaption') as Nodo & { appendChild(x: Nodo): void };
+    for (const h of [...(pie as unknown as { childNodes: Nodo[] }).childNodes]) leyenda.appendChild(h);
+    (previo.parentNode as unknown as { insertBefore(a: Nodo, b: Nodo): void }).insertBefore(figura, previo);
+    figura.appendChild(img[0]);
+    figura.appendChild(leyenda);
+    for (const x of [previo, pie]) (x.parentNode as unknown as { removeChild(y: Nodo): void }).removeChild(x);
+  }
+}
 
 /** Saca los saltos de página (hr.salto-pagina que mammoth deja dentro del párrafo) a un div entre dos párrafos. */
 function sacarSaltos(cuerpo: Nodo) {
@@ -122,7 +169,7 @@ export async function importarDocx(
   const usados = new Set<string>();
 
   const saltos = importacion.saltos !== false;
-  if (saltos) datos = await conSaltosAntes(datos);
+  datos = await conSaltosAntes(datos, saltos);
   const buffer = Buffer.from(datos.buffer, datos.byteOffset, datos.byteLength);
   const resultado = await mammoth.convertToHtml(
     { buffer },
@@ -171,6 +218,7 @@ export async function importarDocx(
   const documento = analizarHtml(resultado.value);
   const cuerpo = buscar(documento, (n) => nombre(n) === 'body')!;
   sacarSaltos(cuerpo);
+  piesDeImagen(cuerpo);
 
   // Notas al pie y finales de mammoth: <a href="#footnote-1" id="footnote-ref-1"> y <li id="footnote-1">.
   const cuerpos = new Map<string, Nodo>();
@@ -186,10 +234,13 @@ export async function importarDocx(
     const padre = n?.parentNode as unknown as { removeChild(x: unknown): void } | undefined;
     if (n && padre) padre.removeChild(n);
   };
+  const autorDoc = buscar(cuerpo, (n) => nombre(n) === 'p' && attr(n, 'class').includes('autor-documento'));
   const tituloTexto = tituloDoc ? texto(tituloDoc).trim() : '';
   const subtituloTexto = subtituloDoc ? texto(subtituloDoc).trim() : '';
+  const autorTexto = autorDoc ? texto(autorDoc).trim() : '';
   quitar(tituloDoc);
   quitar(subtituloDoc);
+  quitar(autorDoc);
 
   const opciones: OpcionesConversion = {
     vacios: importacion.vacios,
@@ -258,6 +309,7 @@ export async function importarDocx(
   // Metadatos de docProps/core.xml.
   let tituloCore = '';
   let autorCore = '';
+  let idiomaWord = '';
   try {
     const zip = await JSZip.loadAsync(datos);
     const core = await zip.file('docProps/core.xml')?.async('string');
@@ -265,6 +317,12 @@ export async function importarDocx(
       const x = analizarXml(core);
       tituloCore = texto(buscar(x, (n) => nombre(n) === 'title') ?? ({ textContent: '' } as Nodo)).trim();
       autorCore = texto(buscar(x, (n) => nombre(n) === 'creator') ?? ({ textContent: '' } as Nodo)).trim();
+      idiomaWord = texto(buscar(x, (n) => nombre(n) === 'language') ?? ({ textContent: '' } as Nodo)).trim();
+    }
+    // Si no, el idioma predeterminado de los estilos (w:docDefaults), que Word pone siempre.
+    if (!idiomaWord) {
+      const estilos = (await zip.file('word/styles.xml')?.async('string')) ?? '';
+      idiomaWord = estilos.match(/<w:docDefaults>[\s\S]*?<w:lang\b[^>]*\bw:val="([^"]+)"/)?.[1] ?? '';
     }
   } catch {
     /* sin metadatos */
@@ -276,8 +334,10 @@ export async function importarDocx(
     metadatos: {
       titulo: tituloTexto || tituloCore || 'Libro sin título',
       subtitulo: subtituloTexto || undefined,
-      creditos: autorCore ? [{ nombre: autorCore, rol: 'aut' }] : [],
-      idioma: 'es',
+      // El autor escrito en la portadilla (estilo Autor) manda sobre el de las propiedades del archivo,
+      // que suele ser el usuario de Word que lo creó.
+      creditos: autorTexto || autorCore ? [{ nombre: autorTexto || autorCore, rol: 'aut' }] : [],
+      idioma: /^[a-z]{2,3}(-[A-Za-z0-9]{1,8})*$/.test(idiomaWord) ? idiomaWord : 'es',
       identificador: `urn:uuid:${uuid()}`,
       fecha: new Date().toISOString().slice(0, 10),
     },

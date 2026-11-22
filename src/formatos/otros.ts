@@ -21,7 +21,32 @@ interface Contenido {
   /** Archivos de imagen por su nombre en Images/. */
   imagenes: Map<string, Uint8Array>;
   avisos: string[];
+  /** Metadatos del original, si los trae (idioma BCP 47, autor, derechos, descripción). */
+  idioma?: string;
+  autor?: string;
+  derechos?: string;
+  descripcion?: string;
+  subtitulo?: string;
 }
+
+/** Idioma probable de un texto por su escritura: japonés, chino o coreano; si no, no se decide. */
+function idiomaPorEscritura(t: string): string | undefined {
+  const muestra = t.slice(0, 20000);
+  const kana = (muestra.match(/[\u3040-\u30ff]/g) ?? []).length;
+  const han = (muestra.match(/[\u4e00-\u9fff]/g) ?? []).length;
+  const hangul = (muestra.match(/[\uac00-\ud7af]/g) ?? []).length;
+  const letras = (muestra.match(/\p{L}/gu) ?? []).length || 1;
+  if ((kana + han) / letras > 0.3) return kana > han * 0.05 ? 'ja' : 'zh';
+  if (hangul / letras > 0.3) return 'ko';
+  return undefined;
+}
+
+/** Entidades XML básicas de un texto leído con una expresión regular. */
+function desescapar(t: string): string {
+  return t.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&amp;/g, '&');
+}
+
+const IDIOMA_VALIDO = /^[a-z]{2,3}(-[A-Za-z0-9]{1,8})*$/;
 
 /** Empaqueta un único documento XHTML en un EPUB 3 mínimo. */
 export async function epubDeContenido(c: Contenido): Promise<Uint8Array> {
@@ -31,7 +56,7 @@ export async function epubDeContenido(c: Contenido): Promise<Uint8Array> {
   const imgs = [...c.imagenes.entries()].map(([n, d], k) => ({ id: `img${k + 1}`, n, tipo: tipoPorContenido(d) }));
   z.file(
     'OEBPS/content.opf',
-    `<?xml version="1.0" encoding="utf-8"?><package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="id"><metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:identifier id="id">urn:uuid:${crypto.randomUUID()}</dc:identifier><dc:title>${esc(c.titulo)}</dc:title><dc:language>es</dc:language><meta property="dcterms:modified">2026-01-01T00:00:00Z</meta></metadata>
+    `<?xml version="1.0" encoding="utf-8"?><package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="id"><metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:identifier id="id">urn:uuid:${crypto.randomUUID()}</dc:identifier><dc:title id="titulo">${esc(c.titulo)}</dc:title>${c.subtitulo ? `<dc:title id="subtitulo">${esc(c.subtitulo)}</dc:title><meta refines="#subtitulo" property="title-type">subtitle</meta>` : ''}<dc:language>${esc(c.idioma && IDIOMA_VALIDO.test(c.idioma) ? c.idioma : idiomaPorEscritura(c.cuerpo.replace(/<[^>]+>/g, '')) ?? 'es')}</dc:language>${c.autor ? `<dc:creator>${esc(c.autor)}</dc:creator>` : ''}${c.derechos ? `<dc:rights>${esc(c.derechos)}</dc:rights>` : ''}${c.descripcion ? `<dc:description>${esc(c.descripcion)}</dc:description>` : ''}<meta property="dcterms:modified">2026-01-01T00:00:00Z</meta></metadata>
 <manifest><item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/><item id="texto" href="Text/texto.xhtml" media-type="application/xhtml+xml"/><item id="css" href="Styles/estilo.css" media-type="text/css"/>${imgs
       .filter((i) => i.tipo)
       .map((i) => `<item id="${i.id}" href="Images/${escAttr(i.n)}" media-type="${i.tipo}"/>`)
@@ -86,10 +111,17 @@ async function deHtml(html: string, nombreArchivo: string): Promise<Contenido> {
     if (!avisos.some((a) => a.includes('imágenes'))) avisos.push('Las imágenes enlazadas desde el HTML no se pueden leer (solo las que van dentro, en base64); se quitan.');
     img.remove();
   }
+  const meta = (n: string) => document.querySelector(`meta[name="${n}"]`)?.getAttribute('content')?.trim() || undefined;
+  const idioma = document.documentElement?.getAttribute('lang')?.trim() || document.documentElement?.getAttribute('xml:lang')?.trim() || undefined;
+  const autor = meta('author') ?? meta('dc.creator') ?? meta('DC.creator');
+  const descripcion = meta('description') ?? meta('dc.description');
+  const derechos = meta('copyright') ?? meta('dc.rights') ?? meta('rights');
   for (const s of [...document.querySelectorAll('script, style, link, meta, iframe, object, embed, form')]) s.remove();
+  // La portadilla de pandoc (header#title-block-header) repite título y autor: ya van a los metadatos.
+  document.querySelector('header#title-block-header')?.remove();
   const titulo = document.querySelector('title')?.textContent?.trim() || document.querySelector('h1')?.textContent?.trim() || nombreArchivo.replace(/\.[^.]+$/, '');
   const cuerpo = document.querySelector('body');
-  return { titulo, cuerpo: xhtmlDe(cuerpo as unknown as Nodo), css, imagenes, avisos };
+  return { titulo, cuerpo: xhtmlDe(cuerpo as unknown as Nodo), css, imagenes, avisos, idioma, autor, descripcion, derechos };
 }
 
 const VACIOS = new Set(['br', 'hr', 'img', 'wbr', 'col', 'area', 'source', 'track']);
@@ -116,15 +148,74 @@ function xhtmlDe(n: Nodo | null | undefined): string {
   return r;
 }
 
-/** Markdown (CommonMark con GFM) → HTML → EPUB. */
-async function deMarkdown(md: string, nombreArchivo: string): Promise<Contenido> {
-  const html = await marked.parse(md, { gfm: true, breaks: false });
-  const c = await deHtml(`<!DOCTYPE html><html><head><title></title></head><body>${html}</body></html>`, nombreArchivo);
-  // Markdown no tiene estilo: sangría y párrafos seguidos, como un libro.
-  return { ...c, titulo: md.match(/^#\s+(.+)$/m)?.[1].trim() ?? c.titulo, css: '' };
+/** Cabecera YAML sencilla de Markdown (pandoc, Jekyll…): `clave: valor`, con comillas o sin ellas. */
+function cabeceraYaml(md: string): { datos: Record<string, string>; resto: string } {
+  const m = md.match(/^\ufeff?---[ \t]*\n([\s\S]*?)\n(?:---|\.\.\.)[ \t]*(?:\n|$)/);
+  if (!m) return { datos: {}, resto: md };
+  const datos: Record<string, string> = {};
+  let clave = '';
+  for (const linea of m[1].split('\n')) {
+    const kv = linea.match(/^([A-Za-z_][\w-]*):\s*(.*)$/);
+    if (kv) {
+      clave = kv[1].toLowerCase();
+      datos[clave] = kv[2].trim().replace(/^(['"])(.*)\1$/, '$2');
+    } else if (clave && /^\s+-\s+/.test(linea) && !datos[clave]) {
+      // Lista: se toma el primer elemento (p. ej. author: [- Nombre]).
+      datos[clave] = linea.replace(/^\s+-\s+/, '').trim().replace(/^(['"])(.*)\1$/, '$2');
+    } else if (clave && /^\s+\S/.test(linea)) datos[clave] = `${datos[clave]} ${linea.trim()}`.trim();
+  }
+  return { datos, resto: md.slice(m[0].length) };
 }
 
-const CAPITULO_TXT = /^\s*(cap[ií]tulo|chapter|pr[oó]logo|prologue|ep[ií]logo|epilogue|interludio|interlude|parte|part|第[0-9０-９一二三四五六七八九十百千]+[章話部幕]|序章|終章|あとがき)\b.{0,80}$/i;
+/** Notas al pie de Markdown (`texto[^1]` y `[^1]: nota`), que CommonMark no conoce: se pasan a enlaces y una lista. */
+function notasMarkdown(md: string): { md: string; notas: string } {
+  const definiciones = new Map<string, string>();
+  const lineas = md.split('\n');
+  const resto: string[] = [];
+  for (let i = 0; i < lineas.length; i++) {
+    const d = lineas[i].match(/^\[\^([^\]\s]+)\]:\s?(.*)$/);
+    if (!d) {
+      resto.push(lineas[i]);
+      continue;
+    }
+    let texto = d[2];
+    while (i + 1 < lineas.length && /^( {2,}|\t)\S/.test(lineas[i + 1])) texto += ' ' + lineas[++i].trim();
+    definiciones.set(d[1], texto);
+  }
+  if (!definiciones.size) return { md, notas: '' };
+  const orden: string[] = [];
+  const cuerpo = resto.join('\n').replace(/\[\^([^\]\s]+)\](?!:)/g, (todo, id: string) => {
+    if (!definiciones.has(id)) return todo;
+    if (!orden.includes(id)) orden.push(id);
+    const n = orden.indexOf(id) + 1;
+    return `<sup><a href="#nota-md-${n}" id="llamada-md-${n}">${n}</a></sup>`;
+  });
+  const lista = orden.map((id, k) => `<li id="nota-md-${k + 1}">${definiciones.get(id)}</li>`).join('\n');
+  return { md: cuerpo, notas: lista ? `\n\n<section class="notas"><ol>\n${lista}\n</ol></section>\n` : '' };
+}
+
+/** Markdown (CommonMark con GFM, cabecera YAML y notas al pie) → HTML → EPUB. */
+async function deMarkdown(md: string, nombreArchivo: string): Promise<Contenido> {
+  const { datos, resto } = cabeceraYaml(md.replace(/\r\n?/g, '\n'));
+  const { md: conLlamadas, notas } = notasMarkdown(resto);
+  let html = await marked.parse(conLlamadas, { gfm: true, breaks: false });
+  if (notas) html += await marked.parse(notas, { gfm: true, breaks: false });
+  const c = await deHtml(`<!DOCTYPE html><html><head><title></title></head><body>${html}</body></html>`, nombreArchivo);
+  // Markdown no tiene estilo: sangría y párrafos seguidos, como un libro.
+  return {
+    ...c,
+    titulo: datos.title || datos.titulo || (resto.match(/^#\s+(.+)$/m)?.[1].trim() ?? c.titulo),
+    css: '',
+    subtitulo: datos.subtitle || datos.subtitulo || undefined,
+    idioma: datos.lang || datos.language || datos.idioma || undefined,
+    autor: datos.author || datos.autor || undefined,
+    derechos: datos.rights || datos.copyright || datos.derechos || undefined,
+    descripcion: datos.description || datos.abstract || datos.descripcion || undefined,
+  };
+}
+
+// Los títulos japoneses no llevan límite de palabra (\b no funciona entre ideogramas).
+const CAPITULO_TXT = /^[\s\u3000]*(?:(?:cap[ií]tulo|chapter|pr[oó]logo|prologue|ep[ií]logo|epilogue|interludio|interlude|parte|part)\b|第[0-9０-９一二三四五六七八九十百千]+[章話部幕]|序章|終章|あとがき|プロローグ|エピローグ).{0,80}$/iu;
 
 /** Texto plano: un párrafo por línea (o por bloque si el texto separa párrafos con líneas en blanco), capítulos por su título. */
 function deTexto(txt: string, nombreArchivo: string): Contenido {
@@ -164,7 +255,7 @@ function deTexto(txt: string, nombreArchivo: string): Contenido {
     })
     .join('\n')
     .replace(/^(<p>&#160;<\/p>\n)+/, '');
-  return { titulo: nombreArchivo.replace(/\.[^.]+$/, ''), cuerpo, css: '', imagenes: new Map(), avisos: [] };
+  return { titulo: nombreArchivo.replace(/\.[^.]+$/, ''), cuerpo, css: '', imagenes: new Map(), avisos: [], idioma: idiomaPorEscritura(txt) };
 }
 
 // ---------- OpenDocument ----------
@@ -293,6 +384,14 @@ async function deOdt(datos: Uint8Array, nombreArchivo: string): Promise<Contenid
     const alt = todos(frame, (x) => nombre(x) === 'title' || nombre(x) === 'desc')[0]?.textContent ?? '';
     return `<img src="../Images/${escAttr(n)}" alt="${escAttr(alt)}"/>`;
   };
+  // La «línea horizontal» de LibreOffice (separador de escena): estilo Horizontal Line o uno que herede de él.
+  const estiloDe = (nombreEstilo: string, re: RegExp): boolean => {
+    for (let x: string | undefined = nombreEstilo, k = 0; x && k < 10; x = estilos.get(x)?.padre, k++) if (re.test(x.replace(/_20_/g, ' '))) return true;
+    return false;
+  };
+  const esLineaHorizontal = (nombreEstilo: string) => estiloDe(nombreEstilo, /^(Horizontal Line|L[ií]nea horizontal)$/i);
+  // Portadilla (estilos Título, Subtítulo y Autor): va a los metadatos, no al texto.
+  const portadilla: { titulo?: string; subtitulo?: string; autor?: string } = {};
   const bloques = (n: Nodo): string => {
     let r = '';
     for (const h of hijos(n)) {
@@ -304,6 +403,13 @@ async function deOdt(datos: Uint8Array, nombreArchivo: string): Promise<Contenid
       if (et === 'h') {
         const nivel = Math.min(3, Math.max(1, Number(attr(h, 'text:outline-level')) || 1));
         r += `<h${nivel}${clase}>${enLinea(h)}</h${nivel}>\n`;
+      } else if (et === 'p' && !(h.textContent ?? '').trim() && esLineaHorizontal(s)) r += '<hr/>\n';
+      else if (et === 'p' && estiloDe(s, /^(Title|T[ií]tulo)$/) && !portadilla.titulo) portadilla.titulo = (h.textContent ?? '').trim();
+      else if (et === 'p' && estiloDe(s, /^(Subtitle|Subt[ií]tulo)$/) && !portadilla.subtitulo) portadilla.subtitulo = (h.textContent ?? '').trim();
+      else if (et === 'p' && estiloDe(s, /^(Author|Autor)$/) && !portadilla.autor) portadilla.autor = (h.textContent ?? '').trim();
+      else if (et === 'p' && estiloDe(s, /^(Caption|Figure ?Caption|Ilustraci[oó]n|Leyenda|Pie de imagen|Descripci[oó]n)$/i) && /<p[^>]*>(<img [^>]*\/>)<\/p>\n$/.test(r)) {
+        // Pie de una imagen (el párrafo anterior solo lleva la imagen): figure con figcaption.
+        r = r.replace(/<p[^>]*>(<img [^>]*\/>)<\/p>\n$/, (_t, img: string) => `<figure>${img}<figcaption>${enLinea(h)}</figcaption></figure>\n`);
       } else if (et === 'p') r += `<p${clase}>${enLinea(h)}</p>\n`;
       else if (et === 'list') r += `<ul>${todos(h, (x) => nombre(x) === 'list-item').map((li) => `<li>${todos(li, (x) => nombre(x) === 'p' || nombre(x) === 'h').map(enLinea).join('<br/>')}</li>`).join('')}</ul>\n`;
       else if (et === 'section' || et === 'table-of-content' || et === 'index-body') {
@@ -338,8 +444,12 @@ async function deOdt(datos: Uint8Array, nombreArchivo: string): Promise<Contenid
     const d = aplanado(n);
     if (Object.keys(d).length) reglas.push(`.${claseOdf(n)} { ${decl(d)} }`);
   }
-  const titulo = meta.match(/<dc:title>([^<]*)<\/dc:title>/)?.[1].trim() || nombreArchivo.replace(/\.[^.]+$/, '');
-  return { titulo, cuerpo, css: reglas.join('\n'), imagenes, avisos };
+  const titulo = desescapar(meta.match(/<dc:title>([^<]*)<\/dc:title>/)?.[1].trim() ?? '') || portadilla.titulo || nombreArchivo.replace(/\.[^.]+$/, '');
+  const idioma = meta.match(/<dc:language>([^<]*)<\/dc:language>/)?.[1].trim() || attr(todos(st ?? c, (n) => nombre(n) === 'text-properties' && !!attr(n, 'fo:language'))[0] ?? c, 'fo:language') || undefined;
+  const pais = idioma && !idioma.includes('-') ? attr(todos(st ?? c, (n) => nombre(n) === 'text-properties' && !!attr(n, 'fo:country'))[0] ?? c, 'fo:country') : '';
+  const autor = portadilla.autor || desescapar(meta.match(/<(?:meta:initial-creator|dc:creator)>([^<]*)<\//)?.[1].trim() ?? '') || undefined;
+  const descripcion = desescapar(meta.match(/<dc:description>([^<]*)<\/dc:description>/)?.[1].trim() ?? '') || undefined;
+  return { titulo, subtitulo: portadilla.subtitulo, cuerpo, css: reglas.join('\n'), imagenes, avisos, idioma: idioma && pais && /^[A-Z]{2}$/.test(pais) ? `${idioma}-${pais}` : idioma, autor, descripcion };
 }
 
 /** Convierte HTML, Markdown, texto plano u OpenDocument en un EPUB para importarlo. */

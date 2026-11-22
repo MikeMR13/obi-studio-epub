@@ -123,7 +123,9 @@ export function Inspector(p: Props) {
                 {t('Doble página enfrentada (PDF; y en el EPUB si es página fija)')}
               </label>
             )}
-            <p className="dato">{t('{0} palabras · {1} notas', { 0: (p.estado.palabras[p.seccion.id] ?? 0).toLocaleString(locale()), 1: p.seccion.notas.length })}</p>
+            <p className="dato">{p.seccion.notas.length === 1
+                ? t('{0} palabras · 1 nota', { 0: (p.estado.palabras[p.seccion.id] ?? 0).toLocaleString(locale()) })
+                : t('{0} palabras · {1} notas', { 0: (p.estado.palabras[p.seccion.id] ?? 0).toLocaleString(locale()), 1: p.seccion.notas.length })}</p>
             <button onClick={() => p.onAplicarTipografia(false)}>{t('Aplicar tipografía a esta sección')}</button>
           </>
         )}

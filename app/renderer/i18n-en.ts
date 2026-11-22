@@ -1031,4 +1031,6 @@ export const EN: Record<string, string> = {
   "Filtrar por tipo": "Filter by type",
   "1 vez": "1 time",
   "1 uso": "1 use",
+  "Proyecto guardado en {0}.": "Project saved to {0}.",
+  "{0} palabras · 1 nota": "{0} words · 1 note",
 };

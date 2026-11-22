@@ -643,7 +643,8 @@ export function contenidoNota(n: Nodo, o: OpcionesConversion, idiomaLibro?: stri
   }
   const primero = inlines[0];
   if (primero?.tipo === 'texto') {
-    primero.texto = primero.texto.replace(/^\s*(\[\d+\]|\(\d+\)|\d+[.)]?|\*+|※\d*)\s*/, '');
+    // También la puntuación que deja el número de un enlace de vuelta ya quitado («1. Nota» → «. Nota»).
+    primero.texto = primero.texto.replace(/^\s*(\[\d+\]|\(\d+\)|\d+[.)]?|\*+|※\d*|[.):\]]+(?=\s))\s*/, '');
   }
   return normalizarInlines(inlines.filter((i) => i.tipo !== 'nota'));
 }

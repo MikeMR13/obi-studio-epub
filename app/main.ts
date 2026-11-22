@@ -6,7 +6,7 @@ import { AlmacenPlugins } from '../src/plugins.js';
 import { ArchivoConfiguracion, diccionariosPara } from '../src/configuracion.js';
 import electronUpdater from 'electron-updater';
 import { Backend } from './backend.js';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 
 let ventana: BrowserWindow | null = null;
 
@@ -55,6 +55,7 @@ let salirConfirmado = false;
 
 async function crearVentana() {
   const backend = new Backend(join(app.getPath('userData'), 'recuperacion'));
+  backend.guardadoConfirmado = true;
   backend.configuracion = new ArchivoConfiguracion(process.env.OBI_CONFIGURACION || join(app.getPath('userData'), 'configuracion.json'));
   backend.plugins = new AlmacenPlugins(process.env.OBI_PLUGINS || join(app.getPath('userData'), 'plugins'));
   backend.renderizador = renderizadorElectron;
@@ -132,8 +133,24 @@ async function crearVentana() {
     };
     // Exportadores de plugins: cualquier otra extensión.
     const f = filtros[tipo ?? 'obi'] ?? (tipo ? { titulo: 'Exportar', filtro: { name: tipo.toUpperCase(), extensions: [tipo] } } : filtros.obi);
+    if (tipo === 'obi') {
+      // Guardar: si el proyecto ya se guardó en un archivo, se vuelve a escribir ahí sin preguntar.
+      // Queda «guardado» solo cuando el archivo se ha escrito (cancelar el diálogo no lo marca).
+      const cambios = backend.cambiosDescargados;
+      if (backend.rutaProyecto && basename(backend.rutaProyecto) === nombre) item.setSavePath(backend.rutaProyecto);
+      else item.setSaveDialogOptions({ title: f.titulo, defaultPath: join(app.getPath('documents'), nombre), filters: [f.filtro] });
+      item.once('done', (_ev, estado) => {
+        if (estado !== 'completed') return;
+        backend.proyectoGuardado(item.getSavePath(), cambios);
+        avisarGuardado();
+      });
+      return;
+    }
     item.setSaveDialogOptions({ title: f.titulo, defaultPath: join(app.getPath('documents'), nombre), filters: [f.filtro] });
   });
+
+  // La interfaz vuelve a leer el estado (indicador «Guardado») cuando el .obi se ha escrito de verdad.
+  const avisarGuardado = () => void ventana?.webContents.executeJavaScript("window.dispatchEvent(new CustomEvent('obi-guardado'))").catch(() => undefined);
 
   // Aviso de cambios sin guardar al cerrar.
   ventana.on('close', async (e) => {
@@ -141,7 +158,7 @@ async function crearVentana() {
     e.preventDefault();
     const r = await dialog.showMessageBox(ventana!, {
       type: 'question',
-      buttons: ['Guardar copia y salir', 'Salir sin guardar', 'Cancelar'],
+      buttons: ['Guardar y salir', 'Salir sin guardar', 'Cancelar'],
       defaultId: 0,
       cancelId: 2,
       message: 'Hay cambios sin guardar.',
@@ -150,13 +167,18 @@ async function crearVentana() {
     if (r.response === 2) return;
     await backend.guardarRecuperacion();
     if (r.response === 0) {
-      const destino = await dialog.showSaveDialog(ventana!, {
-        defaultPath: join(app.getPath('documents'), backend.nombreArchivo),
-        filters: [{ name: 'Proyecto de Obi Studio', extensions: ['obi'] }],
-      });
-      if (destino.canceled || !destino.filePath) return;
+      // Si el proyecto ya tiene archivo, se guarda ahí; si no, se pregunta dónde.
+      let ruta = backend.rutaProyecto;
+      if (!ruta) {
+        const destino = await dialog.showSaveDialog(ventana!, {
+          defaultPath: join(app.getPath('documents'), backend.nombreArchivo),
+          filters: [{ name: 'Proyecto de Obi Studio', extensions: ['obi'] }],
+        });
+        if (destino.canceled || !destino.filePath) return;
+        ruta = destino.filePath;
+      }
       const { guardarProyecto } = await import('../src/proyecto.js');
-      await guardarProyecto(destino.filePath, backend.libro);
+      await guardarProyecto(ruta, backend.libro);
     }
     salirConfirmado = true;
     ventana?.close();
@@ -164,7 +186,31 @@ async function crearVentana() {
 
   const plantilla: MenuItemConstructorOptions[] = [
     ...(process.platform === 'darwin' ? [{ role: 'appMenu' as const }] : []),
-    { label: 'Archivo', submenu: [{ role: process.platform === 'darwin' ? 'close' : 'quit', label: 'Salir' }] },
+    {
+      label: 'Archivo',
+      submenu: [
+        {
+          label: 'Guardar como…',
+          accelerator: 'CmdOrCtrl+Shift+S',
+          click: async () => {
+            const destino = await dialog.showSaveDialog(ventana!, {
+              title: 'Guardar proyecto como',
+              defaultPath: backend.rutaProyecto ?? join(app.getPath('documents'), backend.nombreArchivo),
+              filters: [{ name: 'Proyecto de Obi Studio', extensions: ['obi'] }],
+            });
+            if (destino.canceled || !destino.filePath) return;
+            try {
+              await backend.guardarEn(destino.filePath);
+              avisarGuardado();
+            } catch (e) {
+              dialog.showErrorBox('No se pudo guardar', (e as Error).message);
+            }
+          },
+        },
+        { type: 'separator' },
+        { role: process.platform === 'darwin' ? 'close' : 'quit', label: 'Salir' },
+      ],
+    },
     {
       label: 'Edición',
       submenu: [

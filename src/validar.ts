@@ -76,12 +76,21 @@ function traducir(codigo: string, original: string): string {
 
 export async function validarArchivo(ruta: string): Promise<Resultado> {
   const jar = rutaEpubcheck();
-  if (!jar) return { valido: true, errores: 0, avisos: 0, mensajes: [], disponible: false };
+  // Sin EPUBCheck no se puede afirmar que el libro es válido: se dice como error, no se da por bueno.
+  if (!jar)
+    return {
+      valido: false,
+      errores: 1,
+      avisos: 0,
+      disponible: false,
+      mensajes: [{ gravedad: 'error', codigo: 'OBI-EPUBCHECK', mensaje: 'No se encontró EPUBCheck: el libro no se pudo validar. Reinstala la app (o ejecuta «npm run recursos» en desarrollo).', original: '' }],
+    };
   const dir = await mkdtemp(join(tmpdir(), 'obi-check-'));
   const salidaJson = join(dir, 'resultado.json');
   try {
     await new Promise<void>((ok) => {
-      execFile(rutaJava(), ['-jar', jar, ruta, '--json', salidaJson], { maxBuffer: 64 * 1024 * 1024 }, () => ok());
+      // Con un límite de tiempo: un EPUB enorme o un Java colgado no deja la app esperando para siempre.
+      execFile(rutaJava(), ['-jar', jar, ruta, '--json', salidaJson], { maxBuffer: 64 * 1024 * 1024, timeout: 15 * 60 * 1000 }, () => ok());
     });
     if (!existsSync(salidaJson)) {
       return {

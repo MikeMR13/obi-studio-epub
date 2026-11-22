@@ -208,7 +208,19 @@ export function App() {
     await descargar('/api/proyecto');
     const e = await api.estado();
     aplicar(e, false);
-    aviso(t('Proyecto guardado.'));
+    // En el navegador queda guardado al descargarlo; en la app de escritorio, cuando el archivo se escribe
+    // (llega el evento «obi-guardado»; si se cancela el diálogo sigue sin guardar).
+    if (!e.cambiado) aviso(t('Proyecto guardado.'));
+  });
+
+  useEffect(() => {
+    const alGuardar = () =>
+      void api.estado().then((e) => {
+        aplicar(e, false);
+        aviso(t('Proyecto guardado en {0}.', { 0: e.nombreArchivo }));
+      });
+    window.addEventListener('obi-guardado', alGuardar);
+    return () => window.removeEventListener('obi-guardado', alGuardar);
   });
 
   const validar = async () => {

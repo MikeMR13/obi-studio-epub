@@ -11,7 +11,7 @@ import JSZip from 'jszip';
 import type { Bloque, Inline, Libro, Nota, Recuadro, Recurso, Seccion, Tabla } from '../model.js';
 import { proponerCambios } from '../cambios.js';
 import { anclarComentario, fundirComentarios, leerComentariosWord, textosComentados } from '../comentarios.js';
-import { TIPOS_SECCION, VARIANTES_RECUADRO, normalizarInlines, nuevoId, temaCompleto } from '../model.js';
+import { TIPOS_SECCION, VARIANTES_RECUADRO, normalizarInlines, nuevoId, temaCompleto, textoPlano } from '../model.js';
 import { importarDocx } from './docx.js';
 export { rubiesDeTexto } from './docx.js';
 
@@ -266,6 +266,8 @@ export async function exportarWord(libro: Libro): Promise<Uint8Array> {
           } else {
             hijos.push(new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun(`⟦Imagen ${imagenes}: ${r?.nombre ?? ''} — no editar esta línea⟧`)] }));
           }
+          // El pie de la imagen, editable, con su propio estilo para que vuelva como pie.
+          if (b.pie) hijos.push(new Paragraph({ style: 'PieImagen', children: [new TextRun(b.pie)] }));
           break;
         }
         case 'recuadro': {
@@ -302,6 +304,7 @@ export async function exportarWord(libro: Libro): Promise<Uint8Array> {
         { id: 'Carta', name: 'Carta', basedOn: 'Normal', run: { italics: true }, paragraph: { indent: { left: 720, right: 720, firstLine: 0 } } },
         { id: 'Cita', name: 'Cita', basedOn: 'Normal', paragraph: { indent: { left: 720, right: 720, firstLine: 0 } } },
         { id: 'SinSangria', name: 'Sin sangría', basedOn: 'Normal', paragraph: { indent: { firstLine: 0 } } },
+        { id: 'PieImagen', name: 'Pie de imagen', basedOn: 'Normal', run: { italics: true, size: 20 }, paragraph: { alignment: AlignmentType.CENTER, indent: { firstLine: 0 } } },
         // Estilos de párrafo propios del libro.
         ...propiosWord,
         { id: 'Recuadro', name: 'Recuadro', basedOn: 'Normal', run: { font: 'Arial', size: 22 }, paragraph: { indent: { left: 567, right: 567, firstLine: 0 }, shading: { fill: 'EEF2F7' } } },
@@ -423,6 +426,7 @@ export async function importarCorrecciones(libro: Libro, datos: Uint8Array, opci
     const recuadrosOriginales = s.bloques.filter((b): b is Recuadro => b.tipo === 'recuadro');
     const tablasOriginales = s.bloques.filter((b): b is Tabla => b.tipo === 'tabla');
     let tablaPendiente: Tabla | null = null;
+    let pieTrasMarcador: Extract<Bloque, { tipo: 'imagen' }> | null = null;
     let indiceImagen = 0;
     const bloques: Bloque[] = [];
     let recuadro: { original: Recuadro; lineas: Inline[][] } | null = null;
@@ -493,8 +497,20 @@ export async function importarCorrecciones(libro: Libro, datos: Uint8Array, opci
       if (mi) {
         const original = imagenes[Number(mi[1]) - 1];
         if (original) bloques.push(original);
+        pieTrasMarcador = original?.tipo === 'imagen' ? original : null;
         continue;
       }
+      // El pie de una imagen que fue como marcador vuelve como párrafo: es el pie de esa imagen.
+      if (pieTrasMarcador && b.tipo === 'parrafo') {
+        const imagen = pieTrasMarcador;
+        pieTrasMarcador = null;
+        if (imagen.pie !== undefined) {
+          const nuevoPie = textoPlano(b.contenido).trim();
+          bloques[bloques.length - 1] = { ...imagen, ...(nuevoPie ? { pie: nuevoPie } : { pie: undefined }) };
+          continue;
+        }
+      }
+      pieTrasMarcador = null;
       if (b.tipo === 'imagen') {
         // La imagen vuelve de Word: se reutiliza la del libro si es la misma, conservando su descripción si Word la perdió.
         const id = reutilizarImagen(libro, corregido, b.recurso);
@@ -509,7 +525,12 @@ export async function importarCorrecciones(libro: Libro, datos: Uint8Array, opci
     // se recupera por orden: si el párrafo no cambió se queda el original entero; si cambió, su espacio y estilo.
     const sinAspecto = (b: Bloque) => {
       const [x] = sinComentarios([b]);
-      return JSON.stringify(x.tipo === 'parrafo' ? { ...x, espacioAntes: undefined, espacioDespues: undefined, clase: undefined, contenido: normalizarInlines(x.contenido.map((i) => (i.tipo === 'texto' ? { ...i, aspecto: undefined } : i))) } : x);
+      // El idioma de un fragmento y el identificador de las llamadas a nota no viajan por Word.
+      return JSON.stringify(
+        x.tipo === 'parrafo'
+          ? { ...x, espacioAntes: undefined, espacioDespues: undefined, clase: undefined, contenido: normalizarInlines(x.contenido.map((i) => (i.tipo === 'texto' ? { ...i, aspecto: undefined, idioma: undefined } : i.tipo === 'nota' ? { ...i, id: '' } : i))) }
+          : x,
+      );
     };
     const vacioP = (b: Bloque) => b.tipo === 'parrafo' && !b.contenido.length;
     const originales = { lleno: s.bloques.filter((b) => b.tipo === 'parrafo' && !vacioP(b)), vacio: s.bloques.filter(vacioP) };
@@ -521,7 +542,10 @@ export async function importarCorrecciones(libro: Libro, datos: Uint8Array, opci
       const o = originales[tipo][cuenta[tipo]++];
       if (o?.tipo !== 'parrafo') continue;
       if (sinAspecto(o) === sinAspecto(b)) {
-        bloques[k] = o;
+        // Sin cambios: el párrafo original entero, con las llamadas apuntando a las notas que vienen de Word.
+        const idsNotas = b.contenido.flatMap((i) => (i.tipo === 'nota' ? [i.id] : []));
+        let j = 0;
+        bloques[k] = idsNotas.length ? { ...o, contenido: o.contenido.map((i) => (i.tipo === 'nota' ? { ...i, id: idsNotas[j++] ?? i.id } : i)) } : o;
         continue;
       }
       if (o.espacioAntes !== undefined) b.espacioAntes = o.espacioAntes;

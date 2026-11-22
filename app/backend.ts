@@ -358,7 +358,25 @@ export interface EstadoActualizacion {
 export class Backend {
   libro: Libro = libroNuevo();
   nombreArchivo = 'libro-sin-titulo.obi';
-  cambiado = false;
+  private _cambiado = false;
+  /** Cuenta los cambios, para saber si el proyecto que se guardó sigue siendo el actual. */
+  private cambios = 0;
+  get cambiado() {
+    return this._cambiado;
+  }
+  set cambiado(v: boolean) {
+    if (v) this.cambios++;
+    this._cambiado = v;
+  }
+  /**
+   * En la app de escritorio el guardado se confirma cuando el archivo se ha escrito de verdad (el usuario
+   * puede cancelar el diálogo). En el navegador no hay forma de saberlo y se da por guardado al descargarlo.
+   */
+  guardadoConfirmado = false;
+  /** Ruta del último .obi guardado desde la app de escritorio: Guardar vuelve a escribir ahí sin preguntar. */
+  rutaProyecto?: string;
+  /** Cambios que llevaba el proyecto que se descargó por última vez. */
+  cambiosDescargados = -1;
   avisos: string[] = [];
   ultimaValidacion?: Resultado;
   private temporizador?: NodeJS.Timeout;
@@ -452,8 +470,11 @@ export class Backend {
     this.cambiado = true;
     this.ultimaValidacion = undefined;
     clearTimeout(this.temporizador);
-    this.temporizador = setTimeout(() => void this.guardarRecuperacion(), 60_000);
+    if (this.copiaDeRecuperacion) this.temporizador = setTimeout(() => void this.guardarRecuperacion(), 60_000);
   }
+
+  /** Los backends auxiliares (vista previa, lista de capítulos, lotes) nunca escriben la copia de recuperación. */
+  copiaDeRecuperacion = true;
 
   async guardarRecuperacion(): Promise<string> {
     await mkdir(this.carpetaRecuperacion, { recursive: true });
@@ -471,6 +492,7 @@ export class Backend {
   nuevo(titulo?: string, autor?: string) {
     this.libro = libroNuevo(titulo || 'Libro sin título', autor || '');
     this.nombreArchivo = nombreDeArchivo(this.libro.metadatos.titulo) + '.obi';
+    this.rutaProyecto = undefined;
     this.cambiado = false;
     this.avisos = [];
     this.ultimasPaginas = this.ultimasPaginasColor = undefined;
@@ -480,6 +502,7 @@ export class Backend {
     const ext = nombre.toLowerCase().split('.').pop();
     let libro: Libro;
     let avisos: string[] = [];
+    await comprobarZip(datos, ext);
     try {
       if (ext === 'obi') libro = await deserializarProyecto(datos);
       else if (ext === 'epub') {
@@ -508,13 +531,13 @@ export class Backend {
         throw new ErrorUsuario('Abre el archivo en Word o LibreOffice y guárdalo como .docx para importarlo.');
       } else throw new ErrorUsuario('Formato no admitido. Usa .epub, .docx, .odt, .html, .md, .txt u .obi, o instala un plugin que lo importe.');
     } catch (e) {
-      if (e instanceof ErrorUsuario) throw e;
-      throw new ErrorUsuario(`No se pudo abrir el archivo: ${(e as Error).message}`);
+      throw errorDeLectura(e, ext);
     }
     this.libro = libro;
     this.avisos = avisos;
     this.antesDePlugin = undefined;
     this.nombreArchivo = ext === 'obi' ? nombre : nombreDeArchivo(libro.metadatos.titulo || nombre.replace(/\.[^.]+$/, '')) + '.obi';
+    this.rutaProyecto = undefined;
     this.cambiado = ext !== 'obi';
     this.ultimaValidacion = undefined;
     this.ultimasPaginas = this.ultimasPaginasColor = undefined;
@@ -841,6 +864,7 @@ export class Backend {
     let datos = datosOriginales;
     const extOriginal = nombre.toLowerCase().split('.').pop();
     const avisosPrevios: string[] = [];
+    await comprobarZip(datos, extOriginal);
     // HTML, Markdown, texto y OpenDocument pasan antes a un EPUB con su HTML y su CSS.
     if (esFormatoOtro(extOriginal)) {
       try {
@@ -849,7 +873,7 @@ export class Backend {
         avisosPrevios.push(...o.avisos);
         nombre = nombre.replace(/\.[^.]+$/, '') + '.epub';
       } catch (e) {
-        throw new ErrorUsuario(`No se pudo abrir el archivo: ${(e as Error).message}`);
+        throw errorDeLectura(e, extOriginal);
       }
     }
     const ext = nombre.toLowerCase().split('.').pop();
@@ -858,7 +882,7 @@ export class Backend {
     try {
       libro = (ext === 'epub' ? await importarEpub(datos) : await importarDocx(datos)).libro;
     } catch (e) {
-      throw new ErrorUsuario(`No se pudo abrir el archivo: ${(e as Error).message}`);
+      throw errorDeLectura(e, ext);
     }
     const diseno = await this.leerDiseno(nombre, datos);
     if (diseno) diseno.avisos.unshift(...avisosPrevios);
@@ -930,6 +954,7 @@ export class Backend {
     const p = this.conversionPendiente;
     if (!p) throw new ErrorUsuario('Elige primero el archivo que quieres convertir.');
     const otro = new Backend(this.carpetaRecuperacion);
+    otro.copiaDeRecuperacion = false;
     otro.sistema = this.sistema;
     otro.conversionPendiente = { ...p };
     await otro.conversionSencilla(o);
@@ -1253,6 +1278,7 @@ export class Backend {
     if (!a) throw new ErrorUsuario('Ese archivo no está en el lote.');
     const { lote: datosLote = {}, ...op } = entrada;
     const otro = new Backend(this.carpetaRecuperacion);
+    otro.copiaDeRecuperacion = false;
     otro.sistema = this.sistema;
     const r: ResultadoLote = { nombre: a.nombre, titulo: a.nombre, ok: false, avisos: [], errores: [] };
     try {
@@ -1355,6 +1381,7 @@ export class Backend {
     if (!p) throw new ErrorUsuario('Elige primero el archivo que quieres convertir.');
     const { cortar, ...o } = entrada;
     const otro = new Backend(this.carpetaRecuperacion);
+    otro.copiaDeRecuperacion = false;
     otro.sistema = this.sistema;
     otro.conversionPendiente = { ...p };
     await otro.conversionSencilla({ ...o, fuentesArchivo: false, fuentesSistema: false, capitulos: { cortar: cortar ?? 'h1' } });
@@ -2013,13 +2040,14 @@ export class Backend {
 
   async importarCorrecciones(nombre: string, datos: Uint8Array, revisar = false): Promise<ResumenCorrecciones> {
     if (!nombre.toLowerCase().endsWith('.docx')) throw new ErrorUsuario('Las correcciones se importan desde un archivo .docx.');
+    await comprobarZip(datos, 'docx');
     let r: ResumenCorrecciones;
     // Versión automática para poder volver atrás si las correcciones no convencen.
     crearVersion(this.libro, `Antes de importar «${nombre}»`);
     try {
       r = await importarCorrecciones(this.libro, datos, { revisar });
     } catch (e) {
-      throw new ErrorUsuario(`No se pudo leer el Word: ${(e as Error).message}`);
+      throw errorDeLectura(e, 'docx');
     }
     if (r.actualizadas.length || r.nuevas.length || r.comentarios) this.marcar();
     return r;
@@ -2027,17 +2055,63 @@ export class Backend {
 
   async proyecto(): Promise<{ nombre: string; datos: Uint8Array }> {
     const datos = await serializarProyecto(this.libro);
-    this.cambiado = false;
+    this.cambiosDescargados = this.cambios;
+    if (!this.guardadoConfirmado) this.cambiado = false;
     return { nombre: this.nombreArchivo, datos };
   }
+
+  /** Guarda el proyecto en una ruta (Guardar como… de la app de escritorio). */
+  async guardarEn(ruta: string) {
+    const cambios = this.cambios;
+    await guardarProyecto(ruta, this.libro);
+    this.proyectoGuardado(ruta, cambios);
+  }
+
+  /** La app de escritorio terminó de escribir el .obi descargado: queda guardado si no hubo cambios después. */
+  proyectoGuardado(ruta: string, cambiosDelArchivo: number) {
+    this.rutaProyecto = ruta;
+    this.nombreArchivo = basename(ruta);
+    if (cambiosDelArchivo === this.cambios) this._cambiado = false;
+  }
+}
+
+/** Mensaje claro en español para un archivo que no se pudo leer (los de las bibliotecas vienen en inglés). */
+export function errorDeLectura(e: unknown, ext = ''): ErrorUsuario {
+  if (e instanceof ErrorUsuario) return e;
+  const m = e instanceof Error ? e.message : String(e);
+  const tipo = ext ? `.${ext}` : '';
+  if (/central directory|Corrupted zip|End of data reached|is this a zip|invalid (zip|signature)|Encrypted zip/i.test(m))
+    return new ErrorUsuario(`El archivo está dañado o incompleto, o no es un archivo ${tipo} de verdad: no se pudo abrir.`);
+  if (/Invalid string length|Array buffer allocation|out of memory|heap/i.test(m)) return new ErrorUsuario('El archivo es demasiado grande para abrirlo.');
+  if (/xmldom|parse error|end tag|invalid character|unclosed|Hierarchy request|not well-formed/i.test(m))
+    return new ErrorUsuario(`Una parte del archivo tiene XML mal formado y no se puede leer (${m.split('\n')[0].slice(0, 120)}).`);
+  if (/not iterable|Cannot read propert|undefined is not|is not a function/i.test(m)) return new ErrorUsuario(`El archivo ${tipo} no tiene la estructura esperada o está dañado.`);
+  if (/main document part/i.test(m)) return new ErrorUsuario('El archivo no es un documento de Word válido (le falta el documento principal).');
+  return new ErrorUsuario(`No se pudo abrir el archivo: ${m.split('\n')[0].slice(0, 200)}`);
+}
+
+/** Antes de abrir un ZIP (EPUB, Word, OpenDocument, .obi): rechaza los que se descomprimen a un tamaño desmesurado. */
+export async function comprobarZip(datos: Uint8Array, ext = ''): Promise<void> {
+  if (!['epub', 'docx', 'odt', 'obi', 'kepub'].includes(ext)) return;
+  let zip: JSZip;
+  try {
+    zip = await JSZip.loadAsync(datos);
+  } catch (e) {
+    throw errorDeLectura(e, ext);
+  }
+  const archivos = Object.values(zip.files);
+  const total = archivos.reduce((a, f) => a + ((f as unknown as { _data?: { uncompressedSize?: number } })._data?.uncompressedSize ?? 0), 0);
+  if (archivos.length > 20000 || total > 1000 * 1024 * 1024) throw new ErrorUsuario('El archivo se descomprime a un tamaño desmesurado (más de 1 GB o de 20 000 archivos); no se abre por seguridad.');
 }
 
 export function nombreDeArchivo(titulo: string): string {
   return (
     titulo
+      // Sin tildes en el alfabeto latino, pero se conservan otras escrituras (un título japonés no queda en «libro»).
       .normalize('NFD')
-      .replace(/[̀-ͯ]/g, '')
-      .replace(/[^A-Za-z0-9]+/g, '-')
+      .replace(/[\u0300-\u036f]/g, '')
+      .normalize('NFC')
+      .replace(/[^\p{L}\p{N}]+/gu, '-')
       .replace(/^-+|-+$/g, '')
       .toLowerCase()
       .slice(0, 60) || 'libro'

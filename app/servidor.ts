@@ -63,7 +63,8 @@ function descarga(res: ServerResponse, nombre: string, tipo: string, datos: Uint
   res.writeHead(200, {
     'Content-Type': tipo,
     'Content-Length': datos.length,
-    'Content-Disposition': `attachment; filename="${nombre}"; filename*=UTF-8''${encodeURIComponent(nombre)}`,
+    // filename: copia en ASCII (las cabeceras HTTP no admiten otros caracteres); filename*: el nombre real.
+    'Content-Disposition': `attachment; filename="${nombre.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^\x20-\x7e]|["\\]/g, '_')}"; filename*=UTF-8''${encodeURIComponent(nombre)}`,
     'Cache-Control': 'no-store',
   });
   res.end(Buffer.from(datos));

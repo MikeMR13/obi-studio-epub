@@ -2,7 +2,7 @@
 
 import JSZip from 'jszip';
 import type { Bloque, Credito, Inline, Libro, Nota, Recurso, RolCredito, Seccion, TipoSeccion } from '../model.js';
-import { TEMA_PREDETERMINADO, TIPOGRAFIA_PREDETERMINADA, nuevoId, nuevaSeccion, textoPlano, uuid } from '../model.js';
+import { TEMA_PREDETERMINADO, TIPOGRAFIA_PREDETERMINADA, TIPOS_SECCION, nuevoId, nuevaSeccion, textoPlano, uuid } from '../model.js';
 import { rutaImagen } from '../compilar.js';
 import { tamanoImagen, tipoPorContenido, tipoPorNombre, extension } from '../imagen.js';
 import {
@@ -87,6 +87,9 @@ const TIPOS_EPUB: [string, TipoSeccion][] = [
   ['dedication', 'dedicatoria'],
   ['appendix', 'apendice'],
   ['chapter', 'capitulo'],
+  // Portadilla (título, autor): no es un capítulo.
+  ['titlepage', 'otro'],
+  ['halftitlepage', 'otro'],
 ];
 
 function clasificar(tipos: string[], titulo: string, archivo: string, bloques: Bloque[], esPrimero: boolean, portada?: string): TipoSeccion {
@@ -99,6 +102,7 @@ function clasificar(tipos: string[], titulo: string, archivo: string, bloques: B
   }
   for (const [re, tipo] of PATRONES_TIPO) if (re.test(titulo.trim())) return tipo;
   const nombreArchivo = archivo.split('/').pop() ?? '';
+  if (/title[_-]?page|portadilla/i.test(nombreArchivo)) return 'otro';
   if (/cover|portada/i.test(nombreArchivo) && esPrimero) return 'portada';
   if (/toc|contents|indice/i.test(nombreArchivo)) return 'indice';
   if (/copyright|creditos|colophon/i.test(nombreArchivo)) return 'creditos';
@@ -280,6 +284,7 @@ export async function importarEpub(datos: Uint8Array, importacion: OpcionesImpor
     }
     const id = nuevoId('i');
     const tam = tamanoImagen(d);
+    if (!tam && tipo !== 'image/svg+xml') avisos.push({ mensaje: `La imagen está dañada o incompleta y no se puede leer; el EPUB no pasará la validación hasta que la sustituyas.`, archivo: ruta });
     recursos.push({ id, nombre: nombreSeguro(ruta, usados, tipo), tipoMime: tipo, datos: d, ancho: tam?.ancho, alto: tam?.alto });
     recursoPorRuta.set(ruta, id);
     return id;
@@ -310,7 +315,14 @@ export async function importarEpub(datos: Uint8Array, importacion: OpcionesImpor
   const docs: Doc[] = [];
   for (const ref of hijosElemento(spine).filter((n) => nombre(n) === 'itemref')) {
     const it = items.get(attr(ref, 'idref'));
-    if (!it || !textos.has(it.ruta)) continue;
+    if (!it) {
+      avisos.push({ mensaje: `El orden de lectura nombra un documento que no está en el manifiesto («${attr(ref, 'idref')}»); se omitió.` });
+      continue;
+    }
+    if (!textos.has(it.ruta)) {
+      if (/x?html/.test(it.tipo)) avisos.push({ mensaje: 'Falta en el EPUB un documento del orden de lectura; esa parte del libro no se pudo importar.', archivo: it.ruta });
+      continue;
+    }
     if (!/x?html/.test(it.tipo)) continue;
     const { documento, tolerante } = analizarXhtml(textos.get(it.ruta)!);
     if (tolerante) avisos.push({ mensaje: 'XHTML mal formado; se importó con el analizador tolerante.', archivo: it.ruta });
@@ -354,6 +366,16 @@ export async function importarEpub(datos: Uint8Array, importacion: OpcionesImpor
       if (!esLlamada) continue;
       // El destino de vuelta (la llamada misma) no es una nota.
       if (tiposEpub(destino).includes('noteref') || destino === a) continue;
+      // Enlace de vuelta de una nota (EPUB 2, sin epub:type): apunta a un enlace que a su vez apunta a
+      // un elemento que contiene este enlace. Sin esto, el párrafo de la llamada se tomaba por la nota.
+      if (tipos.includes('backlink') || attr(a, 'role') === 'doc-backlink' || clases(a).some((c) => /back|vuelta|volver|return/i.test(c))) continue;
+      if (nombre(destino) === 'a' && attr(destino, 'href').includes('#')) {
+        const hrefVuelta = attr(destino, 'href');
+        const objetivoVuelta = indiceIds.get(`${hrefVuelta.startsWith('#') ? destinoArchivo : resolverRuta(destinoArchivo, hrefVuelta)}#${hrefVuelta.split('#')[1]}`);
+        let x: Nodo | null | undefined = a;
+        while (x && x !== objetivoVuelta) x = x.parentNode;
+        if (x) continue;
+      }
       const cuerpo = nombre(destino) === 'a' || nombre(destino) === 'span' || nombre(destino) === 'sup' ? subirABloque(destino) : destino;
       if (cuerpo === d.cuerpo) continue;
       llamadas.set(a, clave);
@@ -370,6 +392,9 @@ export async function importarEpub(datos: Uint8Array, importacion: OpcionesImpor
     if (tipos.some((t) => ['footnotes', 'endnotes', 'rearnotes'].includes(t))) return true;
     const hijosE = hijosElemento(n);
     if ((nombre(n) === 'ol' || nombre(n) === 'ul') && hijosE.length && hijosE.every((h) => nodosCuerpo.has(h))) return true;
+    // Bloque de notas de EPUB 2 (pandoc, Calibre): solo notas, su título y la raya de separación.
+    const esNotaOLista = (h: Nodo): boolean => nodosCuerpo.has(h) || ((nombre(h) === 'ol' || nombre(h) === 'ul') && hijosElemento(h).length > 0 && hijosElemento(h).every((x) => nodosCuerpo.has(x)));
+    if (['div', 'section', 'aside'].includes(nombre(n)) && hijosE.some(esNotaOLista) && hijosE.every((h) => esNotaOLista(h) || nombre(h) === 'hr' || (/^h[1-6]$/.test(nombre(h)) && texto(h).trim().length < 40))) return true;
     return false;
   };
 
@@ -423,7 +448,9 @@ export async function importarEpub(datos: Uint8Array, importacion: OpcionesImpor
       const tipos = [...p.tipos, ...(j === 0 ? [...tiposRaiz, ...tiposCuerpo] : [])];
       const etiqueta = j === 0 ? etiquetas.get(d.ruta) : undefined;
       const titulo = p.titulo ?? p.etiqueta ?? etiqueta ?? '';
-      const tipo = clasificar(tipos, titulo, d.ruta, p.bloques, k === 0 && j === 0, portadaId);
+      // En un EPUB de Obi Studio la sección lleva su tipo como clase (así vuelven «otro» e «interludio»).
+      const tipoPropio = deObiStudio && j === 0 && seccionRaiz ? (clases(seccionRaiz).find((c) => TIPOS_SECCION.some((t) => t.id === c)) as TipoSeccion | undefined) : undefined;
+      const tipo = tipoPropio ?? clasificar(tipos, titulo, d.ruta, p.bloques, k === 0 && j === 0, portadaId);
       const s = nuevaSeccion(tipo, titulo);
       s.mostrarTitulo = p.titulo !== undefined && !!p.titulo;
       s.enIndice = !!titulo && !['portada', 'ilustracion'].includes(tipo);
