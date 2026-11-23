@@ -92,12 +92,14 @@ export function App() {
   }, [aplicar]);
 
   useEffect(() => {
+    // Solo en el navegador: en la app de escritorio el aviso lo da la propia ventana al cerrar.
+    if (escritorio) return;
     const salir = (ev: BeforeUnloadEvent) => {
       if (estado?.cambiado) ev.preventDefault();
     };
     window.addEventListener('beforeunload', salir);
     return () => window.removeEventListener('beforeunload', salir);
-  }, [estado?.cambiado]);
+  }, [estado?.cambiado, escritorio]);
 
   const seccion = estado?.libro.secciones.find((s) => s.id === actual);
 

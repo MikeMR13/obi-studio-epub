@@ -152,10 +152,38 @@ async function crearVentana() {
   // La interfaz vuelve a leer el estado (indicador «Guardado») cuando el .obi se ha escrito de verdad.
   const avisarGuardado = () => void ventana?.webContents.executeJavaScript("window.dispatchEvent(new CustomEvent('obi-guardado'))").catch(() => undefined);
 
+  // El aviso de la página (beforeunload, pensado para el navegador) no debe bloquear el cierre:
+  // en Electron cancela el cierre sin decir nada. El aviso de cambios sin guardar lo da el proceso principal.
+  ventana.webContents.on('will-prevent-unload', (e) => e.preventDefault());
+
   // Aviso de cambios sin guardar al cerrar.
   ventana.on('close', async (e) => {
     if (salirConfirmado || !backend.cambiado) return;
     e.preventDefault();
+    try {
+      if (await confirmarCierre()) {
+        salirConfirmado = true;
+        ventana?.close();
+      }
+    } catch (error) {
+      // Un fallo al guardar no deja la ventana sin poder cerrarse: se explica y se puede volver a intentar.
+      const r = await dialog.showMessageBox(ventana!, {
+        type: 'error',
+        buttons: ['Salir sin guardar', 'Volver a la app'],
+        defaultId: 1,
+        cancelId: 1,
+        message: 'No se pudo guardar el proyecto.',
+        detail: `${(error as Error).message}\n\nSi sales, el último estado queda en la copia de recuperación (si se pudo escribir).`,
+      });
+      if (r.response === 0) {
+        salirConfirmado = true;
+        ventana?.close();
+      }
+    }
+  });
+
+  /** Pregunta qué hacer con los cambios sin guardar; true si se puede cerrar. */
+  const confirmarCierre = async (): Promise<boolean> => {
     const r = await dialog.showMessageBox(ventana!, {
       type: 'question',
       buttons: ['Guardar y salir', 'Salir sin guardar', 'Cancelar'],
@@ -164,8 +192,8 @@ async function crearVentana() {
       message: 'Hay cambios sin guardar.',
       detail: 'Si sales sin guardar, el último estado queda en la copia de recuperación.',
     });
-    if (r.response === 2) return;
-    await backend.guardarRecuperacion();
+    if (r.response === 2) return false;
+    await backend.guardarRecuperacion().catch((err) => console.error('Copia de recuperación:', err));
     if (r.response === 0) {
       // Si el proyecto ya tiene archivo, se guarda ahí; si no, se pregunta dónde.
       let ruta = backend.rutaProyecto;
@@ -174,15 +202,13 @@ async function crearVentana() {
           defaultPath: join(app.getPath('documents'), backend.nombreArchivo),
           filters: [{ name: 'Proyecto de Obi Studio', extensions: ['obi'] }],
         });
-        if (destino.canceled || !destino.filePath) return;
+        if (destino.canceled || !destino.filePath) return false;
         ruta = destino.filePath;
       }
-      const { guardarProyecto } = await import('../src/proyecto.js');
-      await guardarProyecto(ruta, backend.libro);
+      await backend.guardarEn(ruta);
     }
-    salirConfirmado = true;
-    ventana?.close();
-  });
+    return true;
+  };
 
   const plantilla: MenuItemConstructorOptions[] = [
     ...(process.platform === 'darwin' ? [{ role: 'appMenu' as const }] : []),
