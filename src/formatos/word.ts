@@ -372,7 +372,7 @@ function textoDe(b: Bloque): string {
 /** Funde en el libro las correcciones hechas en un Word exportado con exportarWord. Modifica `libro`. */
 export async function importarCorrecciones(libro: Libro, datos: Uint8Array, opciones: { revisar?: boolean } = {}): Promise<ResumenCorrecciones> {
   // Con los párrafos vacíos: las líneas en blanco del libro vuelven igual.
-  const { libro: corregido } = await importarDocx(datos, { vacios: true, saltos: false });
+  const { libro: corregido } = await importarDocx(datos, { vacios: true, saltos: false, cortarEnH2: false });
   const resumen: ResumenCorrecciones = { actualizadas: [], nuevas: [], sinCambios: 0, comentarios: 0, cambios: 0, avisos: [] };
   const zipWord = await JSZip.loadAsync(datos);
   const core = (await zipWord.file('docProps/core.xml')?.async('string')) ?? '';

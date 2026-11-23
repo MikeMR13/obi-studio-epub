@@ -220,7 +220,8 @@ export interface CambioCapitulo {
 }
 
 export interface CapitulosConversion {
-  cortar: CorteCapitulos;
+  /** Sin él, el corte que sugieren los títulos del original. */
+  cortar?: CorteCapitulos;
   /** Número de secciones que vio el asistente (si no coincide, los cambios no se aplican). */
   total?: number;
   cambios?: CambioCapitulo[];
@@ -993,7 +994,8 @@ export class Backend {
     const p = this.conversionPendiente;
     if (!p) throw new ErrorUsuario('Elige primero el archivo que quieres convertir.');
     const { metadatos: metadatosNuevos, portada: portadaNueva, capitulos, descripciones, ...o } = entrada;
-    const cortar: CorteCapitulos = capitulos?.cortar === 'h2' || capitulos?.cortar === 'saltos' ? capitulos.cortar : 'h1';
+    // Sin corte elegido (pantalla sencilla, lotes), el que sugieren los títulos del original.
+    const cortar: CorteCapitulos = capitulos?.cortar === 'h1' || capitulos?.cortar === 'h2' || capitulos?.cortar === 'saltos' ? capitulos.cortar : (p.diseno?.cortes?.sugerido ?? 'h1');
     const op: OpcionesConversionSencilla = { ...OPCIONES_CONVERSION, ...o };
     const d = p.diseno;
     const ext = p.nombre.toLowerCase().split('.').pop();
@@ -1009,10 +1011,11 @@ export class Backend {
               ...(op.estilosParrafo && d?.css && d.estilos?.length ? { estiloPropio: asignadorEstilos(d.css, d.estilos) } : {}),
               ...(op.separadores ? { esSeparador: pareceSeparador, ...(d?.separador?.imagen ? { separadorImagen: d.separador.imagen } : {}) } : {}),
               ...(d?.clasesCapitular?.length ? { ignorarClases: d.clasesCapitular } : {}),
-              ...(cortar === 'h2' ? { cortarEnH2: true } : {}),
+              // Siempre explícito: lo elegido en el asistente manda sobre el corte automático.
+              cortarEnH2: cortar === 'h2',
               ...(cortar === 'saltos' ? { saltoPagina: detectorSaltos(d?.css ?? '') } : {}),
             })
-          : await importarDocx(p.datos, { vacios: op.lineasEnBlanco, ...(cortar === 'h2' ? { cortarEnH2: true } : {}), ...(cortar === 'saltos' ? { cortarEnSaltos: true } : {}) });
+          : await importarDocx(p.datos, { vacios: op.lineasEnBlanco, cortarEnH2: cortar === 'h2', ...(cortar === 'saltos' ? { cortarEnSaltos: true } : {}) });
       if (ext === 'docx' && d && ((op.espacioPorParrafo && d.parrafosConEspacio) || (op.estilosParrafo && d.estilos?.length))) {
         await aplicarDisenoDocx(r.libro, p.datos, { espacio: op.espacioPorParrafo, ...(op.estilosParrafo ? { estilos: d.estilos } : {}) });
       }
@@ -1300,7 +1303,7 @@ export class Backend {
       const res = await otro.conversionSencilla({
         ...op,
         metadatos,
-        capitulos: { cortar: datosLote.cortar ?? 'h1', ...(datosLote.profundidad === 2 ? { profundidad: 2 } : {}), ...(datosLote.paginaIndice ? { paginaIndice: true } : {}) },
+        capitulos: { ...(datosLote.cortar ? { cortar: datosLote.cortar } : {}), ...(datosLote.profundidad === 2 ? { profundidad: 2 } : {}), ...(datosLote.paginaIndice ? { paginaIndice: true } : {}) },
       });
       clearTimeout(otro.temporizador);
       r.titulo = otro.libro.metadatos.titulo || a.nombre;
@@ -1384,7 +1387,7 @@ export class Backend {
     otro.copiaDeRecuperacion = false;
     otro.sistema = this.sistema;
     otro.conversionPendiente = { ...p };
-    await otro.conversionSencilla({ ...o, fuentesArchivo: false, fuentesSistema: false, capitulos: { cortar: cortar ?? 'h1' } });
+    await otro.conversionSencilla({ ...o, fuentesArchivo: false, fuentesSistema: false, capitulos: { ...(cortar ? { cortar } : {}) } });
     clearTimeout(otro.temporizador);
     return otro.libro.secciones.map((s, indice) => {
       const texto = s.bloques.map((b) => (b.tipo === 'parrafo' || b.tipo === 'subtitulo' ? textoPlano(b.contenido) : '')).join(' ').replace(/\s+/g, ' ').trim();

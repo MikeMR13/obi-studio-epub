@@ -281,3 +281,70 @@ test('Ida y vuelta: cada tipo de sección vuelve con su tipo (también «otro» 
     l.secciones.map((s) => s.tipo),
   );
 });
+
+test('Capítulos con h1 y h2: se corta donde están los capítulos', async () => {
+  const { corteSugerido } = await import('../formatos/cortes.js');
+  assert.equal(corteSugerido(['Volumen 1: El comienzo', 'Epílogo'], ['Capítulo 1', 'Capítulo 2', 'Capítulo 3']), 'h2');
+  assert.equal(corteSugerido(['Reencarné como bibliotecario'], ['El despertar', 'La academia', 'El gremio']), 'h2', 'un solo h1: título del libro');
+  assert.equal(corteSugerido(['Parte uno', 'Parte dos'], ['El despertar', 'La academia', 'El gremio', 'La torre']), 'h2');
+  assert.equal(corteSugerido(['Capítulo 1: Título', 'Capítulo 2: Título'], ['Escena 1.1', 'Escena 1.2', 'Escena 2.1']), 'h1');
+  assert.equal(corteSugerido(['El despertar', 'La academia', 'El gremio'], ['Interior', 'Exterior', 'Noche', 'Día']), 'h1');
+  assert.equal(corteSugerido(['第一部'], ['第一章　帰還', '第二章　図書館']), 'h2');
+
+  const { Document, Packer, HeadingLevel } = await import('docx');
+  const docx = async (lineas: [string, 'h1' | 'h2' | 'p'][]) =>
+    new Uint8Array(
+      await Packer.toBuffer(
+        new Document({
+          sections: [{ children: lineas.map(([t, n]) => new Paragraph({ ...(n === 'h1' ? { heading: HeadingLevel.HEADING_1 } : n === 'h2' ? { heading: HeadingLevel.HEADING_2 } : {}), children: [new TextRun(t)] })) }],
+        }),
+      ),
+    );
+  const volumen = await docx([['Volumen 1', 'h1'], ['Capítulo 1', 'h2'], ['Uno.', 'p'], ['Capítulo 2', 'h2'], ['Dos.', 'p'], ['Capítulo 3', 'h2'], ['Tres.', 'p']]);
+  const escenas = await docx([['Capítulo 1', 'h1'], ['Escena A', 'h2'], ['Uno.', 'p'], ['Escena B', 'h2'], ['Dos.', 'p'], ['Capítulo 2', 'h1'], ['Escena C', 'h2'], ['Tres.', 'p']]);
+  // Abrir en el editor (sin asistente): corte automático.
+  const titulos = async (d: Uint8Array, o = {}) => (await importarDocx(d, o)).libro.secciones.filter((s) => s.tipo !== 'portada').map((s) => s.titulo);
+  assert.deepEqual(await titulos(volumen), ['Volumen 1', 'Capítulo 1', 'Capítulo 2', 'Capítulo 3']);
+  assert.deepEqual(await titulos(escenas), ['Capítulo 1', 'Capítulo 2']);
+  // Lo elegido en el asistente manda.
+  assert.deepEqual(await titulos(volumen, { cortarEnH2: false }), ['Volumen 1']);
+  // El asistente lo propone.
+  const { disenoDeDocx } = await import('../diseno-original.js');
+  assert.equal((await disenoDeDocx(volumen)).cortes?.sugerido, 'h2');
+  assert.equal((await disenoDeDocx(escenas)).cortes?.sugerido, 'h1');
+  // La conversión sencilla sin corte elegido usa el sugerido.
+  const { Backend } = await import('../../app/backend.js');
+  const b = new Backend(await mkdtemp(join(tmpdir(), 'obi-cortes-')));
+  await b.analizarConversion('volumen.docx', volumen);
+  await b.conversionSencilla({});
+  assert.deepEqual(b.libro.secciones.filter((s) => s.tipo !== 'portada').map((s) => s.titulo), ['Volumen 1', 'Capítulo 1', 'Capítulo 2', 'Capítulo 3']);
+});
+
+test('Word con estilos de título propios (basados en Título 1 o con nivel de esquema)', async () => {
+  const { Document, Packer } = await import('docx');
+  const doc = new Document({
+    styles: {
+      paragraphStyles: [
+        { id: 'Heading1', name: 'Heading 1', basedOn: 'Normal', paragraph: { outlineLevel: 0 } },
+        { id: 'Capitulo', name: 'Capítulo', basedOn: 'Heading1' },
+        { id: 'Escena', name: 'Escena', basedOn: 'Normal', paragraph: { outlineLevel: 1 } },
+      ],
+    },
+    sections: [
+      {
+        children: [
+          new Paragraph({ style: 'Capitulo', children: [new TextRun('Capítulo 1')] }),
+          new Paragraph({ children: [new TextRun('Uno.')] }),
+          new Paragraph({ style: 'Escena', children: [new TextRun('Más tarde')] }),
+          new Paragraph({ children: [new TextRun('Dos.')] }),
+          new Paragraph({ style: 'Capitulo', children: [new TextRun('Capítulo 2')] }),
+          new Paragraph({ children: [new TextRun('Tres.')] }),
+        ],
+      },
+    ],
+  });
+  const { libro } = await importarDocx(new Uint8Array(await Packer.toBuffer(doc)));
+  const caps = libro.secciones.filter((s) => s.tipo !== 'portada');
+  assert.deepEqual(caps.map((s) => s.titulo), ['Capítulo 1', 'Capítulo 2']);
+  assert.ok(caps[0].bloques.some((x) => x.tipo === 'subtitulo'), 'la escena queda como subtítulo');
+});

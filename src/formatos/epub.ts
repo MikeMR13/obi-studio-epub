@@ -1,6 +1,7 @@
 // Importador de EPUB (2 y 3): Sigil, Calibre, InDesign, Kindle Create y los que genera Obi Studio.
 
 import JSZip from 'jszip';
+import { corteSugerido } from './cortes.js';
 import type { Bloque, Credito, Inline, Libro, Nota, Recurso, RolCredito, Seccion, TipoSeccion } from '../model.js';
 import { TEMA_PREDETERMINADO, TIPOGRAFIA_PREDETERMINADA, TIPOS_SECCION, nuevoId, nuevaSeccion, textoPlano, uuid } from '../model.js';
 import { rutaImagen } from '../compilar.js';
@@ -402,6 +403,12 @@ export async function importarEpub(datos: Uint8Array, importacion: OpcionesImpor
   let idSeparador: string | undefined;
   const { separadorImagen, ignorarClases, ...resto } = importacion;
   const deObiStudio = [...textos.entries()].some(([r, t]) => /\.css$/i.test(r) && t.includes('Generado por Obi Studio'));
+  // Sin indicación (abrir en el editor) y en un EPUB ajeno, se corta en los h2 cuando son ellos los capítulos
+  // (un documento con «Volumen 1» como h1 y «Capítulo 1»… como h2).
+  if (resto.cortarEnH2 === undefined && !deObiStudio) {
+    const titulos = (et: string) => docs.flatMap((d) => todos(d.cuerpo, (n) => nombre(n) === et).map((n) => texto(n)));
+    if (corteSugerido(titulos('h1'), titulos('h2')) === 'h2') resto.cortarEnH2 = true;
+  }
   const opciones: OpcionesConversion = {
     ...resto,
     ...(ignorarClases?.length ? { ignorarClases: new Set(ignorarClases) } : {}),

@@ -1033,4 +1033,5 @@ export const EN: Record<string, string> = {
   "1 uso": "1 use",
   "Proyecto guardado en {0}.": "Project saved to {0}.",
   "{0} palabras · 1 nota": "{0} words · 1 note",
+  "parece que los capítulos son los h2": "the chapters seem to be the h2 headings",
 };

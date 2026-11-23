@@ -3,6 +3,7 @@
 // notas al pie, enlaces e imágenes con su texto alternativo.
 
 import JSZip from 'jszip';
+import { corteSugerido } from './cortes.js';
 import mammoth from 'mammoth';
 import type { Libro, Nota, Recurso, Seccion, Inline } from '../model.js';
 import { TEMA_PREDETERMINADO, TIPOGRAFIA_PREDETERMINADA, nuevoId, nuevaSeccion, uuid, normalizarInlines } from '../model.js';
@@ -17,6 +18,8 @@ import { rutaImagen } from '../compilar.js';
 const MAPA_SALTOS = ["br[type='page'] => hr.salto-pagina"];
 
 const MAPA_ESTILOS = [
+  'p.ObiTitulo1 => h1:fresh',
+  'p.ObiTitulo2 => h2:fresh',
   'p.ObiSeparador => hr:fresh',
   "p[style-name='Pie de imagen'] => p.pie-imagen:fresh",
   "p[style-name='Caption'] => p.pie-imagen:fresh",
@@ -111,6 +114,45 @@ export function contarSaltosWord(documentXml: string): number {
 const MARCADOR_SALTO_WORD = /^⟦Salto de página[^⟧]*⟧$/;
 
 /** Un pie de imagen (estilo «Pie de imagen» o «Descripción» de Word) justo después de una imagen: figure con figcaption. */
+/**
+ * Nivel de título (1 o 2) de los estilos de párrafo propios: los basados en «Título 1/2» (heading 1/2)
+ * o con nivel de esquema 1/2. Mammoth solo reconoce los estilos de título de Word por su nombre.
+ */
+export async function nivelesDeEstilos(datos: Uint8Array): Promise<Map<string, number>> {
+  const niveles = new Map<string, number>();
+  let xml = '';
+  try {
+    xml = (await (await JSZip.loadAsync(datos)).file('word/styles.xml')?.async('string')) ?? '';
+  } catch {
+    return niveles;
+  }
+  const estilos = new Map<string, { nombre: string; base?: string; esquema?: number }>();
+  for (const m of xml.matchAll(/<w:style\b[^>]*w:type="paragraph"[^>]*>([\s\S]*?)<\/w:style>/g)) {
+    const id = m[0].match(/w:styleId="([^"]+)"/)?.[1];
+    if (!id) continue;
+    const esquema = m[1].match(/<w:outlineLvl w:val="(\d)"/)?.[1];
+    estilos.set(id, { nombre: m[1].match(/<w:name w:val="([^"]+)"/)?.[1] ?? id, base: m[1].match(/<w:basedOn w:val="([^"]+)"/)?.[1], ...(esquema !== undefined ? { esquema: Number(esquema) } : {}) });
+  }
+  for (const id of estilos.keys()) {
+    for (let x: string | undefined = id, k = 0; x && k < 12; x = estilos.get(x)?.base, k++) {
+      const e = estilos.get(x);
+      if (!e) break;
+      const porNombre = e.nombre.match(/^(?:heading|t[ií]tulo) ?([12])$/i)?.[1];
+      const nivel = porNombre ? Number(porNombre) : e.esquema !== undefined && e.esquema <= 1 ? e.esquema + 1 : undefined;
+      if (nivel) {
+        niveles.set(id, nivel);
+        break;
+      }
+      if (e.esquema !== undefined) break;
+    }
+  }
+  return niveles;
+}
+
+function textosDe(cuerpo: Nodo, etiqueta: string): string[] {
+  return todos(cuerpo, (n) => nombre(n) === etiqueta).map((n) => texto(n));
+}
+
 function piesDeImagen(cuerpo: Nodo) {
   type Elemento = Nodo & { ownerDocument: { createElement(n: string): Nodo }; previousElementSibling?: Nodo | null };
   for (const pie of todos(cuerpo, (n) => nombre(n) === 'p' && attr(n, 'class').split(/\s+/).includes('pie-imagen'))) {
@@ -170,6 +212,7 @@ export async function importarDocx(
 
   const saltos = importacion.saltos !== false;
   datos = await conSaltosAntes(datos, saltos);
+  const nivelesTitulo = await nivelesDeEstilos(datos);
   const buffer = Buffer.from(datos.buffer, datos.byteOffset, datos.byteLength);
   const resultado = await mammoth.convertToHtml(
     { buffer },
@@ -179,6 +222,9 @@ export async function importarDocx(
       ...(importacion.vacios ? { ignoreEmptyParagraphs: false } : {}),
       // Mammoth no exporta la alineación: se convierte en un estilo antes de transformar.
       transformDocument: (mammoth as any).transforms.paragraph((p: any) => {
+        // Estilos propios de título («Capítulo», basado en Título 1 o con nivel de esquema 1): h1 / h2.
+        const nivel = p.styleId ? nivelesTitulo.get(p.styleId) : undefined;
+        if (nivel && !/^(heading|t[ií]tulo) ?\d$/i.test(p.styleName ?? '')) return { ...p, styleId: `ObiTitulo${nivel}`, styleName: `ObiTitulo${nivel}` };
         if (p.styleId || p.styleName) {
           if (p.alignment === 'center' && /^(Normal|Body Text|Texto independiente)$/i.test(p.styleName ?? '')) {
             return { ...p, styleId: 'ObiCentrado', styleName: 'ObiCentrado' };
@@ -244,7 +290,8 @@ export async function importarDocx(
 
   const opciones: OpcionesConversion = {
     vacios: importacion.vacios,
-    ...(importacion.cortarEnH2 ? { cortarEnH2: true } : {}),
+    // Sin indicación (abrir en el editor), se corta en los h2 cuando son ellos los capítulos.
+    ...((importacion.cortarEnH2 ?? corteSugerido(textosDe(cuerpo, 'h1'), textosDe(cuerpo, 'h2')) === 'h2') ? { cortarEnH2: true } : {}),
     ...(importacion.cortarEnSaltos ? { saltoPagina: (n: Nodo) => ({ antes: nombre(n) === 'div' && attr(n, 'class').includes('salto-pagina'), despues: false }) } : {}),
     css: new Map(),
     imagen: (src) => (src.startsWith('obi-recurso:') ? src.slice('obi-recurso:'.length) : undefined),

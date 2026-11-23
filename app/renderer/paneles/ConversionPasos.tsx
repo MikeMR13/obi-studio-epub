@@ -230,7 +230,8 @@ export function ConversionPasos({ analisis, ocupado, onCancelar, onConvertir, lo
   const [paso, setPaso] = useState(0);
   const pasoCapitulos = lote ? -1 : pasos.length;
   const pasoMeta = lote ? -1 : pasos.length + 1;
-  const [cortar, setCortar] = useState<CorteCapitulos>('h1');
+  // Por omisión, el corte que sugieren los títulos (p. ej. h1 «Volumen 1» y h2 «Capítulo 1»… → en los h2).
+  const [cortar, setCortar] = useState<CorteCapitulos>(() => analisis.diseno?.cortes?.sugerido ?? 'h1');
   const [capitulos, setCapitulos] = useState<CapituloVista[] | 'cargando' | 'error'>();
   const [cambiosCap, setCambiosCap] = useState<Record<number, CambioCapitulo>>({});
   const [profundidad, setProfundidad] = useState<1 | 2>(1);
@@ -386,6 +387,7 @@ export function ConversionPasos({ analisis, ocupado, onCancelar, onConvertir, lo
               <label className={cortes?.h2 ? '' : 'no-disponible'}>
                 <input type="radio" name="cortar" disabled={!cortes?.h2} checked={cortar === 'h2'} onChange={() => (setCortar('h2'), setCambiosCap({}))} /> {t('también en los subtítulos (h2)')}
                 {cortes?.h2 ? <small> · {t('{0} en el original', { 0: cortes.h2 })}</small> : null}
+                {cortes?.sugerido === 'h2' ? <small className="sugerido"> · {t('parece que los capítulos son los h2')}</small> : null}
               </label>
               <label className={cortes?.saltos ? '' : 'no-disponible'}>
                 <input type="radio" name="cortar" disabled={!cortes?.saltos} checked={cortar === 'saltos'} onChange={() => (setCortar('saltos'), setCambiosCap({}))} /> {t('también en los saltos de página del original')}

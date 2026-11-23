@@ -4,6 +4,8 @@
 
 import { inflateSync } from 'node:zlib';
 import JSZip from 'jszip';
+import { corteSugerido } from './formatos/cortes.js';
+import { nivelesDeEstilos } from './formatos/docx.js';
 import type { EstiloPropio, EstiloSubtitulo, Libro, Tema } from './model.js';
 import { aplicarWord, espaciosDeWord, estilosDeWord, fuentesDeWord, lectorWord } from './diseno-word.js';
 import { ELEMENTO, analizarXhtml, attr, buscar, clases, hijos, nombre, texto, todos, type Nodo } from './formatos/dom.js';
@@ -51,7 +53,7 @@ export interface DisenoOriginal {
   /** Fragmentos (span, em…) con tamaño, color o fondo propios. */
   fragmentosConAspecto?: number;
   /** Posibles cortes de capítulo además de los h1: subtítulos h2 y saltos de página del original. */
-  cortes?: { h2: number; saltos: number };
+  cortes?: { h2: number; saltos: number; /** Corte que parece correcto por los textos de los títulos. */ sugerido?: 'h1' | 'h2' };
   fuentes: FuenteOriginal[];
   avisos: string[];
 }
@@ -299,8 +301,12 @@ export function temaDeCss(css: string, xhtmls: string[]): Omit<DisenoOriginal, '
   const salto = detectorSaltos(css);
   let h2 = 0;
   let saltos = 0;
+  const textosH1: string[] = [];
+  const textosH2: string[] = [];
   for (const d of docs) {
     h2 += todos(d, (n) => nombre(n) === 'h2').length;
+    textosH1.push(...todos(d, (n) => nombre(n) === 'h1').map((n) => n.textContent ?? ''));
+    textosH2.push(...todos(d, (n) => nombre(n) === 'h2').map((n) => n.textContent ?? ''));
     for (const n of todos(d, (x) => x.nodeType === ELEMENTO && nombre(x) !== 'body' && nombre(x) !== 'html')) {
       const s = salto(n);
       if (s.antes || s.despues) saltos++;
@@ -334,7 +340,7 @@ export function temaDeCss(css: string, xhtmls: string[]): Omit<DisenoOriginal, '
     css,
     avisosCss: avisos,
     fragmentosConAspecto,
-    cortes: { h2, saltos },
+    cortes: { h2, saltos, sugerido: corteSugerido(textosH1, textosH2) },
   };
 }
 
@@ -549,6 +555,12 @@ export async function disenoDeDocx(datos: Uint8Array): Promise<DisenoOriginal> {
   const estilosWord = estilosDeWord(w);
   const { distintos } = espaciosDeWord(w);
   const fuentes = await fuentesDeWord(zip).catch(() => []);
+  // Textos de los títulos de nivel n (estilos «Heading n» / «Título n», también por el identificador en español).
+  const niveles = await nivelesDeEstilos(datos);
+  const titulosWord = (n: number) =>
+    w.parrafos
+      .filter((x) => niveles.get(x.estilo) === n || new RegExp(`^(heading ${n}|t[íi]tulo ?${n})$`, 'i').test(w.estilos.get(x.estilo)?.nombre ?? x.estilo) || new RegExp(`^(Heading|T[ií]?tulo)${n}$`, 'i').test(x.estilo))
+      .map((x) => x.texto);
   return {
     tema,
     titulos,
@@ -560,7 +572,11 @@ export async function disenoDeDocx(datos: Uint8Array): Promise<DisenoOriginal> {
     familiaTexto: primeraFamilia(familiaTexto),
     familiaTitulos: primeraFamilia(familiaTitulos),
     ...(estilosWord.length ? { estilos: estilosWord } : {}),
-    cortes: { h2: w.parrafos.filter((x) => /^(heading 2|t[íi]tulo 2)$/i.test(w.estilos.get(x.estilo)?.nombre ?? x.estilo)).length, saltos: contarSaltosWord((await zip.file('word/document.xml')?.async('string')) ?? '') },
+    cortes: {
+      h2: titulosWord(2).length,
+      saltos: contarSaltosWord((await zip.file('word/document.xml')?.async('string')) ?? ''),
+      sugerido: corteSugerido(titulosWord(1), titulosWord(2)),
+    },
     fuentes,
     avisos: [],
   };

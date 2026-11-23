@@ -152,7 +152,7 @@ test('Conversión sencilla: dónde empiezan los capítulos, revisión de la list
 <h1>Capítulo 1</h1><p>Uno.</p><h2>Parte A</h2><p>Dos.</p><p class="nuevo">Tres empieza en página nueva.</p>
 <h1>Capítulo 2</h1><p>Cuatro.</p><h2>Parte B</h2><p>Cinco.</p></body></html>`;
   const a = await b.analizarConversion('cortes.html', new TextEncoder().encode(html));
-  assert.deepEqual(a.diseno?.cortes, { h2: 2, saltos: 1 });
+  assert.deepEqual(a.diseno?.cortes, { h2: 2, saltos: 1, sugerido: 'h1' });
   const titulos = async (cortar: 'h1' | 'h2' | 'saltos') => (await b.capitulosConversion({ cortar })).map((c) => c.titulo);
   assert.deepEqual(await titulos('h1'), ['Capítulo 1', 'Capítulo 2']);
   assert.deepEqual(await titulos('h2'), ['Capítulo 1', 'Parte A', 'Capítulo 2', 'Parte B']);
